@@ -9,7 +9,7 @@
  * degrades to its default instead of failing the sidebar.
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 
 export type PinnedSortMode = 'manual' | 'recent';
 export type ProjectSortMode = 'manual' | 'name' | 'recent';
@@ -106,7 +106,7 @@ export function normalizeSidebarState(value: unknown): SidebarState {
 /** Reads the stored layout; any failure yields the default layout. */
 export async function fetchSidebarState(): Promise<SidebarState> {
   try {
-    const response = await fetch(`${SERVER_URL}/sidebar-state`, {
+    const response = await fetch(gatewayUrl('/sidebar-state'), {
       credentials: 'include',
     });
     if (!response.ok) return DEFAULT_SIDEBAR_STATE;
@@ -123,7 +123,7 @@ export async function fetchSidebarState(): Promise<SidebarState> {
 /** Replaces the stored layout; resolves to whether the write landed. */
 export async function putSidebarState(state: SidebarState): Promise<boolean> {
   try {
-    const response = await fetch(`${SERVER_URL}/sidebar-state`, {
+    const response = await fetch(gatewayUrl('/sidebar-state'), {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

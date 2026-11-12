@@ -1,8 +1,9 @@
 /**
  * Agent transport configuration.
  *
- * Route P: the browser talks to the gateway at the same-origin `/gateway`
- * prefix (Next.js rewrites it to the real server — see next.config.ts).
+ * Route P: the browser talks to the gateway at whatever address the
+ * deployment injected (`getGatewayBase()` — same origin in an exported
+ * build), so every URL below is composed through `gatewayUrl()`.
  * Authentication is cookie-based, so every outbound request must carry
  * credentials: `fetch` gets `credentials: 'include'`, and the SSE
  * `EventSource` gets `withCredentials: true`.
@@ -15,16 +16,10 @@
 import { createSSEClient } from '@volto/sdk/sse';
 import type { ConnectionState, EventSourceLike } from '@volto/sdk/sse';
 import type { ApprovalOutcome } from '@/lib/approvals';
+import { gatewayUrl } from '@/lib/gateway-base';
 
 export { createSSEClient };
 export type { ConnectionState };
-
-/**
- * Same-origin prefix the Next.js rewrite proxies to the gateway.
- * Cookie auth only works because the browser sees a single origin — never
- * point this at an absolute cross-origin URL.
- */
-export const SERVER_URL = '/gateway';
 
 /**
  * Create an SSE client whose EventSource carries cookies.
@@ -46,7 +41,7 @@ export function createGatewaySSEClient(url: string) {
 
 /** URL of the long-lived SSE channel for a chat session. */
 export function eventsUrl(sessionId: string): string {
-  return `${SERVER_URL}/events?sessionId=${encodeURIComponent(sessionId)}`;
+  return gatewayUrl(`/events?sessionId=${encodeURIComponent(sessionId)}`);
 }
 
 export interface TurnConfig {
@@ -72,7 +67,7 @@ export async function postMessage(
   config: TurnConfig = {},
   attachments?: string[],
 ): Promise<void> {
-  const response = await fetch(`${SERVER_URL}/messages`, {
+  const response = await fetch(gatewayUrl('/messages'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -114,7 +109,7 @@ export async function postMessage(
  * turn still emits its own `turn_end`, while a stale one never will.
  */
 export async function interruptTurn(sessionId: string): Promise<boolean> {
-  const response = await fetch(`${SERVER_URL}/interrupt`, {
+  const response = await fetch(gatewayUrl('/interrupt'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -156,7 +151,7 @@ export async function postApproval(
   answer?: string[],
   remember?: { prefixTokens: number },
 ): Promise<ApprovalOutcome> {
-  const response = await fetch(`${SERVER_URL}/approvals`, {
+  const response = await fetch(gatewayUrl('/approvals'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -207,7 +202,7 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 }
 
 async function getJson<T>(requestPath: string): Promise<T> {
-  const response = await fetch(`${SERVER_URL}${requestPath}`, { credentials: 'include' });
+  const response = await fetch(gatewayUrl(requestPath), { credentials: 'include' });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, `Request failed: HTTP ${response.status}`));
   }

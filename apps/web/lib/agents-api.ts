@@ -8,7 +8,7 @@
  */
 
 import type { AgentSpec } from '@volto/sdk';
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 import { ApiError } from './config-api';
 
 export type { AgentSpec };
@@ -40,7 +40,7 @@ export interface ToolInfo {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${SERVER_URL}${path}`, {
+  const response = await fetch(gatewayUrl(path), {
     // Cookie auth (Route P): the gateway rejects unauthenticated calls.
     credentials: 'include',
     ...init,

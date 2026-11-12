@@ -3,24 +3,37 @@
  * gateway, same convention as config-store.test.ts.
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { resetGatewayBaseForTest } from '../lib/gateway-base.js';
 import {
   postMessage,
   postApproval,
   interruptTurn,
   createGatewaySSEClient,
+  eventsUrl,
 } from '../lib/agent-config.js';
+
+// A fixed absolute base lets the specs read the composed request URL; the
+// resolver itself is covered by gateway-base.test.ts.
+beforeEach(() => {
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => (key === 'volto.gatewayUrl' ? 'http://gw.test' : null),
+  });
+  resetGatewayBaseForTest();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Capture the init object handed to a single stubbed fetch call. */
+/** Capture the URL and init handed to a single stubbed fetch call. */
 function stubFetchCaptureInit(response: Partial<Response> = { ok: true }) {
+  let sentUrl: string | URL | undefined;
   let sentInit: RequestInit | undefined;
   vi.stubGlobal(
     'fetch',
-    async (_input: string | URL, init?: RequestInit) => {
+    async (input: string | URL, init?: RequestInit) => {
+      sentUrl = input;
       sentInit = init;
       return {
         ok: true,
@@ -30,6 +43,9 @@ function stubFetchCaptureInit(response: Partial<Response> = { ok: true }) {
     },
   );
   return {
+    get url() {
+      return String(sentUrl);
+    },
     get init() {
       return sentInit;
     },
@@ -71,6 +87,20 @@ describe('postMessage', () => {
     await postMessage('s1', 'hi');
 
     expect(capture.init?.credentials).toBe('include');
+  });
+
+  it('resolves the message request against the configured gateway base', async () => {
+    const capture = stubFetchCaptureInit();
+
+    await postMessage('s1', 'hi');
+
+    expect(capture.url).toBe('http://gw.test/messages');
+  });
+});
+
+describe('eventsUrl', () => {
+  it('builds the session stream URL on the configured gateway base', () => {
+    expect(eventsUrl('s1')).toBe('http://gw.test/events?sessionId=s1');
   });
 });
 
@@ -139,7 +169,9 @@ describe('createGatewaySSEClient', () => {
     }
     vi.stubGlobal('EventSource', FakeEventSource);
 
-    const client = createGatewaySSEClient('/gateway/events?sessionId=s1');
+    const client = createGatewaySSEClient(
+      'http://gw.test/events?sessionId=s1',
+    );
     client.connect();
     client.destroy();
 

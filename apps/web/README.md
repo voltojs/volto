@@ -44,12 +44,18 @@ Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/headless
 
 ## 认证
 
-浏览器通过同源前缀 `/gateway/*` 访问网关，由 `next.config.ts` 的 rewrite
-代理到真实地址——cookie 认证依赖浏览器只看到一个 origin，所以前端代码里的
-`SERVER_URL` 固定为 `/gateway`，不要改成绝对地址。
+网关地址是**运行时**数据，由 `lib/gateway-base.ts` 的 `getGatewayBase()` 解析
+（首次调用后缓存），所有请求统一经 `gatewayUrl(path)` 拼接：
 
-`NEXT_PUBLIC_AGENT_SERVER_URL` 现在只影响**服务端 rewrite 的目标地址**
-（默认 `http://localhost:3100`），不再是浏览器直连的地址。
+1. `localStorage["volto.gatewayUrl"]`——本浏览器的临时覆盖；
+2. `window.__VOLTO_CONFIG__.gatewayUrl`——部署注入的配置
+   （`public/volto-config.js`，可被宿主替换）；
+3. 默认值：`next dev` 下是 `/gateway`（让 `next.config.ts` 的 rewrite 继续
+   命中），其余构建（含导出产物）是空串，即同源直连。
+
+cookie 认证依赖浏览器只看到一个 origin，所以部署时不要把它配成跨域地址。
+`NEXT_PUBLIC_AGENT_SERVER_URL` 只影响**服务端 rewrite 的目标地址**
+（默认 `http://localhost:3100`），不是浏览器直连的地址。
 
 非浏览器客户端（curl、脚本）用同一个 launch token 作为 bearer：
 

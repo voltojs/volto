@@ -9,7 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CatalogProviderSection } from '@/components/settings/CatalogProviderForm';
 import { useConfigStore } from '@/stores/config-store';
-import { SERVER_URL } from '@/lib/agent-config';
+import { resetGatewayBaseForTest } from '@/lib/gateway-base';
 
 // jsdom does not implement the pointer-capture / scroll APIs Base UI's
 // Select uses internally; stub them so the popup can open in tests.
@@ -35,9 +35,7 @@ function stubFetch(routes: Record<string, unknown>): void {
     'fetch',
     async (input: string | URL, init?: { method?: string; body?: string }) => {
       const url = String(input);
-      // SERVER_URL is a same-origin path (`/gateway`); resolve against a
-      // dummy base so `new URL` accepts both relative and absolute forms.
-      const key = `${init?.method ?? 'GET'} ${new URL(url, 'http://localhost').pathname}`;
+      const key = `${init?.method ?? 'GET'} ${url}`;
       const body = routes[key];
       if (body === undefined) throw new Error(`Unstubbed route: ${key}`);
       return { ok: true, json: async () => body } as Response;
@@ -45,7 +43,13 @@ function stubFetch(routes: Record<string, unknown>): void {
   );
 }
 
+// A fixed absolute base keeps the route table readable; the resolver itself
+// is covered by gateway-base.test.ts.
+const GATEWAY_BASE = 'http://gw.test';
+
 beforeEach(() => {
+  localStorage.setItem('volto.gatewayUrl', GATEWAY_BASE);
+  resetGatewayBaseForTest();
   useConfigStore.setState({ providers: [], loaded: false, error: null });
 });
 
@@ -55,7 +59,7 @@ afterEach(() => {
 
 describe('CatalogProviderSection', () => {
   it('does not offer a pi-ai provider that is already configured', async () => {
-    stubFetch({ [`GET ${SERVER_URL}/catalog/providers`]: CATALOG });
+    stubFetch({ [`GET ${GATEWAY_BASE + '/catalog/providers'}`]: CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
 
     const existing = {
@@ -79,7 +83,7 @@ describe('CatalogProviderSection', () => {
   });
 
   it('adds models to the new provider through the same table as the edit form', async () => {
-    stubFetch({ [`GET ${SERVER_URL}/catalog/providers`]: CATALOG });
+    stubFetch({ [`GET ${GATEWAY_BASE + '/catalog/providers'}`]: CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
 
     render(<CatalogProviderSection providers={[]} />);
@@ -112,7 +116,7 @@ describe('CatalogProviderSection', () => {
   });
 
   it('bulk-adds unselected catalog models through the available-models dialog', async () => {
-    stubFetch({ [`GET ${SERVER_URL}/catalog/providers`]: CATALOG });
+    stubFetch({ [`GET ${GATEWAY_BASE + '/catalog/providers'}`]: CATALOG });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
 
     render(<CatalogProviderSection providers={[]} />);
@@ -150,8 +154,8 @@ describe('CatalogProviderSection', () => {
   it('creates a catalog provider with the table\'s rows and an optional baseURL override', async () => {
     let createdBody: unknown;
     stubFetch({
-      [`GET ${SERVER_URL}/catalog/providers`]: CATALOG,
-      [`POST ${SERVER_URL}/providers`]: (() => {
+      [`GET ${GATEWAY_BASE + '/catalog/providers'}`]: CATALOG,
+      [`POST ${GATEWAY_BASE + '/providers'}`]: (() => {
         return {
           kind: 'catalog',
           id: 'p1',
@@ -166,7 +170,7 @@ describe('CatalogProviderSection', () => {
       'fetch',
       async (input: string | URL, init?: { method?: string; body?: string }) => {
         const url = String(input);
-        if (init?.method === 'POST' && url === `${SERVER_URL}/providers`) {
+        if (init?.method === 'POST' && url === GATEWAY_BASE + '/providers') {
           createdBody = JSON.parse(init.body ?? '{}');
           return {
             ok: true,
@@ -180,7 +184,7 @@ describe('CatalogProviderSection', () => {
             }),
           } as Response;
         }
-        if (url === `${SERVER_URL}/catalog/providers`) {
+        if (url === GATEWAY_BASE + '/catalog/providers') {
           return { ok: true, json: async () => CATALOG } as Response;
         }
         throw new Error(`Unstubbed route: ${url}`);
@@ -218,7 +222,7 @@ describe('CatalogProviderSection', () => {
       'fetch',
       async (input: string | URL, init?: { method?: string; body?: string }) => {
         const url = String(input);
-        if (new URL(url, 'http://localhost').pathname === `${SERVER_URL}/catalog/providers`) {
+        if (new URL(url).pathname === '/catalog/providers') {
           return { ok: true, json: async () => CATALOG } as Response;
         }
         if (init?.method === 'PUT') {

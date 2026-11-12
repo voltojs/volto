@@ -4,7 +4,8 @@
  * config-store.test.ts.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { resetGatewayBaseForTest } from '../lib/gateway-base.js';
 import {
   fetchServerSessions,
   fetchServerSessionDetail,
@@ -18,11 +19,7 @@ import {
 
 function stubFetch(handler: (path: string) => { status: number; body: unknown }): void {
   vi.stubGlobal('fetch', async (input: string | URL) => {
-    // SERVER_URL is a same-origin path (`/gateway`); resolve against a dummy
-    // base so `new URL` accepts both relative and absolute forms.
-    const { status, body } = handler(
-      new URL(String(input), 'http://localhost').pathname,
-    );
+    const { status, body } = handler(new URL(String(input)).pathname);
     return {
       ok: status >= 200 && status < 300,
       status,
@@ -30,6 +27,15 @@ function stubFetch(handler: (path: string) => { status: number; body: unknown })
     } as Response;
   });
 }
+
+// A fixed absolute base lets the stub compare real request URLs; the resolver
+// itself is covered by gateway-base.test.ts.
+beforeEach(() => {
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => (key === 'volto.gatewayUrl' ? 'http://gw.test' : null),
+  });
+  resetGatewayBaseForTest();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

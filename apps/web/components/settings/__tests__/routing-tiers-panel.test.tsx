@@ -12,7 +12,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RoutingTiersPanel } from '../RoutingTiersPanel';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { SERVER_URL } from '@/lib/agent-config';
+import { gatewayUrl, resetGatewayBaseForTest } from '@/lib/gateway-base';
 import type { RoutingTier } from '@/lib/routing-tiers-api';
 
 // jsdom does not implement the pointer-capture / scroll APIs Base UI's
@@ -72,6 +72,8 @@ const TIERS: RoutingTier[] = [
 
 interface FetchCall {
   method: string;
+  /** The full request URL, base included — what the gateway actually sees. */
+  url: string;
   path: string;
   body: unknown;
 }
@@ -87,11 +89,13 @@ function stubFetch(
       init?: { method?: string; body?: string },
     ) => {
       const method = init?.method ?? 'GET';
-      const path = new URL(String(input), 'http://localhost').pathname;
+      // The base is absolute in tests, so the request URL is its own path.
+      const url = String(input);
+      const path = new URL(url).pathname;
       const body = init?.body === undefined ? undefined : JSON.parse(init.body);
-      calls.push({ method, path, body });
-      const route = routes[`${method} ${path}`];
-      if (route === undefined) throw new Error(`Unstubbed route: ${method} ${path}`);
+      calls.push({ method, url, path, body });
+      const route = routes[`${method} ${url}`];
+      if (route === undefined) throw new Error(`Unstubbed route: ${method} ${url}`);
       const { status, body: responseBody } = route();
       return new Response(JSON.stringify(responseBody), { status });
     },
@@ -114,7 +118,13 @@ async function pickEffort(user: User, name: string) {
   await user.click(await screen.findByText(name));
 }
 
+// A fixed absolute base keeps the route table readable; the resolver itself
+// is covered by gateway-base.test.ts.
+const GATEWAY_BASE = 'http://gw.test';
+
 beforeEach(() => {
+  localStorage.setItem('volto.gatewayUrl', GATEWAY_BASE);
+  resetGatewayBaseForTest();
   useConfigStore.setState({
     providers: PROVIDERS,
     catalogProviders: [],
@@ -130,7 +140,7 @@ afterEach(() => {
 describe('RoutingTiersPanel', () => {
   it('渲染即拉取并列出档位卡片：id/label/description 与目标模型展示（mock fetch）', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
@@ -150,7 +160,8 @@ describe('RoutingTiersPanel', () => {
     expect(calls).toEqual([
       {
         method: 'GET',
-        path: `${SERVER_URL}/config/routing-tiers`,
+        url: gatewayUrl('/config/routing-tiers'),
+        path: '/config/routing-tiers',
         body: undefined,
       },
     ]);
@@ -158,7 +169,7 @@ describe('RoutingTiersPanel', () => {
 
   it('列表卡片：未指派档位显示「未配置模型」，reasoningEffort 以 mono 小字显示', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: {
           tiers: [
@@ -192,11 +203,11 @@ describe('RoutingTiersPanel', () => {
 
   it('新增档位打开表单，填 id/label/description 并在 ModelSettingsPicker 选模型，保存发起 PUT 且 body 含新档位', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -219,7 +230,7 @@ describe('RoutingTiersPanel', () => {
       expect(calls.some((c) => c.method === 'PUT')).toBe(true);
     });
     const put = calls.find((c) => c.method === 'PUT');
-    expect(put?.path).toBe(`${SERVER_URL}/config/routing-tiers`);
+    expect(put?.url).toBe(gatewayUrl('/config/routing-tiers'));
     expect(put?.body).toEqual([
       {
         id: 'fast',
@@ -232,11 +243,11 @@ describe('RoutingTiersPanel', () => {
 
   it('表单的 ModelSettingsPicker 选中另一 provider 的模型后保存，PUT body target 为该 {providerId, modelId}', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [TIERS[0]] },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -269,11 +280,11 @@ describe('RoutingTiersPanel', () => {
 
   it('选模型后选推理等级 → PUT body 含 reasoningEffort', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [TIERS[1]] },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -309,7 +320,7 @@ describe('RoutingTiersPanel', () => {
 
   it('更换模型后 effort 复位，PUT body 不再携带 reasoningEffort', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: {
           tiers: [
@@ -323,7 +334,7 @@ describe('RoutingTiersPanel', () => {
           ] satisfies RoutingTier[],
         },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -360,7 +371,7 @@ describe('RoutingTiersPanel', () => {
 
   it('未指派档位的表单 picker trigger 显示「未配置模型」', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: {
           tiers: [
@@ -382,7 +393,7 @@ describe('RoutingTiersPanel', () => {
 
   it('编辑按钮以表单整体替换列表，取消返回列表且不改草稿', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
@@ -419,11 +430,11 @@ describe('RoutingTiersPanel', () => {
 
   it('表单保存遇 400 时表单内联错误并保留编辑', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [TIERS[0]] },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 400,
         body: {
           error:
@@ -451,11 +462,11 @@ describe('RoutingTiersPanel', () => {
 
   it('表单保存后列表行显示编辑后的值，旧值消失', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -479,11 +490,11 @@ describe('RoutingTiersPanel', () => {
 
   it('新增档位保存后列表出现新行', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -505,7 +516,7 @@ describe('RoutingTiersPanel', () => {
 
   it('表单内 picker popup 向上弹出，不遮挡保存/取消', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [TIERS[0]] },
       }),
@@ -532,11 +543,11 @@ describe('RoutingTiersPanel', () => {
 
   it('删除被引用档位：PUT reject 409 body {error, references} → 面板展示「被 XXX 引用，无法删除」且不丢本地列表', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 409,
         body: {
           error:
@@ -565,11 +576,11 @@ describe('RoutingTiersPanel', () => {
 
   it('treats plugin-scope references as hints, not blocking reasons', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 409,
         body: {
           error:
@@ -600,7 +611,7 @@ describe('RoutingTiersPanel', () => {
 
   it('picker 的模型面板按 provider 分组列出全部模型', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [TIERS[0]] },
       }),
@@ -627,7 +638,7 @@ describe('RoutingTiersPanel', () => {
 
   it('列表保存按钮默认禁用，顺序变化后点亮', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
@@ -645,11 +656,11 @@ describe('RoutingTiersPanel', () => {
 
   it('保存成功后保存按钮回到禁用', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -671,11 +682,11 @@ describe('RoutingTiersPanel', () => {
 
   it('上移第二行改变草稿顺序，保存后 PUT body 顺序随之改变', async () => {
     const calls = stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: [] },
       }),
@@ -707,7 +718,7 @@ describe('RoutingTiersPanel', () => {
 
   it('首行的上移与末行的下移按钮 disabled', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: { tiers: TIERS },
       }),
@@ -726,7 +737,7 @@ describe('RoutingTiersPanel', () => {
 
   it('shows the gateway 400 message inline when a target model does not exist', async () => {
     stubFetch({
-      [`GET ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`GET ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 200,
         body: {
           tiers: [
@@ -740,7 +751,7 @@ describe('RoutingTiersPanel', () => {
           ],
         },
       }),
-      [`PUT ${SERVER_URL}/config/routing-tiers`]: () => ({
+      [`PUT ${GATEWAY_BASE + '/config/routing-tiers'}`]: () => ({
         status: 400,
         body: {
           error:

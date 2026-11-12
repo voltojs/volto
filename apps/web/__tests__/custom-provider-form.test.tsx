@@ -9,7 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CustomProviderSection } from '@/components/settings/CustomProviderForm';
 import { useConfigStore, type Provider } from '@/stores/config-store';
-import { SERVER_URL } from '@/lib/agent-config';
+import { gatewayUrl, resetGatewayBaseForTest } from '@/lib/gateway-base';
 
 const PROVIDER: Provider = {
   kind: 'custom',
@@ -28,7 +28,11 @@ const PROVIDER: Provider = {
   ],
 };
 
+// A fixed absolute base keeps the stubbed URL readable; the resolver itself is
+// covered by gateway-base.test.ts.
 beforeEach(() => {
+  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  resetGatewayBaseForTest();
   useConfigStore.setState({ providers: [PROVIDER], loaded: true, error: null });
 });
 
@@ -43,7 +47,7 @@ describe('CustomProviderSection', () => {
       'fetch',
       async (input: string | URL, init?: { method?: string; body?: string }) => {
         const url = String(input);
-        if (init?.method === 'PUT' && url === `${SERVER_URL}/providers/v1`) {
+        if (init?.method === 'PUT' && url === 'http://gw.test/providers/v1') {
           const parsed = JSON.parse(init.body ?? '{}') as Record<
             string,
             unknown

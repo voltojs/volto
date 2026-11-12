@@ -5,7 +5,7 @@
  * masked key for display. A plaintext apiKey flows one way, in request bodies.
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 
 export interface Project {
   id: string;
@@ -231,7 +231,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${SERVER_URL}${path}`, {
+  const response = await fetch(gatewayUrl(path), {
     // Cookie auth (Route P): the gateway rejects unauthenticated calls.
     credentials: 'include',
     ...init,

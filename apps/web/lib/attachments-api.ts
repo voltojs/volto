@@ -1,10 +1,10 @@
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 
 /**
  * Client for the gateway's attachment endpoints (`POST /attachments`).
  * Files (images, text, PDF) are staged server-side first (AttachmentStore
  * returns an id), then that id travels with `POST /messages` — base64 never
- * enters conversation state. Same SERVER_URL + credentials convention as
+ * enters conversation state. Same gateway URL + credentials convention as
  * sessions-api.ts.
  */
 
@@ -110,7 +110,7 @@ export async function uploadAttachment(
   file: File,
 ): Promise<UploadedAttachment> {
   const data = await fileToBase64(file);
-  const response = await fetch(`${SERVER_URL}/attachments`, {
+  const response = await fetch(gatewayUrl('/attachments'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

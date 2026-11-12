@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TrajectoryDrawer } from "../TrajectoryDrawer";
 import { useTrajectoryDrawerStore } from "@/stores/trajectory-drawer-store";
 import type { TrajectoryRow } from "@volto/sdk/sse";
+import { resetGatewayBaseForTest } from "@/lib/gateway-base";
 
 const ROW: TrajectoryRow = {
   index: 1,
@@ -46,6 +47,13 @@ const REQUEST_ROW: TrajectoryRow = {
   },
 };
 
+// A fixed absolute base makes the image URL assertions read as real requests;
+// the resolver itself is covered by lib/__tests__/gateway-base.test.ts.
+beforeEach(() => {
+  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  resetGatewayBaseForTest();
+});
+
 describe("TrajectoryDrawer result images", () => {
   it("shows a screenshot in the overview and opens the dialog on click", async () => {
     useTrajectoryDrawerStore.setState({ sessionId: "session-1", projectId: null });
@@ -55,7 +63,7 @@ describe("TrajectoryDrawer result images", () => {
     const thumb = await screen.findByRole("button", { name: "查看截图" });
     expect(thumb.querySelector("img")).toHaveAttribute(
       "src",
-      "/gateway/attachments/att-shot?sessionId=session-1",
+      "http://gw.test/attachments/att-shot?sessionId=session-1",
     );
 
     await user.click(thumb);

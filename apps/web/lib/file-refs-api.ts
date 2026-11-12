@@ -4,7 +4,7 @@
  * them from the durable log on demand — nothing is persisted anywhere.
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 import type { RowRefSet } from '@volto/sdk/file-refs';
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -18,7 +18,9 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 
 export function fetchFileRefs(projectId: string, sessionId: string): Promise<RowRefSet[]> {
   return fetch(
-    `${SERVER_URL}/file-refs?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`,
+    gatewayUrl(
+      `/file-refs?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`,
+    ),
     { credentials: 'include' },
   ).then(async (response) => {
     if (!response.ok) {

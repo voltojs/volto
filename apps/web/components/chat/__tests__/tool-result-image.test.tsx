@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolCallCard } from "../ToolCallCard";
+import { resetGatewayBaseForTest } from "@/lib/gateway-base";
 
 const SCREENSHOT = {
   attachmentId: "att-shot",
@@ -9,6 +10,13 @@ const SCREENSHOT = {
   width: 1280,
   height: 800,
 };
+
+// A fixed absolute base makes the image URL assertions read as real requests;
+// the resolver itself is covered by lib/__tests__/gateway-base.test.ts.
+beforeEach(() => {
+  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  resetGatewayBaseForTest();
+});
 
 describe("ToolCallCard result images", () => {
   it("shows a screenshot result and opens it in a dialog", async () => {
@@ -30,18 +38,18 @@ describe("ToolCallCard result images", () => {
     const thumbImage = thumb.querySelector("img");
     expect(thumbImage).toHaveAttribute(
       "src",
-      "/gateway/attachments/att-shot?sessionId=session-1",
+      "http://gw.test/attachments/att-shot?sessionId=session-1",
     );
 
     await user.click(thumb);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("img", { name: "截图" })).toHaveAttribute(
       "src",
-      "/gateway/attachments/att-shot?sessionId=session-1",
+      "http://gw.test/attachments/att-shot?sessionId=session-1",
     );
 
     const download = within(dialog).getByRole("link", { name: "下载" });
-    expect(download).toHaveAttribute("href", "/gateway/attachments/att-shot?sessionId=session-1");
+    expect(download).toHaveAttribute("href", "http://gw.test/attachments/att-shot?sessionId=session-1");
     expect(download).toHaveAttribute("download", "att-shot.png");
 
     await user.click(within(dialog).getByRole("button", { name: "放大" }));

@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { SERVER_URL } from '@/lib/agent-config';
+import { gatewayUrl } from '@/lib/gateway-base';
 import { cn } from '@/lib/utils';
 import { ImageLightbox } from './ImageLightbox';
 import type { ConversationImage } from '@volto/sdk/sse';
 
 function imageSrc(image: ConversationImage, sessionId: string): string {
-  return `${SERVER_URL}/attachments/${encodeURIComponent(image.attachmentId)}?sessionId=${encodeURIComponent(sessionId)}`;
+  return gatewayUrl(
+    `/attachments/${encodeURIComponent(image.attachmentId)}?sessionId=${encodeURIComponent(sessionId)}`,
+  );
 }
 
 /**

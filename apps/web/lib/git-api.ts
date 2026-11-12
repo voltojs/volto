@@ -1,12 +1,12 @@
 /**
  * Client for the gateway's workspace Git endpoints
  * (`GET /git/summary|branches|graph|commits/:hash`,
- * `POST /git/checkout|branches`). Same SERVER_URL, credentials, and
+ * `POST /git/checkout|branches`). Same gateway URL, credentials, and
  * readErrorMessage convention as fs-api.ts; response types are Git's own
  * and stay independent of the fs client.
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 
 export interface GitSummary {
   isGit: boolean;
@@ -65,7 +65,7 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 }
 
 async function getJson<T>(requestPath: string): Promise<T> {
-  const response = await fetch(`${SERVER_URL}${requestPath}`, { credentials: 'include' });
+  const response = await fetch(gatewayUrl(requestPath), { credentials: 'include' });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, `Request failed: HTTP ${response.status}`));
   }
@@ -73,7 +73,7 @@ async function getJson<T>(requestPath: string): Promise<T> {
 }
 
 async function postJson<T>(requestPath: string, body: unknown): Promise<T> {
-  const response = await fetch(`${SERVER_URL}${requestPath}`, {
+  const response = await fetch(gatewayUrl(requestPath), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

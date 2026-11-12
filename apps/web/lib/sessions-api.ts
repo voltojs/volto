@@ -7,7 +7,7 @@
  * endpoint is the exception: wire-order events, projected client-side).
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 import type {
   ConversationMessage,
   ContextUsageSnapshot,
@@ -115,7 +115,7 @@ export async function fetchServerSessions(opts?: {
   if (opts?.projectId) params.set('projectId', opts.projectId);
   if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
   const query = params.size > 0 ? `?${params.toString()}` : '';
-  const response = await fetch(`${SERVER_URL}/sessions${query}`, {
+  const response = await fetch(gatewayUrl(`/sessions${query}`), {
     credentials: 'include',
   });
   if (!response.ok) {
@@ -137,7 +137,7 @@ export async function forkSession(
   opts: ForkSessionOptions = {},
 ): Promise<{ id: string; title: string; parentSessionId: string }> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/fork`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}/fork`),
     {
       method: 'POST',
       credentials: 'include',
@@ -157,7 +157,9 @@ export async function forkSession(
 
 /** Download URL for a session export (cookie auth travels with the request). */
 export function exportSessionUrl(id: string, format: "md" | "jsonl" = "md"): string {
-  return `${SERVER_URL}/sessions/${encodeURIComponent(id)}/export?format=${format}`;
+  return gatewayUrl(
+    `/sessions/${encodeURIComponent(id)}/export?format=${format}`,
+  );
 }
 
 /** Fetches one session's projected conversation view. Returns null for an unknown id. */
@@ -165,7 +167,7 @@ export async function fetchServerSessionDetail(
   id: string,
 ): Promise<ServerSessionDetail | null> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}`),
     { credentials: 'include' },
   );
   if (response.status === 404) return null;
@@ -184,7 +186,7 @@ export async function fetchServerTrajectory(
   id: string,
 ): Promise<TrajectoryView | null> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/trajectory`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}/trajectory`),
     { credentials: 'include' },
   );
   if (response.status === 404) return null;
@@ -210,7 +212,7 @@ export async function fetchSessionEvents(
   id: string,
 ): Promise<{ sessionId: string; events: TranscriptEventInput[] }> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/events`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}/events`),
     { credentials: 'include' },
   );
   if (!response.ok) {
@@ -241,7 +243,7 @@ export interface SessionEventsTail {
 
 export async function fetchSessionEventsTail(id: string): Promise<SessionEventsTail> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/events?tail=1`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}/events?tail=1`),
     { credentials: 'include' },
   );
   if (!response.ok) {
@@ -275,7 +277,7 @@ export async function fetchPlan(
   id: string,
 ): Promise<{ content: string; updatedAt: number } | null> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/plan`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}/plan`),
     { credentials: 'include' },
   );
   if (response.status === 404) return null;
@@ -308,7 +310,7 @@ export async function renameServerSession(
   opts: { signal?: AbortSignal; source?: 'user' | 'model' | 'heuristic' } = {},
 ): Promise<void> {
   const { signal, source = 'user' } = opts;
-  const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
+  const response = await fetch(gatewayUrl(`/sessions/${encodeURIComponent(id)}`), {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
@@ -325,7 +327,7 @@ export async function renameServerSession(
  * the caller's intent (the session should not exist) is already satisfied.
  */
 export async function deleteServerSession(id: string): Promise<void> {
-  const response = await fetch(`${SERVER_URL}/sessions/${encodeURIComponent(id)}`, {
+  const response = await fetch(gatewayUrl(`/sessions/${encodeURIComponent(id)}`), {
     method: 'DELETE',
     credentials: 'include',
   });
@@ -370,7 +372,7 @@ export type CompactSessionResult =
  */
 export async function compactSession(id: string): Promise<CompactSessionResult> {
   const response = await fetch(
-    `${SERVER_URL}/sessions/${encodeURIComponent(id)}/compact`,
+    gatewayUrl(`/sessions/${encodeURIComponent(id)}/compact`),
     {
       method: 'POST',
       credentials: 'include',

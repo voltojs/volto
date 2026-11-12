@@ -6,7 +6,7 @@
  * sessions-api.ts.
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 
 export interface FsEntry {
   name: string;
@@ -39,7 +39,7 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 }
 
 async function getJson<T>(requestPath: string): Promise<T> {
-  const response = await fetch(`${SERVER_URL}${requestPath}`, { credentials: 'include' });
+  const response = await fetch(gatewayUrl(requestPath), { credentials: 'include' });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, `Request failed: HTTP ${response.status}`));
   }

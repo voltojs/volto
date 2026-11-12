@@ -3,15 +3,15 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ConversationBlock } from '@volto/sdk/sse';
-import { SERVER_URL } from '@/lib/agent-config';
+import { gatewayUrl } from '@/lib/gateway-base';
 
 export type ImageBlock = Extract<ConversationBlock, { type: 'image' }>;
 
 /**
  * One history image: ref-only in state, resolved against the attachment route.
  *
- * Browser auth is the gateway's HttpOnly cookie on the same-origin `/gateway`
- * rewrite — a plain same-origin `<img>` carries it automatically, so no
+ * Browser auth is the gateway's HttpOnly cookie on the same-origin gateway
+ * route — a plain same-origin `<img>` carries it automatically, so no
  * crossOrigin / credentials plumbing exists (and `<img>` offers none).
  * A cleaned-up attachment degrades to an explanation rather than a broken
  * image icon: the icon cannot say why the picture is missing.
@@ -35,7 +35,9 @@ export function AttachmentImage({
     );
   }
 
-  const src = `${SERVER_URL}/attachments/${encodeURIComponent(block.attachmentId)}?sessionId=${encodeURIComponent(sessionId)}`;
+  const src = gatewayUrl(
+    `/attachments/${encodeURIComponent(block.attachmentId)}?sessionId=${encodeURIComponent(sessionId)}`,
+  );
   return (
     <img
       src={src}

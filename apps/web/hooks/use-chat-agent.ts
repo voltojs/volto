@@ -8,9 +8,9 @@ import {
   eventsUrl,
   interruptTurn,
   postMessage,
-  SERVER_URL,
   type ConnectionState,
 } from '@/lib/agent-config';
+import { gatewayUrl } from '@/lib/gateway-base';
 import { useChatStore } from '@/stores/chat-store';
 import { deltaChildId, eventChildId } from '@/lib/subagent-routing';
 import { tierNoticeFromEvent } from '@/lib/tier-notice';
@@ -86,7 +86,7 @@ export async function updateQueue(
     return { status: 'failed', message: 'No active session' };
   }
   try {
-    const response = await fetch(`${SERVER_URL}/messages/queue`, {
+    const response = await fetch(gatewayUrl('/messages/queue'), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

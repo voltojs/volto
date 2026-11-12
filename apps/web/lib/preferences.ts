@@ -8,7 +8,7 @@
  * the next conversation the same way.
  */
 
-import { SERVER_URL } from './agent-config';
+import { gatewayUrl } from './gateway-base';
 
 export interface Preferences {
   /** UI language, shared with the gateway's own rendered copy. */
@@ -36,7 +36,7 @@ export const EMPTY_PREFERENCES: Preferences = {};
 
 export async function fetchPreferences(): Promise<Preferences> {
   try {
-    const response = await fetch(`${SERVER_URL}/preferences`, { credentials: 'include' });
+    const response = await fetch(gatewayUrl('/preferences'), { credentials: 'include' });
     if (!response.ok) return EMPTY_PREFERENCES;
     return (await response.json()) as Preferences;
   } catch {
@@ -48,7 +48,7 @@ export async function fetchPreferences(): Promise<Preferences> {
 
 /** Merges `patch` into the stored defaults; resolves to the merged result. */
 export async function patchPreferences(patch: Preferences): Promise<Preferences> {
-  const response = await fetch(`${SERVER_URL}/preferences`, {
+  const response = await fetch(gatewayUrl('/preferences'), {
     method: 'PUT',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

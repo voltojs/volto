@@ -32,6 +32,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useConversation } from '@/hooks/use-conversation';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
+import { gatewayUrl, resetGatewayBaseForTest } from '@/lib/gateway-base';
 
 // jsdom has no layout: the feed scrolls its bottom anchor into view, and the
 // attachment tooltip is pointer-driven, so Base UI needs the pointer-capture
@@ -110,7 +111,11 @@ function okResponse() {
   return { ok: true, status: 200, json: async () => ({ ok: true }) };
 }
 
+// A fixed absolute base makes the fetch assertions read as real requests;
+// the resolver itself is covered by lib/__tests__/gateway-base.test.ts.
 beforeEach(() => {
+  localStorage.setItem('volto.gatewayUrl', 'http://gw.test');
+  resetGatewayBaseForTest();
   vi.clearAllMocks();
   fetchMock.mockResolvedValue(okResponse());
   vi.stubGlobal('fetch', fetchMock);
@@ -213,7 +218,7 @@ describe('queued dock', () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        '/gateway/messages/queue',
+        gatewayUrl('/messages/queue'),
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -262,7 +267,7 @@ describe('queued dock', () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        '/gateway/messages/queue',
+        gatewayUrl('/messages/queue'),
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
