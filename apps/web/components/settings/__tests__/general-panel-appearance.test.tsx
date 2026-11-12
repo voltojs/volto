@@ -13,6 +13,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { GeneralPanel } from '../GeneralPanel';
+import { I18nProvider } from '@/components/i18n-provider';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
 const save = vi.fn();
@@ -42,9 +43,14 @@ describe('GeneralPanel appearance preferences', () => {
     expect(save).toHaveBeenCalledWith({ theme: 'dark' });
   });
 
-  it('stores the language and refreshes the server render', async () => {
+  it('stores the language and switches the rendered locale', async () => {
     const user = userEvent.setup();
-    render(<GeneralPanel />);
+    // The provider owns the switch now: its `setLocale` re-renders the UI.
+    render(
+      <I18nProvider locale="zh">
+        <GeneralPanel />
+      </I18nProvider>,
+    );
 
     const selects = screen.getAllByRole('combobox');
     await user.click(selects[0]!);
@@ -52,6 +58,7 @@ describe('GeneralPanel appearance preferences', () => {
 
     expect(save).toHaveBeenCalledWith({ locale: 'en' });
     expect(document.cookie).toContain('volto_locale=en');
-    expect(refresh).toHaveBeenCalled();
+    expect(document.documentElement.lang).toBe('en');
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

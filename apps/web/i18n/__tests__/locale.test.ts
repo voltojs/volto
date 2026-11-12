@@ -1,31 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { resolveLocale } from '../locale';
+import { resolveInitialLocale } from '../messages';
 
-describe('resolveLocale', () => {
-  it('prefers the stored preference over cookie and header', () => {
+describe('resolveInitialLocale', () => {
+  it('prefers the stored cookie over the browser languages', () => {
     expect(
-      resolveLocale({ preference: 'en', cookie: 'zh', acceptLanguage: 'zh-CN' }),
+      resolveInitialLocale({ cookie: 'en', languages: ['zh-CN'] }),
     ).toBe('en');
     expect(
-      resolveLocale({ preference: 'zh', cookie: 'en', acceptLanguage: 'en-US' }),
+      resolveInitialLocale({ cookie: 'zh', languages: ['en-US'] }),
     ).toBe('zh');
   });
 
-  it('falls back to the cookie, then to Accept-Language', () => {
-    expect(resolveLocale({ cookie: 'en', acceptLanguage: 'zh-CN' })).toBe('en');
-    expect(resolveLocale({ acceptLanguage: 'en-US,en;q=0.9' })).toBe('en');
-    expect(resolveLocale({ acceptLanguage: 'zh-CN,zh;q=0.9' })).toBe('zh');
+  it('falls back to the first shipped browser language', () => {
+    expect(resolveInitialLocale({ languages: ['en-US', 'en'] })).toBe('en');
+    expect(resolveInitialLocale({ languages: ['zh-CN', 'zh'] })).toBe('zh');
+    expect(resolveInitialLocale({ languages: ['fr-FR', 'en-GB'] })).toBe('en');
   });
 
   it('defaults to Chinese when nothing decides', () => {
-    expect(resolveLocale({})).toBe('zh');
-    expect(resolveLocale({ acceptLanguage: null })).toBe('zh');
-    expect(resolveLocale({ acceptLanguage: 'fr-FR' })).toBe('zh');
+    expect(resolveInitialLocale({})).toBe('zh');
+    expect(resolveInitialLocale({ languages: [] })).toBe('zh');
+    expect(resolveInitialLocale({ languages: ['fr-FR'] })).toBe('zh');
   });
 
   it('ignores values the product does not ship', () => {
-    expect(resolveLocale({ preference: 'jp', cookie: 'fr', acceptLanguage: 'de' })).toBe(
-      'zh',
-    );
+    expect(
+      resolveInitialLocale({ cookie: 'fr', languages: ['de'] }),
+    ).toBe('zh');
   });
 });

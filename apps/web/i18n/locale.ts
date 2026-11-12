@@ -1,40 +1,17 @@
 /**
- * Locale resolution for the Web shell.
+ * Locale plumbing for the Web shell: the cookie the choice is remembered in
+ * and the `lang` attribute each shipped language renders as.
  *
- * The stored preference is the source of truth; the cookie only caches it for
- * the first server render, and `Accept-Language` is the first-run default.
- * Pure and framework-free so the RSC config and the tests share one rule.
+ * The rules that pick a locale live in `./messages`, next to the catalogs
+ * they resolve to.
  */
-import { DEFAULT_LOCALE, isLocale, type Locale } from '@volto/i18n';
+import type { Locale } from './messages';
 
-/** Cookie holding the last locale the user chose, readable during RSC. */
+/** Cookie holding the last locale the user chose, readable from the browser. */
 export const LOCALE_COOKIE = 'volto_locale';
 
-/**
- * Picks the locale for a request: stored preference, then cookie, then the
- * first shipped language named by `Accept-Language`, then the default.
- */
-export function resolveLocale(input: {
-  /** `preferences.locale` from the gateway. */
-  preference?: string;
-  /** `volto_locale` cookie (render cache of the preference). */
-  cookie?: string;
-  /** Raw `Accept-Language` header. */
-  acceptLanguage?: string | null;
-}): Locale {
-  if (isLocale(input.preference)) return input.preference;
-  if (isLocale(input.cookie)) return input.cookie;
-  const fromHeader = firstSupported(input.acceptLanguage ?? '');
-  return fromHeader ?? DEFAULT_LOCALE;
-}
-
-/** First shipped locale mentioned in an `Accept-Language` header, if any. */
-function firstSupported(header: string): Locale | undefined {
-  for (const part of header.split(',')) {
-    // "en-US;q=0.9" → "en-us"; the primary subtag is what we match.
-    const tag = part.split(';')[0]?.trim().toLowerCase() ?? '';
-    const primary = tag.split('-')[0];
-    if (isLocale(primary)) return primary;
-  }
-  return undefined;
-}
+/** `document.documentElement.lang` for each shipped locale. */
+export const LOCALE_TAG: Record<Locale, string> = {
+  zh: 'zh-CN',
+  en: 'en',
+};

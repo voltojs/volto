@@ -2,14 +2,15 @@ import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 
 import './globals.css';
 import { ThemeProvider, THEME_COOKIE } from '@/components/theme-provider';
+import { I18nProvider } from '@/components/i18n-provider';
 import { LocalePreferenceSync } from '@/components/locale-sync';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { sidebarWidthRestoreScript } from '@/lib/sidebar-width';
-import { NextIntlClientProvider } from 'next-intl';
 import { cookies } from 'next/headers';
-import { getLocale, getTranslations } from 'next-intl/server';
+import { resolveInitialLocale, type Locale } from '@/i18n/messages';
+import { LOCALE_COOKIE, LOCALE_TAG } from '@/i18n/locale';
 
 // Fraunces carries the display headings — a warm, characterful serif with
 // optical sizing, standing in for the generic sans-only look most AI chat
@@ -32,9 +33,23 @@ const mono = IBM_Plex_Mono({
   variable: '--font-mono',
 });
 
-export async function generateMetadata() {
-  const t = await getTranslations('common');
-  return { title: 'Volto', description: t('meta.description') };
+// Static: the description is copy, not a translation. A localized one would
+// make the shell depend on the request again, which the static export forbids.
+export const metadata = {
+  title: 'Volto',
+  description: 'Volto — a console for project-level AI agents',
+};
+
+/**
+ * Language for the first client render. The server only sees the cookie, so
+ * the browser's own languages are used as the fallback a server render could
+ * not offer; the preference sync corrects both once the stored preference
+ * arrives.
+ */
+function initialLocale(cookie: string | undefined): Locale {
+  const languages =
+    typeof navigator === 'undefined' ? [] : Array.from(navigator.languages ?? []);
+  return resolveInitialLocale({ cookie, languages });
 }
 
 export default async function RootLayout({
@@ -42,14 +57,14 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = await getLocale();
   const cookieStore = await cookies();
   const cookieTheme = cookieStore.get(THEME_COOKIE)?.value;
   const initialTheme =
     cookieTheme === 'light' || cookieTheme === 'dark' ? cookieTheme : 'system';
+  const locale = initialLocale(cookieStore.get(LOCALE_COOKIE)?.value);
   return (
     <html
-      lang={locale === 'en' ? 'en' : 'zh-CN'}
+      lang={LOCALE_TAG[locale]}
       suppressHydrationWarning
       className={cn(
         'antialiased',
@@ -67,13 +82,13 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: sidebarWidthRestoreScript() }} />
       </head>
       <body>
-        <NextIntlClientProvider>
+        <I18nProvider locale={locale}>
           <LocalePreferenceSync />
           <ThemeProvider initialTheme={initialTheme}>
             <TooltipProvider>{children}</TooltipProvider>
             <Toaster />
           </ThemeProvider>
-        </NextIntlClientProvider>
+        </I18nProvider>
       </body>
     </html>
   );

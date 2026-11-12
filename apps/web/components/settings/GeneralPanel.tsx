@@ -2,7 +2,6 @@
 
 import { useThemePreference } from '@/components/theme-provider';
 import { useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
 import { Languages } from 'lucide-react';
 import { AlignLeft, List, Monitor, Moon, ShieldCheck, Sparkles, Sun } from 'lucide-react';
 import {
@@ -26,7 +25,7 @@ import { PermissionPicker } from '@/components/chat/PermissionPicker';
 import type { PermissionMode } from '@/stores/session-store';
 import { useStreamDensity, type StreamDensity } from '@/lib/stream-density';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { LOCALE_COOKIE } from '@/i18n/locale';
+import { useLocalePreference } from '@/components/i18n-provider';
 import { providerModels, useConfigStore } from '@/stores/config-store';
 import { isPermissionMode } from '@/lib/permission-mode';
 
@@ -91,7 +90,7 @@ export function GeneralPanel() {
   // 系统" stays selectable instead of snapping to whatever the OS resolves to.
   const [theme, setThemePreference] = useThemePreference();
   const [density, setDensity] = useStreamDensity();
-  const router = useRouter();
+  const localePreference = useLocalePreference();
   const savePreference = usePreferencesStore((s) => s.save);
   const locale = usePreferencesStore((s) => s.preferences.locale) ?? 'zh';
   const defaultPermission = usePreferencesStore((s) => s.preferences.defaultPermissionMode);
@@ -150,8 +149,9 @@ export function GeneralPanel() {
             onValueChange={(next) => {
               const value = next === 'en' ? 'en' : 'zh';
               savePreference({ locale: value });
-              document.cookie = `${LOCALE_COOKIE}=${value}; path=/; max-age=31536000; samesite=lax`;
-              router.refresh();
+              // Re-renders the provider and rewrites the cookie. The stored
+              // preference still leads on a fresh browser (LocalePreferenceSync).
+              localePreference?.setLocale(value);
             }}
           >
             <SelectTrigger size="sm" className="w-32">

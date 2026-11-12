@@ -13,7 +13,10 @@ afterEach(cleanup);
 
 // Component specs render the Chinese UI, so `useTranslations` resolves against
 // the shipped zh catalog instead of requiring a provider in every test file.
-// The layout-level Provider wiring is covered by the RSC render itself.
+// `NextIntlClientProvider` stays transparent here for the same reason: a spec
+// that mounts `I18nProvider` picks its locale through the `useLocale` mock,
+// and the real provider wiring is covered by
+// `components/__tests__/i18n-provider.test.tsx` (which unmocks this module).
 import { vi } from 'vitest';
 import zhChat from './messages/zh/chat.json';
 import zhSidebar from './messages/zh/sidebar.json';
@@ -55,4 +58,5 @@ vi.mock('next-intl', () => ({
     return typeof message === 'string' ? format(message, params) : namespace + '.' + key;
   },
   useLocale: () => 'zh',
+  NextIntlClientProvider: ({ children }: { children?: unknown }) => children,
 }));

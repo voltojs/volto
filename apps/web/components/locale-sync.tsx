@@ -5,32 +5,31 @@
  *
  * The server render can only see the `volto_locale` cookie (it never reads
  * `~/.volto/config.json` directly), so a fresh browser — or one whose cookie
- * was cleared — may render the Accept-Language language while the user's stored
+ * was cleared — may render the browser's language while the user's stored
  * preference says otherwise. Once the preferences arrive, the stored value
- * wins: refresh the cookie and re-render the server output.
+ * wins: `setLocale` re-renders the provider and rewrites the cookie. No
+ * `router.refresh()` — an exported build has no server render to redo.
  */
-
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useLocale } from 'next-intl';
+import { useLocalePreference } from '@/components/i18n-provider';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { LOCALE_COOKIE } from '@/i18n/locale';
 
 export function LocalePreferenceSync() {
-  const locale = useLocale();
+  const preference = useLocalePreference();
   const stored = usePreferencesStore((s) => s.preferences.locale);
   const load = usePreferencesStore((s) => s.load);
-  const router = useRouter();
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const current = preference?.locale;
+  const setLocale = preference?.setLocale;
   useEffect(() => {
-    if (stored === undefined || stored === locale) return;
-    document.cookie = `${LOCALE_COOKIE}=${stored}; path=/; max-age=31536000; samesite=lax`;
-    router.refresh();
-  }, [stored, locale, router]);
+    if (stored === undefined || current === undefined || setLocale === undefined) return;
+    if (stored === current) return;
+    setLocale(stored);
+  }, [stored, current, setLocale]);
 
   return null;
 }
