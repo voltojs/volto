@@ -86,6 +86,9 @@ const REQUIRED_METADATA = {
   type: "module",
 };
 
+/** The `REQUIRED_METADATA` fields that must be objects; the rest are scalars. */
+const OBJECT_REQUIRED_FIELDS = new Set(["publishConfig", "engines", "repository"]);
+
 /** Key order used when rewriting a manifest, so `--write` diffs stay reviewable. */
 const KEY_ORDER = [
   "name",
@@ -165,15 +168,17 @@ function assertTriagedArePublishable(packages) {
  *
  * @param {Record<string, unknown>} manifest parsed package.json contents
  * @param {string} dir package directory, handed to `reportWith` so the CLI can say which package failed
- * @param {{ strictWorkspace?: boolean }} [opts] `strictWorkspace` also reports surviving `workspace:` ranges
+ * @param {{ strictWorkspace?: boolean } | ((problem: string) => void)} [opts] options, or the reporter
+ *   itself when no options are needed — `(manifest, dir, callback)` must not silently become default mode
  * @param {(problem: string) => void} [reportWith] called once per problem, prefixed with `dir`
  * @returns {string[]} problems in fixed check order; empty means OK
  */
 export function validateManifest(manifest, dir, opts, reportWith) {
+  const { options, reporter } = splitValidateArgs(opts, reportWith);
   const problems = [];
   const report = (message) => {
     problems.push(message);
-    reportWith?.(`${dir}: ${message}`);
+    reporter?.(`${dir}: ${message}`);
   };
   const files = Array.isArray(manifest.files) ? manifest.files : [];
 
@@ -201,7 +206,7 @@ export function validateManifest(manifest, dir, opts, reportWith) {
   if (!pointsIntoDist(manifest.types)) {
     report("types: not under dist");
   }
-  if (!opts?.strictWorkspace) return problems;
+  if (!options.strictWorkspace) return problems;
   for (const field of DEPENDENCY_FIELDS) {
     const section = manifest[field];
     if (!isPlainObject(section)) continue;
@@ -215,8 +220,24 @@ export function validateManifest(manifest, dir, opts, reportWith) {
 }
 
 /**
- * Fill in the metadata a manifest lacks. Existing values are never overwritten,
- * so a hand-corrected field survives the next `--write` run.
+ * Disambiguate `validateManifest`'s two optional positional arguments: a function in
+ * the options slot is the reporter, so `(manifest, dir, callback)` keeps its callback
+ * instead of quietly falling back to the default mode.
+ *
+ * @param {unknown} opts third argument as passed
+ * @param {((problem: string) => void) | undefined} reportWith fourth argument as passed
+ * @returns {{ options: { strictWorkspace?: boolean }, reporter?: (problem: string) => void }}
+ */
+function splitValidateArgs(opts, reportWith) {
+  if (typeof opts === "function") return { options: {}, reporter: opts };
+  return { options: opts ?? {}, reporter: reportWith };
+}
+
+/**
+ * Fill in the metadata a manifest lacks, and apply the single normalization rule
+ * documented on `normalizeManifest`. Apart from that rule, an existing value is never
+ * overwritten, so a hand-corrected field (license, engines, files, ...) survives the
+ * next `--write` run.
  *
  * @param {Record<string, unknown>} manifest parsed package.json contents
  * @param {string} dir package directory
@@ -230,23 +251,39 @@ export function applyManifest(manifest, dir) {
   // Everything else is published, so it must not stay in the private set.
   delete next.private;
 
+  // Missing values are filled in; a present value is only repaired when it has the wrong
+  // shape to satisfy the check at all (an object field that is not an object), never
+  // because its scalar content differs from the default.
   for (const [field, value] of Object.entries(REQUIRED_METADATA)) {
-    if (next[field] === undefined) next[field] = structuredClone(value);
+    const absent = next[field] === undefined;
+    const wrongShape = OBJECT_REQUIRED_FIELDS.has(field) && !isPlainObject(next[field]);
+    if (absent || wrongShape) next[field] = structuredClone(value);
   }
   if (!Array.isArray(next.files) || next.files.length === 0) {
     next.files = ["dist", "!dist/**/__tests__"];
   }
   if (!pointsIntoDist(next.main)) next.main = `./${DIST_PREFIX}index.js`;
   if (!pointsIntoDist(next.types)) next.types = `./${DIST_PREFIX}index.d.ts`;
-  for (const [field, value] of Object.entries(REQUIRED_METADATA)) {
-    if (!isPlainObject(next[field])) next[field] = structuredClone(value);
-  }
-  // The upstream URL is a fact about the repo, not a per-package choice: normalize it
-  // so a package that copied a placeholder from another manifest is corrected, not skipped.
-  if (next.repository.url !== REQUIRED_METADATA.repository.url) {
-    next.repository = { ...next.repository, ...structuredClone(REQUIRED_METADATA.repository) };
-  }
-  return placeKeys(manifest, next);
+  return placeKeys(manifest, normalizeManifest(next));
+}
+
+/**
+ * The one place that may overwrite an existing value: `repository`.
+ *
+ * The upstream URL is a fact about the repository, not a per-package choice, so a
+ * manifest carrying an outdated or copied-from-a-template URL is corrected instead of
+ * being left wrong. Only `repository.type` and `repository.url` are touched; any other
+ * `repository` field (such as `directory`) is preserved. Every other field keeps the
+ * value the package author set.
+ *
+ * @param {Record<string, unknown>} manifest manifest already filled in by `applyManifest`
+ * @returns {Record<string, unknown>} the same manifest with `repository` normalized
+ */
+export function normalizeManifest(manifest) {
+  if (!isPlainObject(manifest.repository)) return manifest;
+  const { type, url } = REQUIRED_METADATA.repository;
+  if (manifest.repository.type === type && manifest.repository.url === url) return manifest;
+  return { ...manifest, repository: { ...manifest.repository, type, url } };
 }
 
 /**
@@ -475,6 +512,40 @@ function selfTest() {
       applyManifest({ ...COMPLETE_FIXTURE, name: "@volto/fixture2" }, dir).repository.url,
       "git+https://github.com/zlipeng/volto.git",
     ],
+    [
+      "repository is corrected while a hand-set license is preserved",
+      (() => {
+        const applied2 = applyManifest(
+          {
+            ...COMPLETE_FIXTURE,
+            name: "@volto/fixture3",
+            license: "Apache-2.0",
+            engines: { node: ">=24" },
+          },
+          dir,
+        );
+        return [applied2.repository.url, applied2.license, applied2.engines.node];
+      })(),
+      ["git+https://github.com/zlipeng/volto.git", "Apache-2.0", ">=24"],
+    ],
+    [
+      "repository normalization keeps unrelated repository fields",
+      normalizeManifest({
+        repository: { type: "git", url: "git+https://github.com/old/repo.git", directory: "packages/x" },
+      }).repository.directory,
+      "packages/x",
+    ],
+    ...(({ collected, returned }) => [
+      ["validateManifest accepts a reporter in the options slot", collected, ["/volto-self-test/x: license: not MIT"]],
+      ["a lone reporter still returns the problems", returned, ["license: not MIT"]],
+    ])((() => {
+      // Called as (manifest, dir, callback): no options object at all.
+      const calls = [];
+      const returned2 = validateManifest({ ...COMPLETE_FIXTURE, license: undefined }, "/volto-self-test/x", (problem) =>
+        calls.push(problem),
+      );
+      return { collected: calls, returned: returned2 };
+    })()),
   ];
   let failed = 0;
   for (const [name, actual, expected] of cases) {
