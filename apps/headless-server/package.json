@@ -1,9 +1,9 @@
 {
   "name": "@volto/headless-server",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "main": "./dist/server.js",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/server.d.ts",
   "files": [
     "dist",
     "!dist/**/__tests__"

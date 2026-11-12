@@ -14,13 +14,17 @@
     "typecheck": "turbo run typecheck",
     "dev:web": "turbo run dev --filter @volto/headless-server --filter @volto/web",
     "check:core-deps": "node scripts/check-core-zero-deps.mjs",
+    "check:pack": "pnpm turbo run build && node scripts/check-pack-contents.mjs",
     "check:i18n": "node scripts/check-i18n-hardcoded.mjs",
+    "release": "pnpm turbo run build && node scripts/publish-manifest.mjs --strict-workspace && pnpm check:pack && pnpm -r publish --access public",
+    "version:all": "pnpm changeset version && node scripts/publish-manifest.mjs",
     "docs:gen": "node scripts/docs/gen.mjs",
     "docs:sync": "node scripts/docs/sync.mjs",
     "docs:check": "node scripts/docs/check.mjs",
     "docs:ack": "node scripts/docs/ack.mjs"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^25.9.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
