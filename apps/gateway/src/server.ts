@@ -138,6 +138,8 @@ import {
 } from "./git/git.js";
 import { createBrowserAuth } from "./auth/browser-auth.js";
 import { createAuthGuard, isAuthorized } from "./auth/middleware.js";
+import { createAuthRateLimiter, type AuthRateLimiter } from "./auth/rate-limit.js";
+import { resolveClientIp } from "./client-ip.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
 import { resolveCapabilities, type Capabilities, type GatewayMode } from "./capabilities.js";
 import { createAttachmentStoreCache } from "./attachments/store.js";
@@ -161,21 +163,57 @@ import {
 export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
   port?: number;
   /**
-   * Allowed browser origin, reflected as `Access-Control-Allow-Origin` and
-   * enforced against every request's `Origin` header. Defaults to the
-   * `apps/web` dev server's own origin — a browser is the threat surface a
-   * local gateway needs to worry about (it can enumerate providers, drive
-   * the agent at the `full` permission preset, and read the response
-   * cross-origin if this were `"*"`). Non-browser clients (curl, any
-   * out-of-tree host) send no `Origin` header at all and are never
-   * subject to this check. Set to `"*"` to deliberately expose the gateway
-   * to any origin, or to a different origin for another trusted deployment.
-   * Falls back to the `VOLTO_CORS_ORIGIN` env var, then to the dev default —
-   * a production `next start` build serves on a different port (3000) than
-   * the `next dev` default this hardcodes, and has no other way to configure
-   * around the 403 that would otherwise produce.
+   * Allowed browser origins, reflected as `Access-Control-Allow-Origin` and
+   * enforced against every request's `Origin` header.
+   *
+   * Defaults to the `apps/web` dev server's own origin — a browser is the
+   * threat surface a local gateway needs to worry about (it can enumerate
+   * providers, drive the agent at the `full` permission preset, and read the
+   * response cross-origin if this were `"*"`). Set to `["*"]` to
+   * deliberately expose the gateway to any origin. Same-origin requests are
+   * always allowed regardless of this list (see `isOriginAllowed`), and
+   * non-browser clients (curl, any out-of-tree host) send no `Origin` header
+   * at all and are never subject to this check.
+   *
+   * Falls back to the comma-separated `VOLTO_CORS_ORIGINS` env var, then to
+   * the single-value `VOLTO_CORS_ORIGIN` (kept as an alias), then to the dev
+   * default — a production `next start` build serves on a different port
+   * (3000) than the `next dev` default this hardcodes, and has no other way
+   * to configure around the 403 that would otherwise produce.
+   */
+  corsOrigins?: string[];
+  /**
+   * Single-origin form of `corsOrigins`, kept for callers that only ever
+   * needed one value. Ignored when `corsOrigins` is set.
    */
   corsOrigin?: string;
+  /**
+   * Trust `X-Forwarded-For` / `X-Forwarded-Proto` from a proxy or tunnel in
+   * front of this process (`--trust-proxy`).
+   *
+   * Off by default, and that default is a security decision, not an
+   * oversight: while the port is directly reachable, either header can be
+   * forged by any client. Off, requests are accounted by their socket
+   * address — behind a tunnel that is loopback for everyone, so the limits
+   * are shared, but no client can move another client's accounting. On, the
+   * first forwarded hop is the client, which only makes sense when the
+   * gateway is unreachable except through that proxy.
+   * @default false
+   */
+  trustProxy?: boolean;
+  /**
+   * Failed-authentication rate limiting. Defaults to 10 failures per 60s per
+   * client IP → a 60s cooldown (R29). `limiter` injects a prebuilt instance
+   * (tests); the other fields configure the default one.
+   */
+  rateLimit?: {
+    limit?: number;
+    windowMs?: number;
+    cooldownMs?: number;
+    now?: () => number;
+    /** Prebuilt limiter — overrides the fields above. */
+    limiter?: AuthRateLimiter;
+  };
   /** SSE heartbeat interval in ms. @default 15000 */
   heartbeatInterval?: number;
   /**
@@ -234,8 +272,34 @@ export interface ServerOptions extends Omit<WiringOptions, "chatStore"> {
 /** Session id used when a client does not supply one. */
 const DEFAULT_SESSION_ID = "default";
 
-/** The web app's own dev origin — see `ServerOptions.corsOrigin`. */
+/** The web app's own dev origin — see `ServerOptions.corsOrigins`. */
 const DEFAULT_CORS_ORIGIN = "http://localhost:6100";
+
+/**
+ * Resolve the CORS allowlist: option → `VOLTO_CORS_ORIGINS` (comma list) →
+ * `VOLTO_CORS_ORIGIN` (single-value alias) → the dev default.
+ *
+ * An explicitly empty list is meaningful and is NOT widened to the default:
+ * it means "only same-origin", which is exactly the tunnel deployment where
+ * nothing else should be able to reach the API.
+ */
+export function resolveCorsOrigins(
+  opts: Pick<ServerOptions, "corsOrigins" | "corsOrigin">,
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  if (opts.corsOrigins !== undefined) return opts.corsOrigins;
+  if (opts.corsOrigin !== undefined) return [opts.corsOrigin];
+  const multi = env["VOLTO_CORS_ORIGINS"];
+  if (multi !== undefined) {
+    return multi
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== "");
+  }
+  const single = env["VOLTO_CORS_ORIGIN"];
+  if (single !== undefined) return [single];
+  return [DEFAULT_CORS_ORIGIN];
+}
 
 /** Hard cap on request bodies. Any larger POST is refused with 413. */
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -587,9 +651,26 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   const mode: GatewayMode = opts.serveRemote === true ? "remote" : "local";
 
   const auth = await createBrowserAuth();
-  const guard = createAuthGuard(auth, { publicPaths: ["/health"] });
+  const trustProxy = opts.trustProxy === true;
+  // One limiter for the whole process: it is keyed by client IP, so no
+  // per-route or per-session instance could be "more correct" — and two
+  // instances would let a client double its budget by alternating routes.
+  const rateLimiter =
+    opts.rateLimit?.limiter ??
+    createAuthRateLimiter({
+      ...(opts.rateLimit?.limit !== undefined ? { limit: opts.rateLimit.limit } : {}),
+      ...(opts.rateLimit?.windowMs !== undefined ? { windowMs: opts.rateLimit.windowMs } : {}),
+      ...(opts.rateLimit?.cooldownMs !== undefined ? { cooldownMs: opts.rateLimit.cooldownMs } : {}),
+      ...(opts.rateLimit?.now !== undefined ? { now: opts.rateLimit.now } : {}),
+    });
+  const guard = createAuthGuard(auth, {
+    publicPaths: ["/health"],
+    rateLimiter,
+    trustProxy,
+  });
 
-  const corsOrigin = opts.corsOrigin ?? process.env["VOLTO_CORS_ORIGIN"] ?? DEFAULT_CORS_ORIGIN;
+  const corsOrigins = resolveCorsOrigins(opts);
+  const allowAnyOrigin = corsOrigins.includes("*");
   // The legacy shared agent (used by /resume, /stream, /ws when no sessionId is
   // given) has no per-session scoping, so it never gets the durable transcript
   // store — `opts.chatStore` here is the unscoped, whole-workspace store type
@@ -693,7 +774,32 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     attachmentStoreFor,
   });
 
+  /** The parsed form of an Origin, or undefined when it is not a URL. */
+  function parseOrigin(origin: string): { origin: string; host: string } | undefined {
+    try {
+      const url = new URL(origin);
+      return { origin: url.origin, host: url.host };
+    } catch {
+      // "null" (sandboxed frame, file://), a hostname alone, or garbage: none
+      // of them are something a browser sends as a normal page origin, and
+      // none of them are trusted.
+      return undefined;
+    }
+  }
+
+  /** The Host header with the default port for its scheme made explicit. */
+  function normalizeHost(hostHeader: string, scheme: string): string | undefined {
+    try {
+      return new URL(`${scheme}//${hostHeader}`).host;
+    } catch {
+      return undefined;
+    }
+  }
+
   /**
+   * `Origin` is allowed when: none is present; it is one of `corsOrigins`
+   * (which may contain `*`); or it is SAME-ORIGIN with this request.
+   *
    * Only a browser attaches an `Origin` header; a non-browser client (curl,
    * any out-of-tree host) sends none and is never subject to this check —
    * there is nothing for CORS to protect there.
@@ -702,27 +808,36 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
    * build, so the browser reports the gateway's host as the `Origin`. Host
    * equality is the check — NOT "any localhost port", which is same-SITE and
    * would therefore carry the SameSite=Strict auth cookie from a malicious
-   * page on a sibling port. Everything that is not same-origin still has to
-   * match the configured origin.
+   * page on a sibling port.
+   *
+   * Both sides are compared AFTER URL parsing: the raw strings differ in
+   * scheme and host casing (`HTTP://127.0.0.1:3100`) and in a default port
+   * that one side spells out and the other does not (`:80` / `:443`). A
+   * string compare would have locked the exported app out of its own origin.
    */
   function isOriginAllowed(origin: string | undefined, hostHeader: string | undefined): boolean {
     if (origin === undefined) return true;
-    if (corsOrigin === "*" || origin === corsOrigin) return true;
+    const parsed = parseOrigin(origin);
+    if (parsed === undefined) return false;
+    if (allowAnyOrigin) return true;
+    // Allow-list entries are themselves normalized, so an operator's trailing
+    // slash or upper-case host still matches.
+    const parsedEntry = corsOrigins.map((entry) => parseOrigin(entry)?.origin ?? entry);
+    if (parsedEntry.includes(parsed.origin) || parsedEntry.includes(origin)) return true;
     if (hostHeader === undefined || hostHeader === "") return false;
-    try {
-      return new URL(origin).host === hostHeader;
-    } catch {
-      // Unparseable Origin: not something a browser sends, and not trusted.
-      return false;
-    }
+    const host = normalizeHost(hostHeader, parsed.origin.slice(0, parsed.origin.indexOf(":") + 1));
+    return host !== undefined && host === parsed.host;
   }
 
   function corsHeadersFor(origin: string | undefined): Record<string, string> {
+    const parsed = origin === undefined ? undefined : parseOrigin(origin);
     return {
-      // Echo the request's own origin rather than the configured value so a
-      // single fixed `corsOrigin` still behaves like a normal allow-list
-      // entry; "*" is sent verbatim since it authorizes every origin anyway.
-      "Access-Control-Allow-Origin": origin && corsOrigin !== "*" ? origin : corsOrigin,
+      // Echo the request's own origin rather than the configured value so an
+      // allow-list stays an allow-list; "*" is sent verbatim since it
+      // authorizes every origin anyway.
+      "Access-Control-Allow-Origin": allowAnyOrigin
+        ? "*"
+        : (parsed?.origin ?? origin ?? (corsOrigins[0] ?? "")),
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       // Authorization covers the bearer/launch-token callers; Last-Event-ID
       // is replayed on every reconnect of the /events stream.
@@ -731,7 +846,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       // credentials may ride along — without this the browser discards the
       // response even on a 200. Omitted under "*": the pair is illegal and
       // makes the browser reject every response.
-      ...(corsOrigin === "*" ? {} : { "Access-Control-Allow-Credentials": "true" }),
+      ...(allowAnyOrigin ? {} : { "Access-Control-Allow-Credentials": "true" }),
     };
   }
 
@@ -763,7 +878,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
   //
   // `gatewayUrl` is `""` on purpose: the exported client's default is
   // same-origin, which is exactly the deployment this process is. The
-  // `corsOrigin` log line below prints a `/gateway`-prefixed URL only because
+  // `corsOrigins` log line below prints a `/gateway`-prefixed URL only because
   // that prefix is the DEV server's rewrite; publishing it here would point
   // the app at a path this gateway does not have.
   const webRootDir = webRoot ?? path.join(packageRoot, "web");
@@ -847,6 +962,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     if (!(await guard(req, res, corsHeaders))) {
       return;
     }
+
 
     /** Map a BodyTooLargeError to 413. Returns true when handled. */
     function respondBodyError(err: unknown): boolean {
@@ -2869,6 +2985,20 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // here must destroy the socket: an async handler that throws would leave
     // the handshake hanging until the client times out, which is worse than
     // any status code and leaks nothing useful either way.
+    //
+    // The limiter applies here too, or a WS upgrade would be an unlimited
+    // guess channel straight past it. Same rule as HTTP: only failures count,
+    // success clears, a cooling-down address is refused before verification.
+    const wsIp = resolveClientIp(req, { trustProxy });
+    const wsVerdict = rateLimiter.check(wsIp);
+    if (!wsVerdict.allowed) {
+      const retryAfter = Math.max(1, Math.ceil(wsVerdict.retryAfterMs / 1000));
+      socket.write(
+        `HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${retryAfter}\r\nConnection: close\r\n\r\n`,
+      );
+      socket.destroy();
+      return;
+    }
     let authorized: boolean;
     try {
       authorized = isAuthorized(await auth.authorize(req));
@@ -2877,10 +3007,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
       return;
     }
     if (!authorized) {
+      rateLimiter.recordFailure(wsIp);
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
     }
+    rateLimiter.recordSuccess(wsIp);
 
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
     if (url.pathname !== "/ws") {
@@ -2944,9 +3076,12 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // When a concrete web origin is configured (the common dev setup — the
     // web app rewrites /gateway/* to this gateway), also print the proxied
     // token URL so the browser lands on the UI's own origin and the cookie
-    // is minted where the UI will send it from.
-    if (corsOrigin !== "*" && /^https?:\/\//.test(corsOrigin)) {
-      const webUrl = new URL("/gateway", corsOrigin);
+    // is minted where the UI will send it from. Printed only when the
+    // allow-list names exactly one concrete origin: with several there is no
+    // single URL to print, and naming the wrong one is worse than none.
+    const firstOrigin = corsOrigins[0];
+    if (corsOrigins.length === 1 && firstOrigin !== undefined && /^https?:\/\//.test(firstOrigin)) {
+      const webUrl = new URL("/gateway", firstOrigin);
       webUrl.searchParams.set("token", auth.launchToken);
       log(`Or open the web app URL: ${webUrl.toString()}`);
     }

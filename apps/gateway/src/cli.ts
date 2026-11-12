@@ -60,6 +60,8 @@ const USAGE = [
   `  --host <addr>       Interface to bind (default ${DEFAULT_HOST})`,
   "  --serve-remote      Remote mode: allow a non-loopback bind, require the access token",
   "  --trust-proxy       Trust X-Forwarded-For / X-Forwarded-Proto (only behind a tunnel)",
+  "                      Off by default: without it, rate limiting counts the socket",
+  "                      address, so a forged header cannot move another client's count.",
   "  --config-dir <p>    Override ~/.volto",
   "  --web-dir <p>       Override the bundled web build directory",
   "  --open / --no-open  Open the authenticated URL in a browser (default: open when local)",
@@ -193,6 +195,19 @@ function packageVersion(): string {
  */
 function isRemoteMode(opts: CliOptions): boolean {
   return opts.serveRemote || !LOOPBACK_HOSTS.has(opts.host);
+}
+
+/**
+ * `VOLTO_CORS_ORIGINS` (comma-separated) → the list handed to the server.
+ * Blank entries are dropped so a trailing comma is not an empty origin, and
+ * an unset/blank variable leaves the server's own default in force.
+ */
+export function parseCorsOrigins(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
 }
 
 function resolveConfigDir(opts: CliOptions, deps: CliDeps): string {
@@ -496,6 +511,7 @@ async function runServe(
     return 1;
   }
 
+  const corsOrigins = parseCorsOrigins(process.env["VOLTO_CORS_ORIGINS"]);
   let server: HeadlessServer;
   try {
     server = await startServer({
@@ -505,11 +521,16 @@ async function runServe(
       // refuses a non-loopback host without it, so the flag is the single
       // switch — never inferred from the host here.
       serveRemote: opts.serveRemote,
+      // Posture, like `serveRemote`: only an explicit flag makes forwarding
+      // headers trustworthy, because only the operator knows whether a proxy
+      // is in front of this process. Off by default — otherwise any client
+      // that can reach the port could forge the address its guesses are
+      // counted against.
+      trustProxy: opts.trustProxy,
+      ...(corsOrigins.length > 0 ? { corsOrigins } : {}),
       ...(opts.webRoot !== undefined ? { webRoot: opts.webRoot } : {}),
       // The CLI owns the startup output: these two lines are the contract.
       log: () => undefined,
-      // Task 14 teaches createServer `trustProxy`; the flag parses here and
-      // waits for that task.
     });
   } catch (err) {
     deps.stderr(`${err instanceof Error ? err.message : String(err)}\n`);

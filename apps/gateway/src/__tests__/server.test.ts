@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocket } from "ws";
-import { createServer, type HeadlessServer } from "../server.js";
+import { createServer, type HeadlessServer, type ServerOptions } from "../server.js";
 import { PickerBusyError, PickerUnsupportedError } from "../fs/directory-picker.js";
 import { RevealUnsupportedError } from "../fs/path-revealer.js";
 import { CommandTimeoutError } from "../fs/command-runner.js";
@@ -3415,5 +3415,167 @@ describe("legacy shared agent (no sessionId) permission posture", () => {
     } finally {
       await new Promise<void>((resolve) => instance.close(() => resolve()));
     }
+  });
+});
+
+// ──────────────────────────────────────────────
+// Task 14: CORS allowlist edge cases (F-23)
+// ──────────────────────────────────────────────
+
+describe("CORS allowlist (Task 14)", () => {
+  /** A GET /health with an explicit Origin and an explicit Host. */
+  function health(
+    baseUrl: string,
+    origin: string | undefined,
+    host?: string,
+  ): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+    const headers: Record<string, string> = {};
+    if (origin !== undefined) headers["Origin"] = origin;
+    if (host !== undefined) headers["Host"] = host;
+    return new Promise((resolve, reject) => {
+      const req = http.request(new URL("/health", baseUrl), { method: "GET", headers }, (res) => {
+        res.resume();
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers }));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  async function withServer(
+    opts: ServerOptions,
+    fn: (baseUrl: string, port: number) => Promise<void>,
+  ): Promise<void> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "volto-cors14-"));
+    const previous = process.env["VOLTO_CONFIG_DIR"];
+    process.env["VOLTO_CONFIG_DIR"] = dir;
+    const server = await createServer({ port: 0, modelPort: MOCK_MODEL, ...opts });
+    const port = await new Promise<number>((resolve) => {
+      server.on("listening", () => resolve((server.address() as { port: number }).port));
+    });
+    try {
+      await fn(`http://127.0.0.1:${port}`, port);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (previous === undefined) delete process.env["VOLTO_CONFIG_DIR"];
+      else process.env["VOLTO_CONFIG_DIR"] = previous;
+    }
+  }
+
+  it("allows an Origin listed in corsOrigins and rejects one that is not", async () => {
+    await withServer({ corsOrigins: ["https://one.example", "https://two.example"] }, async (baseUrl) => {
+      const one = await health(baseUrl, "https://one.example", "127.0.0.1:1");
+      expect(one.status).toBe(200);
+      expect(one.headers["access-control-allow-origin"]).toBe("https://one.example");
+
+      const two = await health(baseUrl, "https://two.example", "127.0.0.1:1");
+      expect(two.status).toBe(200);
+      expect(two.headers["access-control-allow-origin"]).toBe("https://two.example");
+
+      const other = await health(baseUrl, "https://three.example", "127.0.0.1:1");
+      expect(other.status).toBe(403);
+      expect(other.headers["access-control-allow-origin"]).toBeUndefined();
+    });
+  });
+
+  it("an allowlist does not list the default dev origin, so that one is refused", async () => {
+    await withServer({ corsOrigins: ["https://only.example"] }, async (baseUrl) => {
+      const dev = await health(baseUrl, "http://localhost:6100", "127.0.0.1:1");
+      expect(dev.status).toBe(403);
+    });
+  });
+
+  it("still allows same-origin when the allowlist does not name it", async () => {
+    await withServer({ corsOrigins: ["https://unrelated.example"] }, async (baseUrl, port) => {
+      const same = await health(baseUrl, `http://127.0.0.1:${port}`, `127.0.0.1:${port}`);
+      expect(same.status).toBe(200);
+      expect(same.headers["access-control-allow-origin"]).toBe(`http://127.0.0.1:${port}`);
+    });
+  });
+
+  it("normalizes the Origin scheme/host case before comparing with Host", async () => {
+    await withServer({ corsOrigins: [] }, async (baseUrl, port) => {
+      const upper = await health(baseUrl, `HTTP://127.0.0.1:${port}`, `127.0.0.1:${port}`);
+      expect(upper.status).toBe(200);
+      // Lower-case Host against an upper-case Origin — both sides go through
+      // URL parsing, so the host component compares case-insensitively.
+      const mixed = await health(baseUrl, `http://LOCALHOST:${port}`, `localhost:${port}`);
+      expect(mixed.status).toBe(200);
+    });
+  });
+
+  it("rejects an Origin whose port differs from Host unless it is allow-listed", async () => {
+    await withServer({ corsOrigins: [] }, async (baseUrl, port) => {
+      const sibling = await health(baseUrl, "http://127.0.0.1:6100", `127.0.0.1:${port}`);
+      expect(sibling.status).toBe(403);
+    });
+    // The same origin is accepted once it is named.
+    await withServer({ corsOrigins: ["http://127.0.0.1:6100"] }, async (baseUrl, port) => {
+      const allowed = await health(baseUrl, "http://127.0.0.1:6100", `127.0.0.1:${port}`);
+      expect(allowed.status).toBe(200);
+      expect(allowed.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:6100");
+    });
+  });
+
+  it("rejects Origin: null", async () => {
+    await withServer({ corsOrigins: ["https://one.example"] }, async (baseUrl) => {
+      const nullOrigin = await health(baseUrl, "null", "127.0.0.1:1");
+      expect(nullOrigin.status).toBe(403);
+    });
+  });
+
+  it("reads VOLTO_CORS_ORIGINS when no option is given, and VOLTO_CORS_ORIGIN still works", async () => {
+    const previousOrigins = process.env["VOLTO_CORS_ORIGINS"];
+    const previousOrigin = process.env["VOLTO_CORS_ORIGIN"];
+    try {
+      delete process.env["VOLTO_CORS_ORIGIN"];
+      process.env["VOLTO_CORS_ORIGINS"] = "https://env-a.example, https://env-b.example";
+      await withServer({}, async (baseUrl) => {
+        expect((await health(baseUrl, "https://env-a.example", "127.0.0.1:1")).status).toBe(200);
+        expect((await health(baseUrl, "https://env-b.example", "127.0.0.1:1")).status).toBe(200);
+        expect((await health(baseUrl, "http://localhost:6100", "127.0.0.1:1")).status).toBe(403);
+      });
+
+      delete process.env["VOLTO_CORS_ORIGINS"];
+      process.env["VOLTO_CORS_ORIGIN"] = "https://single.example";
+      await withServer({}, async (baseUrl) => {
+        expect((await health(baseUrl, "https://single.example", "127.0.0.1:1")).status).toBe(200);
+      });
+    } finally {
+      if (previousOrigins === undefined) delete process.env["VOLTO_CORS_ORIGINS"];
+      else process.env["VOLTO_CORS_ORIGINS"] = previousOrigins;
+      if (previousOrigin === undefined) delete process.env["VOLTO_CORS_ORIGIN"];
+      else process.env["VOLTO_CORS_ORIGIN"] = previousOrigin;
+    }
+  });
+
+  it("advertises Authorization in the preflight allow-headers for any allowed origin", async () => {
+    await withServer({ corsOrigins: ["https://preflight.example"] }, async (baseUrl) => {
+      const preflight = await new Promise<{ status: number; headers: http.IncomingHttpHeaders }>(
+        (resolve, reject) => {
+          const req = http.request(
+            new URL("/messages", baseUrl),
+            {
+              method: "OPTIONS",
+              headers: {
+                Origin: "https://preflight.example",
+                Host: "127.0.0.1:1",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization, last-event-id",
+              },
+            },
+            (res) => {
+              res.resume();
+              res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers }));
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        },
+      );
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers["access-control-allow-headers"]).toContain("Authorization");
+      expect(preflight.headers["access-control-allow-origin"]).toBe("https://preflight.example");
+    });
   });
 });

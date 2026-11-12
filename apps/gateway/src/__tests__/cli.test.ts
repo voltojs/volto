@@ -565,3 +565,49 @@ it("volto web 加 --serve-remote 后允许非 loopback 绑定，且不再打印�
     expect(out.join("")).not.toContain("does not apply");
   });
 });
+
+it("--trust-proxy 接到 ServerOptions.trustProxy；缺省关闭", async () => {
+  await withEnvRestored(async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+    const seen: ServerOptions[] = [];
+    const deps = (): CliDeps => ({
+      startServer: async (opts) => {
+        seen.push(opts);
+        return fakeServer(opts.port ?? 0);
+      },
+      stdout: () => {},
+      openBrowser: () => {},
+      waitForShutdown: async () => {},
+    });
+    expect(await main(["--trust-proxy", "--no-open", "--config-dir", dir], deps())).toBe(0);
+    expect(await main(["--no-open", "--config-dir", dir], deps())).toBe(0);
+    expect(seen[0]?.trustProxy).toBe(true);
+    expect(seen[1]?.trustProxy).toBe(false);
+  });
+});
+
+it("VOLTO_CORS_ORIGINS 用逗号拆成白名单并传给 createServer", async () => {
+  const previous = process.env["VOLTO_CORS_ORIGINS"];
+  try {
+    process.env["VOLTO_CORS_ORIGINS"] = " https://a.example , https://b.example ,, ";
+    await withEnvRestored(async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "volto-cli-"));
+      const seen: ServerOptions[] = [];
+      expect(
+        await main(["--no-open", "--config-dir", dir], {
+          startServer: async (opts) => {
+            seen.push(opts);
+            return fakeServer(opts.port ?? 0);
+          },
+          stdout: () => {},
+          openBrowser: () => {},
+          waitForShutdown: async () => {},
+        }),
+      ).toBe(0);
+      expect(seen[0]?.corsOrigins).toEqual(["https://a.example", "https://b.example"]);
+    });
+  } finally {
+    if (previous === undefined) delete process.env["VOLTO_CORS_ORIGINS"];
+    else process.env["VOLTO_CORS_ORIGINS"] = previous;
+  }
+});
