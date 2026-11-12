@@ -28,19 +28,22 @@ Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/gateway`
    pnpm --filter @volto/web dev
    ```
 
-4. **认证**：网关启动时会在终端打印两条 URL，打开其中的 Web 版：
+4. **认证**：用网关启动时打印的 `Open:` 链接登录，再把里面 `/?token=…` 的 token 带到前端
+   自己的地址上（同一个凭据，换一个源）：
 
    ```
-   Open this URL to authenticate: http://127.0.0.1:3100/?token=...
-   Or open the web app URL:       http://localhost:6100/gateway?token=...
+   Open:  http://127.0.0.1:3100/?token=…      ← 网关打印的两行之一（serve）
+   →      http://localhost:6100/gateway?token=…   ← 开发时把 token 拼到这里
    ```
 
    这一步不可跳过——直接访问 `http://localhost:6100` 会看到侧边栏报
-   `无法连接 agent 服务：Unauthorized`。打开带 token 的 URL 后，网关会
-   把 token 换成一个 HttpOnly cookie 并跳转回干净的地址，token 不会留在
-   地址栏里。cookie 有效期 7 天，之后重新走一遍这一步即可。
+   `无法连接 agent 服务：Unauthorized`。地址栏打开带 token 的页面后，网关会把 token 换成一个
+   HttpOnly cookie 并**重定向到同一页面去掉 `token` 的地址**（其它查询参数保留），所以 token
+   不会留在地址栏、浏览器历史或 Referer 里。只有浏览器的一次页面导航会这样换：
+   `fetch()` 之类的程序化请求不会被重定向。cookie 有效期 7 天，之后重新走一遍这一步即可。
 
-   launch token **每次启动网关都会重新生成**，旧 URL 随进程一起失效。
+   launch token **每次启动网关都会重新生成**，旧 URL 随进程一起失效；要跨重启就用持久 token
+   （`volto token` 打印的那条 `Open:` 链接）。
 
 ## 认证
 
@@ -57,7 +60,7 @@ cookie 认证依赖浏览器只看到一个 origin，所以部署时不要把它
 `NEXT_PUBLIC_AGENT_SERVER_URL` 只影响**服务端 rewrite 的目标地址**
 （默认 `http://localhost:3100`），不是浏览器直连的地址。
 
-非浏览器客户端（curl、脚本）用同一个 launch token 作为 bearer：
+非浏览器客户端（curl、脚本）把同样的 token（launch token 或持久 token）作为 bearer：
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3100/sessions
@@ -81,7 +84,16 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3100/sessions
 
 ## 项目与模型
 
-添加项目时会弹出系统原生的目录选择对话框。该对话框由**网关进程**弹出，因此网关必须运行在有图形界面的机器上。在 SSH、Docker 等无图形界面的环境下，网关不会挂起，但具体表现取决于对话框命令是否安装：命令缺失（或平台不受支持）时返回 501 并给出说明；命令已安装但没有图形会话可附着时，命令通常以非零退出码、空输出结束，这与用户主动取消在协议上无法区分，因此接口会返回与取消相同的 `{ path: null }`，界面上不会有任何提示。换言之，在真正无图形界面的环境下添加项目会**静默失败**，而不总是有错误提示。
+添加项目时默认会弹出系统原生的目录选择对话框。该对话框由**网关进程**弹出，因此网关必须运行在有图形界面的机器上。
+
+远程模式（`--serve-remote`）下网关没有这个能力：`GET /gateway-info` 的
+`capabilities.nativeDialogs` 为 `false`，界面会改为让你**填一个绝对路径**（网关那台机器上的路径），
+不再调用对话框；万一仍然收到 `501 capability_unavailable`，也会换成可读提示并切到这个入口。
+
+其它无图形界面的环境（SSH、Docker）网关不会挂起，但具体表现取决于对话框命令是否安装：命令缺失
+（或平台不受支持）时返回 501 并给出说明；命令已安装但没有图形会话可附着时，命令通常以非零退出码、
+空输出结束，这与用户主动取消在协议上无法区分，因此接口会返回与取消相同的 `{ path: null }`，界面上
+不会有任何提示。换言之，这类环境下添加项目可能**静默失败**，而不总是有错误提示。
 
 **验证状态**：macOS 一条命令已实测通过（对话框正常弹出，路径正确写回）。Linux（`zenity` / `kdialog`）与 Windows（`powershell` + `FolderBrowserDialog`）两条命令均已实现，但尚未在对应平台实测验证。
 
@@ -108,9 +120,26 @@ apiKey 不会返回给浏览器，界面上只显示掩码。
 
 同一个 sandbox 值同时驱动权限判定和 shell / filesystem 装饰器，所以"判定放不放行"与"实际能不能做到"来自同一个源。
 
-网关**只允许**绑定 `127.0.0.1` / `localhost` / `::1`，指定其它 host 会在启动时直接报错退出。因为前端可以指定任意绝对路径作为项目根目录，且 agent 会执行任意命令，绑定到对外网卡等于把整台机器交出去。
+网关**默认只绑定** `127.0.0.1` / `localhost` / `::1`。绑定到对外网卡（`--host 0.0.0.0` 等）必须显式加
+`--serve-remote`，否则启动时直接报错退出——因为前端可以指定任意绝对路径作为项目根目录，且 agent 会执行
+任意命令，绑定到对外网卡等于把整台机器交出去。远程模式同时：要求访问 token、关掉原生对话框（`/fs/pick-directory`、
+`/fs/reveal` 返回 `501 capability_unavailable`），`GET /gateway-info` 的 `mode` 变成 `remote`。外网访问的完整做法见
+[远程访问](../../docs/user/using/guides/remote-access.md)。
 
 沙箱化的子进程读不到网关自己的凭据目录（`~/.volto`，shell 与 fs 两侧都拒），环境变量里名字形如 `*API_KEY*` / `*TOKEN*` / `*SECRET*` / `*PASSWORD*` / `*CREDENTIAL*` 的也会在进入子进程前被剥离。`SSH_AUTH_SOCK` 是有意保留的——剥掉它 `git push` 就不能用了。
+
+## 能力契约（`GET /gateway-info`）
+
+客户端启动时取一次 `GET /gateway-info`（`lib/capabilities.ts` 的 `loadCapabilities`，由
+`components/capabilities-boot.tsx` 在应用外壳里挂载），读 `capabilities`：
+
+| 字段 | 客户端的用法 |
+| --- | --- |
+| `nativeDialogs` | 为 `false`（远程模式）时，「添加工作区」改为填网关那台机器上的路径，不再调用系统目录对话框；其它失败里的 `501 capability_unavailable` 也换成可读文案并切到这个入口 |
+| `browserAutomation` / `lsp` | 目前只用于展示，不影响界面行为 |
+
+拿不到答案（未取到、请求失败、旧网关没有这个字段）一律按 `nativeDialogs` 可用处理——保持旧行为，
+不会因为一次失败把界面切到「远程模式」。
 
 ## 说明
 

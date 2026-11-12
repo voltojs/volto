@@ -10,12 +10,14 @@
 npx @volto/gateway
 ```
 
-网关同时提供 API 和 Web 界面，启动后只打印两行：
+网关同时提供 API 和 Web 界面，启动（`volto` 或 `volto serve`）后只打印两行：
 
 ```text
 volto gateway 0.1.0 listening on http://127.0.0.1:3100
 Open: http://127.0.0.1:3100/?token=…
 ```
+
+另有 `volto web`（界面单独一个端口、API 转发回网关）会多打印第三行 `Login:`，那条链接带的是持久 token。
 
 打开 `Open:` 那个网址即可登录（token 会换成 cookie，之后 `http://127.0.0.1:3100/` 直接可进；没自动开浏览器时就手动粘这个链接）。然后在「设置 → 模型配置」里加供应商与 API Key，选一个工作区目录就能开始对话。
 

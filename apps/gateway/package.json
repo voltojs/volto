@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "web",
+    "README.md",
     "!dist/**/__tests__",
     "!dist/**/*.test.*"
   ],
