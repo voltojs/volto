@@ -1,6 +1,6 @@
 {
   "name": "@voltojs/stores",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "./dist/memory/index.js",
   "types": "./dist/memory/index.d.ts",

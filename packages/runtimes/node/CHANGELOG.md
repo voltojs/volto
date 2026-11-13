@@ -1,5 +1,17 @@
 # @voltojs/runtime-node
 
+## 0.2.0
+
+### Minor Changes
+
+- First public release of the consolidated package set.
+
+### Patch Changes
+
+- Updated dependencies
+  - @voltojs/core@0.2.0
+  - @voltojs/tools@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

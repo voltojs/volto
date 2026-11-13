@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createInMemoryMemoryStore } from "../memory.js";
-import { describeMemoryStoreContract } from "@voltojs/memory-common/contract";
+import { describeMemoryStoreContract } from "../../common/contract.js";
 import type { MemoryEntry } from "@voltojs/core";
 
 function entry(text: string, overrides?: Partial<MemoryEntry>): MemoryEntry {

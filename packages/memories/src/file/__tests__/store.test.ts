@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createFileMemoryStore } from "../store.js";
-import { describeMemoryStoreContract } from "@voltojs/memory-common/contract";
+import { describeMemoryStoreContract } from "../../common/contract.js";
 import type { MemoryEntry, MemoryStore } from "@voltojs/core";
 
 let tempDir: string;
