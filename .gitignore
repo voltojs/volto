@@ -42,6 +42,9 @@ pnpm-debug.log*
 # SDD scratch (superpowers subagent-driven ledger/reports)
 .superpowers/
 
+# ZCode local ignore file (machine-specific, not part of the project)
+.zcodeignore
+
 .volto
 
 # Transient TypeScript snippets extracted by docs:check
