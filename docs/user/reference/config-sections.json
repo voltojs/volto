@@ -1,87 +1,234 @@
 {
   "preferences": {
-    "summary": "界面的默认值：新会话从哪一档权限开始、用什么语言和主题、标题用哪个模型起名。多数字段在「设置 → 通用设置」里改，手改这个分区通常只在批量重置时用。",
+    "summary": {
+      "en": "Defaults for the interface: which permission tier a new session starts in, which language and theme to use, and which model names titles. Most fields are changed in Settings → General; editing this section by hand is usually only for bulk resets.",
+      "zh": "界面的默认值：新会话从哪一档权限开始、用什么语言和主题、标题用哪个模型起名。多数字段在「设置 → 通用设置」里改，手改这个分区通常只在批量重置时用。"
+    },
     "fields": {
-      "locale": "界面语言（zh / en）。",
-      "theme": "主题：light / dark / system。",
-      "streamDensity": "显示模式：detailed（逐个工具成卡）或 concise（每个工具一行）。",
-      "defaultPermissionMode": "新会话的默认权限档位。",
-      "lastProviderId": "上次用过的供应商，用于预选。",
-      "lastModelId": "上次用过的模型，用于预选。",
-      "lastReasoningEffort": "上次用过的推理强度。",
-      "titleProviderId": "给新会话起标题所用的供应商；不填则截取首条消息。",
-      "titleModelId": "给新会话起标题所用的模型。"
+      "locale": {
+        "en": "Interface language (zh / en).",
+        "zh": "界面语言（zh / en）。"
+      },
+      "theme": {
+        "en": "Theme: light / dark / system.",
+        "zh": "主题：light / dark / system。"
+      },
+      "streamDensity": {
+        "en": "Display mode: detailed (each tool becomes a card) or concise (one line per tool).",
+        "zh": "显示模式：detailed（逐个工具成卡）或 concise（每个工具一行）。"
+      },
+      "defaultPermissionMode": {
+        "en": "Default permission tier for new sessions.",
+        "zh": "新会话的默认权限档位。"
+      },
+      "lastProviderId": {
+        "en": "Last used provider, used for pre-selection.",
+        "zh": "上次用过的供应商，用于预选。"
+      },
+      "lastModelId": {
+        "en": "Last used model, used for pre-selection.",
+        "zh": "上次用过的模型，用于预选。"
+      },
+      "lastReasoningEffort": {
+        "en": "Last used reasoning effort.",
+        "zh": "上次用过的推理强度。"
+      },
+      "titleProviderId": {
+        "en": "Provider used to name new sessions; when unset, the first message is truncated instead.",
+        "zh": "给新会话起标题所用的供应商；不填则截取首条消息。"
+      },
+      "titleModelId": {
+        "en": "Model used to name new sessions.",
+        "zh": "给新会话起标题所用的模型。"
+      }
     }
   },
   "projects": {
-    "summary": "工作区注册表。数组，每个元素是一项工作区：`id` / `name` / `path` / `createdAt`。日常通过界面添加，不建议手改。",
+    "summary": {
+      "en": "Workspace registry. An array; each element is a workspace: `id` / `name` / `path` / `createdAt`. Normally added through the interface; hand edits are not recommended.",
+      "zh": "工作区注册表。数组，每个元素是一项工作区：`id` / `name` / `path` / `createdAt`。日常通过界面添加，不建议手改。"
+    },
     "fields": {}
   },
   "providers": {
-    "summary": "模型供应商与各自的模型清单。apiKey 加密后存在 `apiKeyEnc`，明文不落盘、也不出现在任何接口响应里。",
+    "summary": {
+      "en": "Model providers and their respective model lists. apiKey is stored encrypted in `apiKeyEnc`; the plaintext is never written to disk and never appears in any API response.",
+      "zh": "模型供应商与各自的模型清单。apiKey 加密后存在 `apiKeyEnc`，明文不落盘、也不出现在任何接口响应里。"
+    },
     "fields": {
-      "kind": "`catalog`（内置目录，按模型 code 选）或 `custom`（自定义 OpenAI 兼容端点）；早期记录可能没有这个字段，读时按 `custom` 处理。",
-      "id": "供应商在本机的唯一 id。",
-      "name": "显示名。",
-      "piProvider": "catalog 供应商对应的内置目录标识。",
-      "baseURL": "覆盖目录里的地址；null 表示用默认。",
-      "apiKeyEnc": "加密后的密钥。手填明文无效。",
-      "protocol": "该供应商默认的线上协议（可被单个模型覆盖）。",
-      "auth": "自定义鉴权方式（少量供应商需要）。",
-      "headers": "自定义请求头。",
-      "models": "模型清单：每项有 `code`，可选 `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol`。",
-      "modelCodes": "早期写法：只存模型 code 的数组。读取时会转成 `models`，新写入用 `models`。"
+      "kind": {
+        "en": "`catalog` (built-in catalog, choose by model code) or `custom` (a custom OpenAI-compatible endpoint); early records may lack this field and are treated as `custom` when read.",
+        "zh": "`catalog`（内置目录，按模型 code 选）或 `custom`（自定义 OpenAI 兼容端点）；早期记录可能没有这个字段，读时按 `custom` 处理。"
+      },
+      "id": {
+        "en": "Unique id of the provider on this machine.",
+        "zh": "供应商在本机的唯一 id。"
+      },
+      "name": {
+        "en": "Display name.",
+        "zh": "显示名。"
+      },
+      "piProvider": {
+        "en": "The built-in catalog identifier for a catalog provider.",
+        "zh": "catalog 供应商对应的内置目录标识。"
+      },
+      "baseURL": {
+        "en": "Overrides the address from the catalog; null means use the default.",
+        "zh": "覆盖目录里的地址；null 表示用默认。"
+      },
+      "apiKeyEnc": {
+        "en": "The encrypted key. Typing plaintext by hand has no effect.",
+        "zh": "加密后的密钥。手填明文无效。"
+      },
+      "protocol": {
+        "en": "Default wire protocol for this provider (can be overridden per model).",
+        "zh": "该供应商默认的线上协议（可被单个模型覆盖）。"
+      },
+      "auth": {
+        "en": "Custom authentication method (needed by a few providers).",
+        "zh": "自定义鉴权方式（少量供应商需要）。"
+      },
+      "headers": {
+        "en": "Custom request headers.",
+        "zh": "自定义请求头。"
+      },
+      "models": {
+        "en": "Model list: each item has `code`, and optionally `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol`.",
+        "zh": "模型清单：每项有 `code`，可选 `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol`。"
+      },
+      "modelCodes": {
+        "en": "Older form: an array holding only model codes. Converted to `models` on read; new writes use `models`.",
+        "zh": "早期写法：只存模型 code 的数组。读取时会转成 `models`，新写入用 `models`。"
+      }
     }
   },
   "routingTiers": {
-    "summary": "模型路由档位表。数组，每项为 `{ id, label, description, target: { providerId, modelId } | null, reasoningEffort? }`；`target` 为 null 表示未指派，派发时退回父会话的模型。",
+    "summary": {
+      "en": "Model routing tier table. An array; each item is `{ id, label, description, target: { providerId, modelId } | null, reasoningEffort? }`; a `target` of null means unassigned, and dispatch falls back to the parent session's model.",
+      "zh": "模型路由档位表。数组，每项为 `{ id, label, description, target: { providerId, modelId } | null, reasoningEffort? }`；`target` 为 null 表示未指派，派发时退回父会话的模型。"
+    },
     "fields": {}
   },
   "permissions": {
-    "summary": "参数级权限规则。数组 `rules`，按顺序匹配，第一条命中生效；规则只能收紧权限，不能越过沙箱边界。",
+    "summary": {
+      "en": "Parameter-level permission rules. The array `rules` is matched in order and the first hit takes effect; rules can only tighten permissions, never cross the sandbox boundary.",
+      "zh": "参数级权限规则。数组 `rules`，按顺序匹配，第一条命中生效；规则只能收紧权限，不能越过沙箱边界。"
+    },
     "fields": {
-      "rules": "规则数组。每条规则的字段见下表。",
-      "toolName": "精确匹配工具名。",
-      "toolPattern": "按通配模式匹配工具名。",
-      "capability": "按工具声明的能力匹配。",
-      "pathPattern": "按路径匹配——只对声明了路径入参的工具生效，`bash` 不在其中。",
-      "hostPattern": "按 URL 主机匹配——只对声明了 URL 入参的工具生效。",
-      "commandPrefix": "命令前缀（逐 token 匹配），只对声明了命令入参的工具生效。",
-      "decision": "命中后的处置：`allow` / `deny` / `ask`。"
+      "rules": {
+        "en": "Rule array. See the table below for each rule's fields.",
+        "zh": "规则数组。每条规则的字段见下表。"
+      },
+      "toolName": {
+        "en": "Matches the tool name exactly.",
+        "zh": "精确匹配工具名。"
+      },
+      "toolPattern": {
+        "en": "Matches the tool name by wildcard pattern.",
+        "zh": "按通配模式匹配工具名。"
+      },
+      "capability": {
+        "en": "Matches a capability declared by the tool.",
+        "zh": "按工具声明的能力匹配。"
+      },
+      "pathPattern": {
+        "en": "Matches by path — only applies to tools that declare a path argument, which does not include `bash`.",
+        "zh": "按路径匹配——只对声明了路径入参的工具生效，`bash` 不在其中。"
+      },
+      "hostPattern": {
+        "en": "Matches by URL host — only applies to tools that declare a URL argument.",
+        "zh": "按 URL 主机匹配——只对声明了 URL 入参的工具生效。"
+      },
+      "commandPrefix": {
+        "en": "Command prefix (matched token by token); only applies to tools that declare a command argument.",
+        "zh": "命令前缀（逐 token 匹配），只对声明了命令入参的工具生效。"
+      },
+      "decision": {
+        "en": "Action once matched: `allow` / `deny` / `ask`.",
+        "zh": "命中后的处置：`allow` / `deny` / `ask`。"
+      }
     }
   },
   "hooks": {
-    "summary": "生命周期钩子。每个键是一个生命周期名（`session:start`、`turn:end`、`preToolUse`、`postToolUse`、`userPromptSubmit`、`preCompact`、`subagentStop`、`notification` 等），值是命令钩子数组，每项只接受 `{ \"type\": \"command\", \"command\": \"…\" }`。",
+    "summary": {
+      "en": "Lifecycle hooks. Each key is a lifecycle name (`session:start`, `turn:end`, `preToolUse`, `postToolUse`, `userPromptSubmit`, `preCompact`, `subagentStop`, `notification` and so on), and the value is an array of command hooks, each item accepting only `{ \"type\": \"command\", \"command\": \"…\" }`.",
+      "zh": "生命周期钩子。每个键是一个生命周期名（`session:start`、`turn:end`、`preToolUse`、`postToolUse`、`userPromptSubmit`、`preCompact`、`subagentStop`、`notification` 等），值是命令钩子数组，每项只接受 `{ \"type\": \"command\", \"command\": \"…\" }`。"
+    },
     "fields": {}
   },
   "lsp": {
-    "summary": "语言服务器配置。内置只覆盖 TS/JS；其他语言在这里登记。非法配置会拒绝启动，而不是静默失效。",
+    "summary": {
+      "en": "Language server configuration. The built-in set only covers TS/JS; register other languages here. An invalid configuration refuses to start rather than silently doing nothing.",
+      "zh": "语言服务器配置。内置只覆盖 TS/JS；其他语言在这里登记。非法配置会拒绝启动，而不是静默失效。"
+    },
     "fields": {
-      "servers": "按**语言 id** 索引（如 `typescript`、`python`），不是文件扩展名；文件路径先映射到语言 id 再查这张表。",
-      "command": "启动命令，例如 `rust-analyzer`。",
-      "args": "启动参数数组。",
-      "initializationParams": "透传给语言服务器的初始化参数。"
+      "servers": {
+        "en": "Indexed by **language id** (such as `typescript`, `python`), not by file extension; a file path is first mapped to a language id and then looked up in this table.",
+        "zh": "按**语言 id** 索引（如 `typescript`、`python`），不是文件扩展名；文件路径先映射到语言 id 再查这张表。"
+      },
+      "command": {
+        "en": "Start command, for example `rust-analyzer`.",
+        "zh": "启动命令，例如 `rust-analyzer`。"
+      },
+      "args": {
+        "en": "Array of start arguments.",
+        "zh": "启动参数数组。"
+      },
+      "initializationParams": {
+        "en": "Initialization parameters passed through to the language server.",
+        "zh": "透传给语言服务器的初始化参数。"
+      }
     }
   },
   "egress": {
-    "summary": "网络出口名单。约束 Network 端口的三个工具（`web_fetch` / `web_search` / `http_query`）以及 Agent 浏览器的顶层导航；不是机器级防火墙——bash 里跑的 curl 和浏览器页面内的子资源不经过它。denylist 优先，精确主机名匹配，无通配符。",
+    "summary": {
+      "en": "Network egress list. It constrains the three Network-port tools (`web_fetch` / `web_search` / `http_query`) and top-level navigation of the agent browser; it is not a machine-level firewall — curl run in bash and subresources inside browser pages do not go through it. The denylist wins, matching is by exact host name, and there are no wildcards.",
+      "zh": "网络出口名单。约束 Network 端口的三个工具（`web_fetch` / `web_search` / `http_query`）以及 Agent 浏览器的顶层导航；不是机器级防火墙——bash 里跑的 curl 和浏览器页面内的子资源不经过它。denylist 优先，精确主机名匹配，无通配符。"
+    },
     "fields": {
-      "allowHosts": "允许访问的主机名列表。**一旦写了这个字段就进入白名单模式**：不在名单里的主机全部拒绝；`[]` 表示拒绝全部。",
-      "denyHosts": "拒绝访问的主机名列表，优先于 allowHosts。"
+      "allowHosts": {
+        "en": "List of host names allowed. **Writing this field switches to whitelist mode**: every host not on the list is rejected; `[]` means reject everything.",
+        "zh": "允许访问的主机名列表。**一旦写了这个字段就进入白名单模式**：不在名单里的主机全部拒绝；`[]` 表示拒绝全部。"
+      },
+      "denyHosts": {
+        "en": "List of host names to reject; takes precedence over allowHosts.",
+        "zh": "拒绝访问的主机名列表，优先于 allowHosts。"
+      }
     }
   },
   "sidebar": {
-    "summary": "侧边栏布局（置顶会话、分组）。运行时状态，由界面写入，手改会在下次布局变更时被覆盖。",
+    "summary": {
+      "en": "Sidebar layout (pinned sessions, groups). Runtime state written by the interface; hand edits are overwritten on the next layout change.",
+      "zh": "侧边栏布局（置顶会话、分组）。运行时状态，由界面写入，手改会在下次布局变更时被覆盖。"
+    },
     "fields": {}
   },
   "browser": {
-    "summary": "Agent 内置浏览器。它跑在网关所在机器上，用你本机安装的 Chrome/Chromium/Edge 做执行环境；Volto 只依赖 playwright-core 驱动，不向仓库下载浏览器。默认后台无头运行，一个回合结束后自动关闭。",
+    "summary": {
+      "en": "The agent's built-in browser. It runs on the machine hosting the gateway and uses your locally installed Chrome/Chromium/Edge as the execution environment; Volto only depends on playwright-core as a driver and downloads no browser. It runs headless in the background by default and closes automatically once a turn ends.",
+      "zh": "Agent 内置浏览器。它跑在网关所在机器上，用你本机安装的 Chrome/Chromium/Edge 做执行环境；Volto 只依赖 playwright-core 驱动，不向仓库下载浏览器。默认后台无头运行，一个回合结束后自动关闭。"
+    },
     "fields": {
-      "enabled": "是否装配浏览器工具，默认 true。共享/远程部署建议显式设为 false。",
-      "headless": "是否无头运行，默认 true（后台运行，不占用窗口）。设为 false 会弹出真实浏览器窗口；无显示环境请保持 true。",
-      "idleTimeoutMs": "无工具调用多久后关闭该会话的浏览器，默认 600000（10 分钟）。",
-      "storageStatePath": "可选的 Playwright storage state 文件路径；新会话浏览器会加载它，`browser_storage_state` 会写入它。文件含登录 cookie，需自行排除出 git。",
-      "executablePath": "你本机 Chrome/Chromium/Edge 的可执行文件路径。不设置时自动探测常见安装位置；找不到会禁用浏览器工具，不会下载浏览器。"
+      "enabled": {
+        "en": "Whether to wire up the browser tools; defaults to true. For shared/remote deployments it is recommended to explicitly set it to false.",
+        "zh": "是否装配浏览器工具，默认 true。共享/远程部署建议显式设为 false。"
+      },
+      "headless": {
+        "en": "Whether to run headless; defaults to true (runs in the background and takes no window). Setting it to false pops up a real browser window; keep it true when there is no display environment.",
+        "zh": "是否无头运行，默认 true（后台运行，不占用窗口）。设为 false 会弹出真实浏览器窗口；无显示环境请保持 true。"
+      },
+      "idleTimeoutMs": {
+        "en": "How long without tool calls before that session's browser is closed; defaults to 600000 (10 minutes).",
+        "zh": "无工具调用多久后关闭该会话的浏览器，默认 600000（10 分钟）。"
+      },
+      "storageStatePath": {
+        "en": "Optional path to a Playwright storage state file; new session browsers load it, and `browser_storage_state` writes to it. The file holds login cookies, so exclude it from git yourself.",
+        "zh": "可选的 Playwright storage state 文件路径；新会话浏览器会加载它，`browser_storage_state` 会写入它。文件含登录 cookie，需自行排除出 git。"
+      },
+      "executablePath": {
+        "en": "Path to your local Chrome/Chromium/Edge executable. When unset, common install locations are probed automatically; if none is found the browser tools are disabled, and no browser is downloaded.",
+        "zh": "你本机 Chrome/Chromium/Edge 的可执行文件路径。不设置时自动探测常见安装位置；找不到会禁用浏览器工具，不会下载浏览器。"
+      }
     }
   }
 }

@@ -6,9 +6,7 @@ source:
   - packages/tools/*/src
 verified: 2026-11-11
 ---
-<!-- GENERATED FILE — do not edit by hand.
-     由 `pnpm docs:gen` 从代码与下面的 notes 文件生成；手改会被 `pnpm docs:check` 判为漂移。
-     要改内容：改 notes JSON 或改代码，然后重新生成。 -->
+<!-- GENERATED FILE — do not edit by hand. Run `pnpm docs:gen`; hand edits are reported as drift by `pnpm docs:check`. -->
 
 # 工具参考
 

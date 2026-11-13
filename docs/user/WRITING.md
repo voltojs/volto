@@ -1,22 +1,25 @@
-# 写用户文档的规矩
+# Writing user documentation
 
-这份文件是给**人和 agent 共读**的：人和模型写出来的页面应该看不出区别。开发文档（`docs/superpowers/`）的规则不适用这里——那边写「为什么这样设计」，这边只写「怎么用」。
+This file is for humans and agents alike: a page written by either should read the same.
+The rules for developer documentation do not apply here — `docs/dev/` explains **why** a
+design is the way it is; `docs/user/` explains only **how to use it**.
 
-## 两条轨，别串台
+## Two tracks, kept apart
 
-| 目录 | 读者 | 回答的问题 | 允许出现的词 |
+| Directory | Reader | Question it answers | Vocabulary allowed |
 | --- | --- | --- | --- |
-| `using/` | 用这个 agent 的人 | 我怎么让它做某件事？ | 界面上的词、命令、配置字段 |
-| `integrating/` | 把 agent 嵌进自己宿主的人 | 我怎么把它接起来？ | 端口、类型、选项、事件 |
-| `concepts/` | 两者 | 它为什么这样表现？ | 概念名，但首次出现要有一句人话解释 |
+| `using/` | People who run the agent | How do I make it do X? | UI labels, commands, config keys |
+| `integrating/` | People embedding the agent in their own host | How do I wire it up? | Ports, types, options, events |
+| `concepts/` | Both | Why does it behave this way? | Concept names, explained in plain language on first use |
 
-判据：**一个页面里出现「reducer」「port」「Effect」这类词，而读者是 `using/` 的人，就是写错了地方。**
+Test: a page that says "reducer", "port" or "Effect" to a `using/` reader is on the wrong
+track.
 
-## 页面骨架
+## Page skeleton
 
 ```markdown
 ---
-title: 权限与审批
+title: Permissions and approvals
 type: guide
 source:
   - apps/gateway/src/config/permissions.ts
@@ -24,86 +27,125 @@ generated: false
 verified: 2026-11-11
 ---
 
-# 权限与审批
+# Permissions and approvals
 
-> 读完你会：<一个可验证的结果>
+> You will: <one verifiable result>
 
-## 前提            ← 可选
-## 步骤            ← 编号；每步写「你应看到」
-## 出问题怎么办     ← 最多 3 条，指向 troubleshooting
-## 相关
+## Prerequisites      ← optional
+## Steps              ← numbered; every step says "You should see"
+## When it goes wrong ← at most 3 items, pointing at troubleshooting
+## Related
 ```
 
-- `title` 与 H1 一致。全文**只有一个 H1**。
-- `type` 四选一：`tutorial`（带着做一遍）· `guide`（解决一个问题）· `reference`（查表）· `concept`（讲清一个概念）。
-- `source` 写这页描述的实现路径，支持 `*` 通配。**它的用途不是给人看的，是给漂移检测用的**：改到这些文件时，这页大概率要一起改。
-- `verified` 是你（人或 agent）**对照实际界面与行为**核对过的日期，不是「改过」的日期。
-- 单页 ≤ 350 行。超了就是该拆页。
+- `title` matches the H1. Exactly one H1 per page.
+- `type` is one of `tutorial` (walk the reader through it) · `guide` (solve one problem) ·
+  `reference` (look things up) · `concept` (explain one idea).
+- `source` lists the implementation paths this page describes; `*` globs are allowed. Its
+  purpose is not for readers but for drift detection: when those files change, this page
+  probably needs to change too.
+- `verified` is the date you checked the page against the real UI and behavior — not the
+  date it was edited.
+- Keep a page at or under 350 lines. Longer means split it.
 
-## 写作规则
+## Language: English is the main file
 
-1. **先给结果，再给步骤。** 开头一句「读完你会…」，读者据此决定要不要读下去。
-2. **每步都要有「你应看到」。** 没有可观察结果的步骤，读者无法自查。
-3. **命令块必须能直接复制**，不要用 `…` 省略关键参数。
-4. **只留结论，不留论证。** 边界为什么这样，写在 `SAFETY.md`；这里只写「它挡什么、不挡什么」。
-5. **不复制。** 同一机制只在一处解释，别处链接过去。`using/` 与 `integrating/` 之间复制内容会被检查提示。
-6. **术语固定**：工作区 / 会话 / 子代理 / 审批 / 沙箱 / 供应商 / 技能 / 记忆 / 宿主 / 端口。
-7. **代码块分两种**：可运行的示例用 ` ```ts `（会被 `tsc` 编译检查）；接口签名摘录用 ` ```text `（不是可运行示例，不参与编译）。把签名摘录标成 `ts` 会让检查误报。
-8. **截图**放 `assets/`，命名 `<页面名>-<步骤>.png`，用相对路径引用（链接检查会校验文件存在）。
+- The English page lives at its normal path; the Chinese mirror lives at the same path
+  under `docs/user/zh/`. Every user-facing page must exist in both.
+- Translate the `title`, the H1 and the prose. Never translate code, commands, paths,
+  config keys, URLs, tool names or permission-mode names.
+- Keep the two versions structurally identical. If a page is split, both languages split;
+  if a section is removed, remove it in both. Do not let one language drift ahead.
+- Use the terms in [GLOSSARY.md](GLOSSARY.md) consistently.
+- Links inside a page are relative, so a mirror page keeps the same relative path (it
+  resolves inside `zh/`). Do not point a Chinese page at an English page.
 
-## 生成的页面
+## Writing rules
 
-这四个文件由脚本生成，**手改会被检查判为漂移**：
+1. **Result first, then steps.** Open with "You will: …" so the reader can decide whether
+   to keep reading.
+2. **Every step has a "You should see".** A step without an observable result cannot be
+   self-checked.
+3. **Commands must be copy-pasteable.** No `…` hiding a required argument.
+4. **Conclusions only, no argument.** Why a boundary exists lives in `SAFETY.md`; here say
+   what it stops and what it does not.
+5. **Do not duplicate.** Explain a mechanism once and link to it. Copying between `using/`
+   and `integrating/` is flagged by the check.
+6. **Fixed vocabulary**: workspace / session / turn / subagent / approval / sandbox /
+   provider / skill / memory / host / port.
+7. **Two kinds of code block**: runnable examples use ` ```ts ` (they are compiled by
+   `tsc`); signature excerpts use ` ```text ` (not compiled). Marking an excerpt as `ts`
+   makes the check report false errors.
+8. **Screenshots** go under `assets/`, named `<page>-<step>.png`, referenced by a relative
+   path (the link check verifies the file exists).
 
-| 文件 | 输入 |
+## Generated pages
+
+Four files are generated; hand edits are reported as drift:
+
+| File | Input |
 | --- | --- |
-| `using/reference/tools.md` | 各工具包里的工具声明 + `reference/tool-notes.json` |
-| `using/reference/config.md` | `config.json` 分区 + `reference/config-sections.json` |
-| `integrating/reference/gateway-api.md` | 网关路由 + `reference/gateway-notes.json` |
-| `integrating/reference/sdk-exports.md` | SDK 的导出语句 |
+| `using/reference/tools.md` | Tool declarations in each tool package + `reference/tool-notes.json` |
+| `using/reference/config.md` | `config.json` sections + `reference/config-sections.json` |
+| `integrating/reference/gateway-api.md` | Gateway routes + `reference/gateway-notes.json` |
+| `integrating/reference/sdk-exports.md` | Export statements in the SDK |
 
-要改内容：改代码，或改对应 notes JSON，然后 `pnpm docs:sync`。
+The same four pages are generated under `zh/` from the same inputs, using the Chinese side
+of each bilingual note (`{ "en": "…", "zh": "…" }`). Change the code or the notes and run
+`pnpm docs:sync`.
 
-**notes 的缺口是硬错误**：新增一个工具却没写中文说明，`docs:check` 直接失败。这条是故意的——没有它，生成器只会产出一堆英文 description，看起来有文档、实际没法读。
+**A missing note is a hard error**: adding a tool without an entry makes `docs:check` fail.
+That is deliberate — otherwise the generator would emit a table that looks like
+documentation but cannot be read.
 
-## 检查与提交
+## Checks and commits
 
 ```bash
-pnpm docs:check    # 只读检查，CI 跑的就是它
-pnpm docs:sync     # 重新生成参考页 + 接受当前表面基线
-pnpm docs:ack "理由"  # 表面变了但确认无需改文档时用；理由会进 diff
+pnpm docs:check    # read-only; this is what CI runs
+pnpm docs:sync     # regenerate reference pages + accept the current surface baseline
+pnpm docs:ack "reason"  # use when a surface changed but no page needs updating
 ```
 
-`docs:check` 会拦住这些：
+`docs:check` fails on:
 
-- 生成页与输入不一致（手改过，或代码改了没重新生成）
-- 链接 / 锚点 / 图片指向不存在的目标
-- 工具、配置字段、网关路由新增或删除后 notes 没跟上
-- **用户可见表面变了，但基线没同步**（见下）
-- 集成者文档里的 TypeScript 示例编译不过
-- 孤儿页（没有任何页面链接到它）
+- generated pages out of sync with their inputs (hand-edited, or code changed without
+  regenerating);
+- dead links, anchors or images;
+- a new or removed tool / config field / gateway route whose note is missing;
+- **a user-visible surface changed without the baseline being synced** (see below);
+- TypeScript examples in the integrator docs that do not compile;
+- an orphan page (nothing links to it);
+- a page whose Chinese mirror is missing, or a note missing one of its two languages.
 
-## 表面基线是什么
+## What the surface baseline is
 
-`docs/user/.meta/surface.json` 记录了几组「用户能感知的东西」的指纹：工具清单、网关路由、配置分区与字段、SDK 导出、SDK 类型签名、界面文案目录。
+`docs/user/.meta/surface.json` records fingerprints of several "things users can perceive":
+the tool list, gateway routes, config sections and fields, SDK exports, SDK type signatures
+and UI copy catalogs. When a code change alters a fingerprint, `docs:check` fails and names
+the pages to look at (the mapping is in `.meta/routing.json`). Two ways out:
 
-改代码导致指纹变化时，`docs:check` 会失败，并**点名该看哪几页**（映射在 `.meta/routing.json`）。两条出路：
+1. update the affected pages, then `pnpm docs:sync` to accept the new baseline;
+2. if the change is genuinely invisible, `pnpm docs:ack "reason"` — the reason lands in the
+   diff.
 
-1. 改了相关页面 → `pnpm docs:sync` 更新基线；
-2. 确认这次改动对用户无感 → `pnpm docs:ack "理由"`。
+Both leave a trace in the commit, so a reviewer sees them. **`docs:ack` is not a waiver**:
+a high ack rate means the fingerprints are too coarse; tighten the check instead of
+acking more.
 
-两者都会在提交里留下痕迹，评审时看得见。**`docs:ack` 不是免检通行证**：ack 频率过高说明指纹的粒度太粗，该讨论的是收紧检查，而不是继续 ack。
+## Adding a page
 
-## 新增一个页面的流程
+1. Check whether an existing page already has the right home (add a section rather than a
+   page).
+2. Create the English page with front matter, `source` pointing at the implementation.
+3. Create the Chinese mirror at the same path under `zh/`.
+4. Add the entry to `docs/user/README.md` and its Chinese mirror; otherwise the orphan
+   check fails.
+5. Run `pnpm docs:check`.
 
-1. 确认现有页面里没有它该待的位置（宁可加一节，不要加一页）。
-2. 建文件，写 front-matter，`source` 指到实现。
-3. 在 `README.md` 的对应轨道里加入口（否则孤儿页检查会失败）。
-4. `pnpm docs:check`。
+## Do not
 
-## 不要做的事
-
-- 不要把 spec / plan 的内容搬过来。读者不需要知道当时为什么选了这个方案。
-- 不要写「TODO」「待补充」占位页。没有内容就不建页。
-- 不要用「显然」「简单地」这类词——读者卡住时它们只会让人更烦躁。
-- 不要在 `using/` 里贴几十行的配置 JSON 全文，给最小可用的片段 + 指向 `reference/config.md`。
+- Move spec or plan content into user docs. Readers do not need the historical reasoning.
+- Create "TODO" or "coming soon" placeholder pages. No content, no page.
+- Use "obviously" or "simply" — when the reader is stuck, those only make it worse.
+- Paste a full configuration JSON into `using/` pages; show the minimal useful fragment and
+  link to `reference/config.md`.
+- Write one language first and leave the mirror stale. Both versions are reviewed together.

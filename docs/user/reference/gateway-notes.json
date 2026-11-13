@@ -3,192 +3,306 @@
     {
       "method": "POST",
       "path": "/messages",
-      "note": "触发一轮对话；流式事件从该会话的 `GET /events` 返回。"
+      "note": {
+        "en": "Start one conversation turn; streaming events come back from that session's `GET /events`.",
+        "zh": "触发一轮对话；流式事件从该会话的 `GET /events` 返回。"
+      }
     },
     {
       "method": "GET",
       "path": "/events",
-      "note": "一个会话的 SSE 长连接：模型增量、工具调用、审批请求、回合结束都从这里出。**一段会话同时只服务一个连接**——新连接会顶掉旧连接，被顶掉瞬间仍在等待的审批按 `connection-lost` 拒绝（不是默认允许）。"
+      "note": {
+        "en": "A session's long-lived SSE connection: model deltas, tool calls, approval requests and turn ends all come out of it. **A session serves only one connection at a time** — a new connection displaces the old one, and approvals still waiting at the moment of displacement are rejected as `connection-lost` (not allowed by default).",
+        "zh": "一个会话的 SSE 长连接：模型增量、工具调用、审批请求、回合结束都从这里出。**一段会话同时只服务一个连接**——新连接会顶掉旧连接，被顶掉瞬间仍在等待的审批按 `connection-lost` 拒绝（不是默认允许）。"
+      }
     },
     {
       "method": "POST",
       "path": "/messages/queue",
-      "note": "编辑或撤回尚未送达模型的排队消息。"
+      "note": {
+        "en": "Edit or withdraw a queued message that has not reached the model yet.",
+        "zh": "编辑或撤回尚未送达模型的排队消息。"
+      }
     },
     {
       "method": "POST",
       "path": "/approvals",
-      "note": "对一个待审批的工具调用给出 allow / deny / 回答。"
+      "note": {
+        "en": "Give allow / deny / an answer for a tool call awaiting approval.",
+        "zh": "对一个待审批的工具调用给出 allow / deny / 回答。"
+      }
     },
     {
       "method": "POST",
       "path": "/interrupt",
-      "note": "取消当前正在进行的回合。"
+      "note": {
+        "en": "Cancel the turn currently in progress.",
+        "zh": "取消当前正在进行的回合。"
+      }
     },
     {
       "method": "POST",
       "path": "/run",
-      "note": "一次性执行并返回最终状态（旧接口，多轮请用 /messages）。"
+      "note": {
+        "en": "Execute once and return the final state (legacy interface; use /messages for multiple turns).",
+        "zh": "一次性执行并返回最终状态（旧接口，多轮请用 /messages）。"
+      }
     },
     {
       "method": "POST",
       "path": "/resume",
-      "note": "带人工决策恢复一次挂起执行（旧接口）。"
+      "note": {
+        "en": "Resume a suspended execution with a human decision (legacy interface).",
+        "zh": "带人工决策恢复一次挂起执行（旧接口）。"
+      }
     },
     {
       "method": "GET",
       "path": "/stream",
-      "note": "一次性 SSE，吐出原始内部事件（旧接口）。"
+      "note": {
+        "en": "One-shot SSE that emits raw internal events (legacy interface).",
+        "zh": "一次性 SSE，吐出原始内部事件（旧接口）。"
+      }
     },
     {
       "method": "GET",
       "path": "/sessions",
-      "note": "会话列表，供会话恢复与侧边栏使用。"
+      "note": {
+        "en": "Session list, used for session resume and the sidebar.",
+        "zh": "会话列表，供会话恢复与侧边栏使用。"
+      }
     },
     {
       "method": "GET",
       "path": "/projects",
-      "note": "已注册的工作区列表。"
+      "note": {
+        "en": "List of registered workspaces.",
+        "zh": "已注册的工作区列表。"
+      }
     },
     {
       "method": "POST",
       "path": "/projects",
-      "note": "注册一个工作区目录。"
+      "note": {
+        "en": "Register a workspace directory.",
+        "zh": "注册一个工作区目录。"
+      }
     },
     {
       "method": "GET",
       "path": "/providers",
-      "note": "已配置的模型供应商（密钥只以密文形式存在，不返回明文）。"
+      "note": {
+        "en": "Configured model providers (keys only exist as ciphertext and are never returned in plaintext).",
+        "zh": "已配置的模型供应商（密钥只以密文形式存在，不返回明文）。"
+      }
     },
     {
       "method": "POST",
       "path": "/providers",
-      "note": "新增一个供应商及其模型清单。"
+      "note": {
+        "en": "Add a provider and its model list.",
+        "zh": "新增一个供应商及其模型清单。"
+      }
     },
     {
       "method": "GET",
       "path": "/catalog/providers",
-      "note": "内置供应商目录，供「添加供应商」表单选择。"
+      "note": {
+        "en": "Built-in provider catalog for the \"Add provider\" form to choose from.",
+        "zh": "内置供应商目录，供「添加供应商」表单选择。"
+      }
     },
     {
       "method": "GET",
       "path": "/preferences",
-      "note": "界面默认值：下一段对话从哪一档权限、哪种语言与主题开始。"
+      "note": {
+        "en": "Interface defaults: which permission tier and which language and theme the next conversation starts with.",
+        "zh": "界面默认值：下一段对话从哪一档权限、哪种语言与主题开始。"
+      }
     },
     {
       "method": "PUT",
       "path": "/preferences",
-      "note": "把给定的键合并进默认值。"
+      "note": {
+        "en": "Merge the given keys into the defaults.",
+        "zh": "把给定的键合并进默认值。"
+      }
     },
     {
       "method": "GET",
       "path": "/config/browser",
-      "note": "网关所在系统的浏览器设置：当前 executablePath、解析结果与已探测浏览器。"
+      "note": {
+        "en": "Browser settings of the system hosting the gateway: the current executablePath, the resolved result and the browsers already probed.",
+        "zh": "网关所在系统的浏览器设置：当前 executablePath、解析结果与已探测浏览器。"
+      }
     },
     {
       "method": "PUT",
       "path": "/config/browser",
-      "note": "把 `executablePath` 写入 config.json；null 表示删除并回到自动探测。需重启网关生效。"
+      "note": {
+        "en": "Write `executablePath` into config.json; null means delete it and go back to auto-detection. Requires a gateway restart to take effect.",
+        "zh": "把 `executablePath` 写入 config.json；null 表示删除并回到自动探测。需重启网关生效。"
+      }
     },
     {
       "method": "GET",
       "path": "/sidebar-state",
-      "note": "侧边栏布局文档（置顶、顺序）。"
+      "note": {
+        "en": "Sidebar layout document (pins, order).",
+        "zh": "侧边栏布局文档（置顶、顺序）。"
+      }
     },
     {
       "method": "PUT",
       "path": "/sidebar-state",
-      "note": "整体替换侧边栏布局文档。"
+      "note": {
+        "en": "Replace the whole sidebar layout document.",
+        "zh": "整体替换侧边栏布局文档。"
+      }
     },
     {
       "method": "GET",
       "path": "/commands",
-      "note": "斜杠命令的模板列表，`/` 面板的数据源。"
+      "note": {
+        "en": "List of slash command templates, the data source for the `/` panel.",
+        "zh": "斜杠命令的模板列表，`/` 面板的数据源。"
+      }
     },
     {
       "method": "GET",
       "path": "/skills",
-      "note": "技能目录（含用户可主动调用的技能）。"
+      "note": {
+        "en": "Skill catalog (including skills the user can invoke directly).",
+        "zh": "技能目录（含用户可主动调用的技能）。"
+      }
     },
     {
       "method": "GET",
       "path": "/tools",
-      "note": "工具目录，供「配置子代理」时勾选工具范围。"
+      "note": {
+        "en": "Tool catalog for ticking the tool scope when configuring a subagent.",
+        "zh": "工具目录，供「配置子代理」时勾选工具范围。"
+      }
     },
     {
       "method": "GET",
       "path": "/agents",
-      "note": "子代理定义列表（项目 / 用户 / 插件三个来源合并）。"
+      "note": {
+        "en": "List of subagent definitions (the project / user / plugin sources merged).",
+        "zh": "子代理定义列表（项目 / 用户 / 插件三个来源合并）。"
+      }
     },
     {
       "method": "POST",
       "path": "/agents",
-      "note": "在指定作用域新建一个子代理定义。"
+      "note": {
+        "en": "Create a subagent definition in the given scope.",
+        "zh": "在指定作用域新建一个子代理定义。"
+      }
     },
     {
       "method": "GET",
       "path": "/config/routing-tiers",
-      "note": "模型路由档位表；首次写入前是出厂模板。"
+      "note": {
+        "en": "Model routing tier table; before the first write it is the factory template.",
+        "zh": "模型路由档位表；首次写入前是出厂模板。"
+      }
     },
     {
       "method": "PUT",
       "path": "/config/routing-tiers",
-      "note": "整体替换路由档位表；删除仍被引用的档位会返回 409。"
+      "note": {
+        "en": "Replace the whole routing tier table; deleting a tier that is still referenced returns 409.",
+        "zh": "整体替换路由档位表；删除仍被引用的档位会返回 409。"
+      }
     },
     {
       "method": "GET",
       "path": "/health",
-      "note": "存活检查：网关进程是否已就绪。"
+      "note": {
+        "en": "Liveness check: whether the gateway process is ready.",
+        "zh": "存活检查：网关进程是否已就绪。"
+      }
     },
     {
       "method": "GET",
       "path": "/gateway-info",
-      "note": "这个网关实例的模式与能力事实：`mode` 为 `local` 或 `remote`（用 `--serve-remote` 启动时为 `remote`）。`capabilities.nativeDialogs`：本实例是否提供原生目录选择与「在文件管理器中显示」；`remote` 模式下为 `false`，此时 `/fs/pick-directory`、`/fs/reveal` 的任何方法都返回 `501 capability_unavailable`（不是 404——路由存在，能力被撤下）。`capabilities.browserAutomation`：是否真的创建了桌面浏览器自动化宿主——Playwright 驱动本机真实的 Chrome/Chromium，供浏览器工具使用；浏览器配置关闭或找不到可执行文件时为 `false`（「有浏览器」不在这个字段的含义里，Web 客户端自己就是浏览器）；`capabilities.lsp`：是否至少配置了一个语言服务器（`lsp.servers` 为空时为 `false`）。需要鉴权。"
+      "note": {
+        "en": "Mode and capability facts of this gateway instance: `mode` is `local` or `remote` (`remote` when started with `--serve-remote`). `capabilities.nativeDialogs`: whether this instance offers native directory picking and \"reveal in file manager\"; it is `false` in `remote` mode, and then any method on `/fs/pick-directory` and `/fs/reveal` returns `501 capability_unavailable` (not 404 — the route exists and the capability is withdrawn). `capabilities.browserAutomation`: whether a desktop browser automation host was actually created — Playwright driving the real local Chrome/Chromium for the browser tools; it is `false` when browser configuration is off or no executable is found (\"having a browser\" is not what this field means; the web client is itself a browser); `capabilities.lsp`: whether at least one language server is configured (`false` when `lsp.servers` is empty). Requires authentication.",
+        "zh": "这个网关实例的模式与能力事实：`mode` 为 `local` 或 `remote`（用 `--serve-remote` 启动时为 `remote`）。`capabilities.nativeDialogs`：本实例是否提供原生目录选择与「在文件管理器中显示」；`remote` 模式下为 `false`，此时 `/fs/pick-directory`、`/fs/reveal` 的任何方法都返回 `501 capability_unavailable`（不是 404——路由存在，能力被撤下）。`capabilities.browserAutomation`：是否真的创建了桌面浏览器自动化宿主——Playwright 驱动本机真实的 Chrome/Chromium，供浏览器工具使用；浏览器配置关闭或找不到可执行文件时为 `false`（「有浏览器」不在这个字段的含义里，Web 客户端自己就是浏览器）；`capabilities.lsp`：是否至少配置了一个语言服务器（`lsp.servers` 为空时为 `false`）。需要鉴权。"
+      }
     },
     {
       "method": "GET",
       "path": "/sessions/*",
-      "note": "单条会话的读取族：完整转录、轨迹、原始事件、计划文档、导出。具体子路径见 server.ts 的 `/sessions/:id/...` 注释。"
+      "note": {
+        "en": "The read family for a single session: full transcript, trace, raw events, plan document, export. See the `/sessions/:id/...` comments in server.ts for the exact subpaths.",
+        "zh": "单条会话的读取族：完整转录、轨迹、原始事件、计划文档、导出。具体子路径见 server.ts 的 `/sessions/:id/...` 注释。"
+      }
     },
     {
       "method": "PATCH",
       "path": "/sessions/*",
-      "note": "重命名会话（标题按最后写入生效）。"
+      "note": {
+        "en": "Rename a session (the title follows the last write).",
+        "zh": "重命名会话（标题按最后写入生效）。"
+      }
     },
     {
       "method": "DELETE",
       "path": "/sessions/*",
-      "note": "删除一段会话及其转录。"
+      "note": {
+        "en": "Delete a session and its transcript.",
+        "zh": "删除一段会话及其转录。"
+      }
     },
     {
       "method": "PUT",
       "path": "/providers/*",
-      "note": "整体替换一个供应商的配置（模型清单连同覆盖项）。"
+      "note": {
+        "en": "Replace a provider's configuration as a whole (the model list together with its overrides).",
+        "zh": "整体替换一个供应商的配置（模型清单连同覆盖项）。"
+      }
     },
     {
       "method": "DELETE",
       "path": "/providers/*",
-      "note": "删除一个供应商及其模型配置。"
+      "note": {
+        "en": "Delete a provider and its model configuration.",
+        "zh": "删除一个供应商及其模型配置。"
+      }
     },
     {
       "method": "PUT",
       "path": "/agents/*",
-      "note": "替换一个子代理定义；插件来源的条目返回 409。"
+      "note": {
+        "en": "Replace a subagent definition; entries from plugin sources return 409.",
+        "zh": "替换一个子代理定义；插件来源的条目返回 409。"
+      }
     },
     {
       "method": "DELETE",
       "path": "/agents/*",
-      "note": "删除一个子代理定义；内置类型不可删（可被同名覆盖）。"
+      "note": {
+        "en": "Delete a subagent definition; built-in types cannot be deleted (they can be overridden by the same name).",
+        "zh": "删除一个子代理定义；内置类型不可删（可被同名覆盖）。"
+      }
     },
     {
       "method": "DELETE",
       "path": "/projects/*",
-      "note": "从注册表移除一个工作区（不动磁盘目录）。"
+      "note": {
+        "en": "Remove a workspace from the registry (the directory on disk is not touched).",
+        "zh": "从注册表移除一个工作区（不动磁盘目录）。"
+      }
     },
     {
       "method": "POST",
       "path": "/providers/*",
-      "note": "供应商的单个动作族：目前是 `POST /providers/:id/probe`（用当前配置真发一次最小请求，验证路由可用）。"
+      "note": {
+        "en": "The single-action family for providers: currently `POST /providers/:id/probe` (really send one minimal request with the current configuration to verify the route works).",
+        "zh": "供应商的单个动作族：目前是 `POST /providers/:id/probe`（用当前配置真发一次最小请求，验证路由可用）。"
+      }
     }
   ],
   "internal": [

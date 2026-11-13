@@ -60,7 +60,8 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 
 ## 关于这份文档
 
-- **写文档的规矩**在 [WRITING.md](WRITING.md)（人机共用）。
+- **写文档的规矩**在 [WRITING.md](https://github.com/voltojs/volto/blob/main/docs/user/WRITING.md)（人机共用）。
 - 参考页里的工具、配置字段、网关接口由 `pnpm docs:gen` 从代码生成，不会与实现脱节。
 - 发现某页与软件行为不一致，那就是 bug——`pnpm docs:check` 应该已经拦住它。
-- 开发向的文档（架构、设计取舍、路线图）在 [`docs/superpowers/`](../superpowers/)，不是给使用者看的。
+- 术语对照见 [GLOSSARY.md](../GLOSSARY.md)。
+- 开发向的文档（架构、设计取舍、路线图）见 [AGENTS.md](https://github.com/voltojs/volto/blob/main/AGENTS.md) 与 [docs/README.md](https://github.com/voltojs/volto/blob/main/docs/README.md)，不是给使用者看的。

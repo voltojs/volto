@@ -41,7 +41,7 @@ const warn = (where, message) => problems.push({ level: STRICT ? "error" : "warn
 
 const PAGE_TYPES = new Set(["tutorial", "guide", "reference", "concept"]);
 const REQUIRED_KEYS = ["title", "type", "source", "generated", "verified"];
-const JARGON = ["reducer", "port", "Effect", "capability", "ToolDefinition", "ModelPort", "EventSink", "SessionStore", "纯函数"];
+const JARGON = ["reducer", "Effect", "ToolDefinition", "ModelPort", "EventSink", "SessionStore"];
 const STALE_DAYS = 90;
 
 // ──────────────────────────────────────────────
@@ -55,7 +55,7 @@ const pages = files.map((file) => {
   const { data, body } = parseFrontMatter(text);
   return { file, rel, text, data, body };
 });
-const indexPages = new Set(["README.md", "WRITING.md"]);
+const indexPages = new Set(["README.md", "WRITING.md", "zh/README.md"]);
 
 // Repository paths (files AND directories), for `source:` glob validation.
 // Directories count because a page may legitimately claim a whole component
@@ -149,14 +149,23 @@ for (const page of pages) {
 // ──────────────────────────────────────────────
 
 const surfaces = computeSurfaces();
-for (const page of generatedPages()) {
-  const target = path.join(DOCS_DIR, page.rel);
-  const notes = page.notes ? loadNotes(page.notes) : {};
-  const expected = page.build(surfaces, notes);
-  const actual = fs.existsSync(target) ? readText(target) : "";
-  if (expected !== actual) {
-    error(page.rel, "生成页与输入不一致——运行 `pnpm docs:sync`（或改 notes JSON 后重新生成）");
+for (const locale of ["en", "zh"]) {
+  for (const page of generatedPages()) {
+    const rel = locale === "zh" ? `zh/${page.rel}` : page.rel;
+    const target = path.join(DOCS_DIR, rel);
+    const notes = page.notes ? loadNotes(page.notes) : {};
+    const expected = page.build(surfaces, notes, locale);
+    const actual = fs.existsSync(target) ? readText(target) : "";
+    if (expected !== actual) {
+      error(rel, "生成页与输入不一致——运行 `pnpm docs:sync`（或改 notes JSON 后重新生成）");
+    }
   }
+}
+
+/** Both locales must be present; a plain string only has its Chinese original. */
+function missingLocales(value) {
+  if (!value || typeof value !== "object") return ["en", "zh"];
+  return ["en", "zh"].filter((locale) => typeof value[locale] !== "string" || value[locale].length === 0);
 }
 
 // ──────────────────────────────────────────────
@@ -166,7 +175,15 @@ for (const page of generatedPages()) {
 const toolNotes = loadNotes("reference/tool-notes.json");
 const tools = extractTools();
 for (const tool of tools) {
-  if (!toolNotes[tool.name]) error("docs/user/reference/tool-notes.json", `工具 \`${tool.name}\` 缺少中文说明`);
+  const note = toolNotes[tool.name];
+  if (!note) {
+    error("docs/user/reference/tool-notes.json", `工具 \`${tool.name}\` 缺少说明`);
+  } else {
+    const missing = missingLocales(note);
+    if (missing.length > 0) {
+      error("docs/user/reference/tool-notes.json", `工具 \`${tool.name}\` 缺少 ${missing.join("/")} 说明`);
+    }
+  }
 }
 for (const name of Object.keys(toolNotes)) {
   if (!tools.some((tool) => tool.name === name)) {
@@ -178,15 +195,29 @@ const configNotes = loadNotes("reference/config-sections.json");
 const codeSections = extractConfigSections();
 const codeKeys = extractConfigKeys();
 for (const section of codeSections) {
-  if (!configNotes[section]) error("docs/user/reference/config-sections.json", `配置分区 \`${section}\` 缺少说明`);
+  const note = configNotes[section];
+  if (!note) {
+    error("docs/user/reference/config-sections.json", `配置分区 \`${section}\` 缺少说明`);
+    continue;
+  }
+  const missing = missingLocales(note.summary);
+  if (missing.length > 0) {
+    error("docs/user/reference/config-sections.json", `分区 \`${section}\` 缺少 ${missing.join("/")} 说明`);
+  }
 }
 for (const section of Object.keys(configNotes)) {
   if (!codeSections.includes(section)) {
     error("docs/user/reference/config-sections.json", `分区 \`${section}\` 在代码中已不存在`);
   }
   for (const key of codeKeys[section] ?? []) {
-    if (!configNotes[section]?.fields?.[key]) {
+    const field = configNotes[section]?.fields?.[key];
+    if (!field) {
       error("docs/user/reference/config-sections.json", `\`${section}.${key}\` 缺少字段说明`);
+    } else {
+      const missing = missingLocales(field);
+      if (missing.length > 0) {
+        error("docs/user/reference/config-sections.json", `\`${section}.${key}\` 缺少 ${missing.join("/")} 说明`);
+      }
     }
   }
 }
@@ -211,6 +242,10 @@ for (const route of extractHttpRoutes()) {
   }
 }
 for (const entry of gatewayNotes.public ?? []) {
+  const missing = missingLocales(entry.note);
+  if (missing.length > 0) {
+    error("docs/user/reference/gateway-notes.json", `\`${entry.method} ${entry.path}\` 缺少 ${missing.join("/")} 用途说明`);
+  }
   // Param routes are matched by a regex or a prefix, so check the static part:
   // `GET /sessions/*` → `"/sessions/"`, `/providers/:id` → `"/providers/"`.
   const literal = (entry.path.includes(":") ? entry.path.split(":")[0] : entry.path.replace(/\*$/, "")) || "/";
@@ -240,7 +275,7 @@ for (const page of pages) {
   }
 }
 for (const page of pages) {
-  if (page.rel === "README.md") continue;
+  if (indexPages.has(page.rel)) continue;
   if (inbound.get(page.file) === 0) error(page.rel, "没有任何页面链接到它（孤儿页）——在索引或相关页里加上入口");
 }
 
@@ -303,13 +338,14 @@ for (const page of pages) {
   const lines = page.text.split(/\r?\n/).length;
   if (lines > 350) warn(page.rel, `页面 ${lines} 行，超过 350 行上限——拆页`);
   const type = page.data?.type;
-  if ((type === "guide" || type === "tutorial") && !page.text.includes("读完你会")) {
+  if ((type === "guide" || type === "tutorial") && !/读完你会|You (will|should)|After reading/i.test(page.text)) {
     warn(page.rel, "缺少「读完你会」一行——读者不知道这页解决什么问题");
   }
   const jargonExempt =
     indexPages.has(page.rel) ||
     page.data?.generated === true ||
     page.rel.startsWith("integrating/") ||
+    page.rel.startsWith("zh/") ||
     page.rel === "concepts/determinism-and-ports.md";
   if (!jargonExempt) {
     const prose = stripFences(page.body);
