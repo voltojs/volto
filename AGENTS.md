@@ -219,8 +219,8 @@ volto/
 │   └── desktop-app/          # Electron host: wiring only, with approval dialogs
 ├── docs/                     # architecture, user docs, dev notes and archive
 │   ├── user/                 # user-facing documentation (the GitHub Pages source)
-│   ├── archive/              # frozen historical documents
-│   └── superpowers/          # per-feature specs and plans (historical)
+│   ├── dev/                  # module documentation (current behavior)
+│   └── archive/              # frozen specs, plans, reports and roadmaps
 └── scripts/                  # repository-wide checks and analysis
 ```
 
@@ -268,14 +268,12 @@ below explain **why** it is that way; they do not guarantee the current behavior
 | **User docs** | `docs/user/` | Manuals for users and integrators; sync whenever a user-visible surface changes (see the User documentation section) | Tracks the code |
 | Architecture | `docs/pure-agent-core.md` | Pure-kernel architecture, module decomposition, port contracts — the source of the purity invariant | Long-lived |
 | **Security position** | `SAFETY.md` | Threat model: prevents "the model makes a mistake", **does not promise** to prevent "the model is induced"; actual boundary strength and known gaps | Long-lived |
-| Feature designs (spec) | `docs/superpowers/specs/` | Design trade-offs per feature; file names carry a date | A record of the decision at the time |
-| Implementation plans | `docs/superpowers/plans/` | Per-task plans and acceptance criteria for the matching spec | A record of execution at the time |
-| Roadmap | `docs/archive/roadmaps/roadmap.md` | Direction and invariants for platformizing the kernel | Historical; milestone table no longer tracked |
-| **Archive** | `docs/archive/` | Frozen historical documents, not maintained | Do not treat as current |
+| **Module documentation** | `docs/dev/` | Current behavior, invariants and decisions per module, verified against the code | Tracks the code |
+| **Internal archive** | `docs/archive/` (local only, not published) | Historical specs, plans, reports and roadmaps | Do not treat as current |
 
-**How to trace a feature**: read `docs/superpowers/specs/` in reverse date order (specs
-are much shorter than plans), find the topic, then read the matching plan. Do not treat
-any spec/plan as the current behavior — it records the decision **at the time**, which a
-later spec may have overturned.
+**How to trace a feature**: read the module page under `docs/dev/` first — that is the
+current design. The specs and plans under `docs/archive/superpowers/` explain why it got
+there; they record the decision **at the time** and a later design may have overturned
+them. The archive lives in the maintainers' working copy only (`docs/archive/`, gitignored); it is not published with the repository.
 
 </details>

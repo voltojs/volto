@@ -25,14 +25,18 @@ host. It explains **how to use it**, not why it is built this way.
 - [SAFETY.md](../SAFETY.md) — the threat model and the actual strength of the security
   boundaries.
 
-## Historical design records — `docs/archive/` and `docs/superpowers/`
+## Module documentation — `docs/dev/`
 
-Per-feature specs, implementation plans and self-test reports record **decisions made at a
-point in time**. They are not maintained and may describe behavior that no longer exists.
-Use them to understand why something was built, never as a description of what the code
-does now.
+Current implementation documentation, one page per module. Each page is verified against
+the code and points at the archived specs and plans that explain the historical decisions.
 
-- `docs/superpowers/` — the original flat archive of specs and plans.
-- `docs/archive/` — frozen documents, including internal roadmaps.
+- [docs/dev/README.md](dev/README.md) — index and writing rules.
 
-The code, the tests and the user documentation are the sources of truth.
+## Internal design records
+
+The historical specs, plans, reports and roadmaps are kept in the maintainers' working copy
+under `docs/archive/` and are **not published**. They record decisions made at a point in
+time and may describe behavior that no longer exists; current behavior lives in the code
+and `docs/dev/`.
+
+The code, the tests, `docs/user/` and `docs/dev/` are the sources of truth.

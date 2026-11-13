@@ -52,3 +52,6 @@ docs/user/.snippets/
 
 # VitePress build cache
 .vitepress/cache/
+
+# Internal design records: kept locally for agents, never published
+docs/archive/
