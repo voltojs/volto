@@ -13,8 +13,7 @@
       "@voltojs/tools",
       "@voltojs/memories",
       "@voltojs/providers",
-      "@voltojs/stores",
-      "@voltojs/runtimes-web"
+      "@voltojs/stores"
     ]
   ],
   "linked": [],

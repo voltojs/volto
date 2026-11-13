@@ -126,7 +126,8 @@ assertions never touched the real boundary.
   `tools/`, `providers/`, `runtimes/`, `stores/`, `memories/`. Each category is one
   package with a subpath per group (`@voltojs/tools/fs`, `@voltojs/providers/openai`,
   `@voltojs/stores/jsonl`); runtime adapters and native/driver-backed stores stay
-  separate (`runtime-node`, `runtimes-web`, `store-sqlite`, `store-postgres`).
+  separate (`runtime-node`; `runtimes-web` stays private until the browser/edge runtimes are complete,
+  and `store-sqlite` / `store-postgres`).
 - **Check the official documentation for third-party constructor parameters**; do not
   guess from memory (especially OpenAI-compatible streaming `tool_calls` chunk
   accumulation and Zod schema syntax).
@@ -206,7 +207,7 @@ volto/
 │   ├── eval/                 # @voltojs/eval   evaluation
 │   ├── tools/                # @voltojs/tools — all built-in tools, one subpath per group
 │   ├── providers/            # @voltojs/providers — pi-ai / openai / anthropic / embedder-openai
-│   ├── runtimes/             # @voltojs/runtime-node, @voltojs/runtimes-web (browser + edge)
+│   ├── runtimes/             # @voltojs/runtime-node (published), @voltojs/runtimes-web (private, in progress)
 │   ├── stores/               # @voltojs/stores (memory/file/jsonl) + store-sqlite/store-postgres
 │   └── memories/             # @voltojs/memories — common / inmemory / file
 ├── apps/

@@ -38,7 +38,6 @@ const PRIVATE_PACKAGES = new Set(["@voltojs/web", "@voltojs/desktop-app"]);
 const TRIAGED_PACKAGES = new Set([
   "@voltojs/core",
   "@voltojs/tools",
-  "@voltojs/runtimes-web",
   "@voltojs/stores",
   "@voltojs/providers",
   "@voltojs/memories",

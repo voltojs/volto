@@ -277,8 +277,8 @@ Naming follows the package's role: category directories are plural (`tools/`,
 `providers/`, `runtimes/`, `stores/`, `memories/`). Each category is one package with a
 subpath per group — `@voltojs/tools/fs`, `@voltojs/providers/openai`,
 `@voltojs/stores/jsonl` — except the runtime adapters and the native/driver-backed
-stores, which stay separate (`runtime-node`, `runtimes-web`, `store-sqlite`,
-`store-postgres`).
+stores, which stay separate (`runtime-node`, `store-sqlite`, `store-postgres`). The merged
+`runtimes-web` package is private until the browser and edge runtimes are complete.
 
 The workspace globs are `packages/*` (core, sdk, tools, providers, stores, memories,
 eval) and `packages/*/*` (runtimes/node, runtimes/web, stores/sqlite, stores/postgres),

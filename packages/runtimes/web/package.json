@@ -25,9 +25,6 @@
     "lint": "eslint src/",
     "test": "vitest run"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=22"
   },
@@ -38,5 +35,6 @@
   },
   "dependencies": {
     "@voltojs/core": "workspace:*"
-  }
+  },
+  "private": true
 }
