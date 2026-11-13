@@ -50,8 +50,8 @@ pnpm-debug.log*
 # Transient TypeScript snippets extracted by docs:check
 docs/user/.snippets/
 
-# VitePress build cache
-.vitepress/cache/
+# VitePress build cache (dev server cache lives under apps/docs/.vitepress)
+**/.vitepress/cache/
 
 # Internal design records: kept locally for agents, never published
 docs/archive/
