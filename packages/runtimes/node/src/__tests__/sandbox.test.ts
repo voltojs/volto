@@ -572,10 +572,15 @@ describe("buildBwrapArgs", () => {
     const bindIdx = args.indexOf("--bind");
     expect(args[bindIdx + 1]).toBe("/workspace");
     expect(args[bindIdx + 2]).toBe("/workspace");
-    // Overlay comes AFTER the bind (to override it)
-    const overlayIdx = args.indexOf("--ro-bind", args.indexOf("--ro-bind") + 1); // second --ro-bind
+    // Overlay comes AFTER the bind (to override it) and uses `--ro-bind-try`:
+    // the default overlays (.git, .env) are absent in a scratch workspace, and
+    // a hard --ro-bind aborts the whole bwrap invocation there.
+    const overlayIdx = args.indexOf("--ro-bind-try");
+    expect(overlayIdx).toBeGreaterThan(bindIdx);
     expect(args[overlayIdx + 1]).toBe("/workspace/.git");
     expect(args[overlayIdx + 2]).toBe("/workspace/.git");
+    // Reported when the overlay is missing is bwrap's business; never a crash.
+    expect(args.filter((a) => a === "--ro-bind").length).toBe(1);
     // Network unshared
     expect(args).toContain("--unshare-net");
     // Die with parent
@@ -627,6 +632,7 @@ describe("buildBwrapArgs", () => {
     // read-only mode has none, so nothing must be masked read-only here.
     const roBindCount = args.filter((a) => a === "--ro-bind").length;
     expect(roBindCount).toBe(1);
+    expect(args).not.toContain("--ro-bind-try");
     expect(args).not.toContain("/w/.git");
   });
 
@@ -644,7 +650,8 @@ describe("buildBwrapArgs", () => {
     expect(args[bindIdx + 1]).toBe("/w");
     expect(args[bindIdx + 2]).toBe("/w");
     // ... and the expanded read-only overlay that overrides it.
-    const overlayIdx = args.indexOf("--ro-bind", args.indexOf("--ro-bind") + 1);
+    const overlayIdx = args.indexOf("--ro-bind-try");
+    expect(overlayIdx).toBeGreaterThan(bindIdx);
     expect(args[overlayIdx + 1]).toBe("/w/.git");
     expect(args[overlayIdx + 2]).toBe("/w/.git");
   });
@@ -743,7 +750,10 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
     expect(capturedCmd.startsWith("bwrap ")).toBe(true);
     expect(capturedCmd).toContain("'--ro-bind' '/' '/'");
     expect(capturedCmd).toContain("'--bind' '/workspace' '/workspace'");
-    expect(capturedCmd).toContain("'--ro-bind' '/workspace/.git' '/workspace/.git'");
+    // Overlays are mounted with bwrap's "ignore a missing source" form: a
+    // scratch workspace has no .git, and a hard --ro-bind would abort bwrap.
+    expect(capturedCmd).toContain("'--ro-bind-try' '/workspace/.git' '/workspace/.git'");
+    expect(capturedCmd).not.toContain("'--ro-bind' '/workspace/.git'");
     expect(capturedCmd).toContain("'--unshare-net'");
     expect(capturedCmd).toContain("'--die-with-parent'");
     expect(capturedCmd).toContain("-- /bin/bash -c '");
@@ -786,7 +796,10 @@ describe("createSandboxedShell - Linux bubblewrap branch", () => {
     expect(capturedCmd.startsWith("true ")).toBe(true);
     expect(capturedCmd).toContain("'--ro-bind' '/' '/'");
     expect(capturedCmd).toContain("'--bind' '/workspace' '/workspace'");
-    expect(capturedCmd).toContain("'--ro-bind' '/workspace/.git' '/workspace/.git'");
+    // Overlays are mounted with bwrap's "ignore a missing source" form: a
+    // scratch workspace has no .git, and a hard --ro-bind would abort bwrap.
+    expect(capturedCmd).toContain("'--ro-bind-try' '/workspace/.git' '/workspace/.git'");
+    expect(capturedCmd).not.toContain("'--ro-bind' '/workspace/.git'");
     expect(capturedCmd).toContain("'--unshare-net'");
     expect(capturedCmd).toContain("'--die-with-parent'");
     // Wrap format: `bwrap <escapedArgs> -- /bin/bash -c '<escapedCmd>'`

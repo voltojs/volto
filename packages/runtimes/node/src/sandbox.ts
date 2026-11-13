@@ -1696,9 +1696,16 @@ export function buildBwrapArgs(config: SandboxConfig): string[] {
     args.push("--bind", root, root);
   }
 
-  // Read-only overlays (must come AFTER --bind to override the writable mount)
+  // Read-only overlays (must come AFTER --bind to override the writable mount).
+  // `--ro-bind-try`, not `--ro-bind`: overlays default to [".git", ".env"] and
+  // a scratch workspace has neither. A hard `--ro-bind` aborts the whole bwrap
+  // invocation ("can't find source path"), which reads as an infrastructure
+  // failure and hides every real denial, while seatbelt simply ignores a
+  // missing deny path. `-try` gives Linux the same tolerance. Deliberately not
+  // an existsSync pre-filter: the check and the mount are separate steps, and
+  // a path that disappears between them would abort exactly as before.
   for (const overlay of readOnlyOverlays) {
-    args.push("--ro-bind", overlay, overlay);
+    args.push("--ro-bind-try", overlay, overlay);
   }
 
   // Denied reads — bubblewrap has no deny semantics, so mask the path with
