@@ -501,6 +501,10 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@voltojs/store-jsonl':
+        specifier: workspace:*
+        version: link:../stores/jsonl
 
   packages/stores/file:
     dependencies:
