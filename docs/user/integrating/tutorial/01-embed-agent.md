@@ -16,14 +16,6 @@ verified: 2026-11-13
 ## 前提
 
 - **Node ≥ 22**（`node -v` 确认）。
-- **GitHub Packages 的读取权限**。`@voltojs/*` 发布在 GitHub Packages 上，**默认私有**，所以 `npm i @voltojs/sdk` 之前要先配 registry 和一个勾了 `read:packages` 的 GitHub personal access token（classic）。把这两行写进 `~/.npmrc`：
-
-  ```text
-  @voltojs:registry=https://npm.pkg.github.com
-  //npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
-  ```
-
-  token 本身放在 shell 配置里（`~/.zshrc` 中 `export GITHUB_NPM_AUTH_TOKEN=ghp_…`）。用 `npm whoami --registry=https://npm.pkg.github.com` 确认生效；token 不要写进项目里的 `.npmrc`，项目级配置优先，会把 `~/.npmrc` 里的凭据覆盖成空值。CI 里通常改用 `NODE_AUTH_TOKEN`（见 [发布与安装](../guides/publishing.md)）。没有这步会得到 `404`。
 - 装 SDK：
 
   ```bash

@@ -18,42 +18,10 @@ verified: 2026-11-13
 
 - **Node.js ≥ 22**（`node -v` 确认；装不上就是这一条，不会有别的报错）
 - **macOS 或 Linux**。Windows 及其它没有沙箱后端的平台目前**起不来网关**：默认档位要求隔离，缺失后端时会直接拒绝启动（详见 [沙箱与平台](../guides/sandbox-and-platforms.md)）
-- **能读到这个包的权限**。`@voltojs/*` 发布在 GitHub Packages（`https://npm.pkg.github.com`），默认是**私有**包：没有访问权限的账号装不到，会看到 `404` 或 `403`。权限与下面的 token 是同一个问题，见 [发布与安装](../../integrating/guides/publishing.md)。
 
 ## 步骤
 
-### 1. 配好 GitHub Packages 的登录
-
-`npx` 也走同一个 `.npmrc`：npx 会按包名里的 scope（`@voltojs`）去找对应的 registry，没有这条配置就会去 npmjs.com 上找，然后报 `404 Not Found`。
-
-1. 在 GitHub **Settings → Developer settings → Personal access tokens → Tokens (classic)** 生成一个 token，勾选 **`read:packages`** 这一个 scope（只要装包的话，`repo` 也不用勾）。
-2. token 放进 shell 配置（这里用 `GITHUB_NPM_AUTH_TOKEN` 这个名字）：
-
-```bash
-# ~/.zshrc
-export GITHUB_NPM_AUTH_TOKEN=ghp_xxxxxxxx
-```
-
-3. 在**用户级** `~/.npmrc` 里声明 scope，并引用上面那个变量：
-
-```text
-@voltojs:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
-```
-
-直接写成 `_authToken=ghp_xxxxxxxx` 也可以，但 token 会明文落在文件里。
-
-**不要把这些写进任何仓库的 `.npmrc`**——项目级配置优先于 `~/.npmrc`，其中的 `_authToken` 会覆盖掉你自己的凭据（变量没设时等于空 token）。
-
-4. 确认这台机器认到了哪个账号：
-
-```bash
-npm whoami --registry=https://npm.pkg.github.com
-```
-
-你应看到：你的 GitHub 用户名。看到 `401` / `ENEEDAUTH` 就是上面几步没生效（注意变量要在**新开**的终端里才生效）。
-
-### 2. 启动
+### 1. 启动
 
 ```bash
 npx @voltojs/gateway
@@ -74,7 +42,7 @@ Open: http://127.0.0.1:3100/?token=…
 
 本机运行时会自动用默认浏览器打开 `Open:` 那一行；不想让它弹，加 `--no-open`，此时那一行就是你要手动粘进浏览器的地址。
 
-### 3. 登录
+### 2. 登录
 
 把 `Open:` 后面那个网址粘进浏览器（它已经跳到了聊天界面，就不用再粘）。
 
@@ -82,7 +50,7 @@ Open: http://127.0.0.1:3100/?token=…
 
 你应看到：聊天界面，左侧会话列表为空，输入框在窗口底部。
 
-### 4. 确认登录还在
+### 3. 确认登录还在
 
 关掉这个终端会连网关一起停掉。重开时再跑一次 `npx @voltojs/gateway`，**直接用浏览器打开 `http://127.0.0.1:3100/`**（不带 token）就行——上一步换到的 cookie 还在，7 天内有效。
 
@@ -108,7 +76,7 @@ npx @voltojs/gateway doctor
 ## 登录不上时
 
 - **页面 401 或一直停在登录** → 网关重启过，旧的 `token=` 链接会失效（每次启动都会生成新的）。用本次启动打印的 `Open:` 链接，或确认浏览器里还有上一步的 cookie。
-- **`npx` 报 `404 Not Found` 或 `403`** → 上一步的 `.npmrc` 没写到当时用的那个用户目录（`sudo` 下是 root 的 `~`），或 token 过期、没勾 `read:packages`、账号没有这个包的访问权限。用 `npm whoami --registry=https://npm.pkg.github.com` 确认登录的是哪个账号。
+- **`npx` 报 `404 Not Found`** → 包名或版本写错，或者 npm 网络不可达。确认拼写与网络后重试；`npm view @voltojs/gateway version` 可以确认 registry 上是否有这个版本。
 - **终端出现 `Could not listen on 127.0.0.1:3100: EADDRINUSE`** → 3100 已被占用：先停掉旧进程，或换个端口（见上面的换端口参数）。这种情况**不会打印** `volto gateway … listening on …` 和 `Open: …` 这两行，标准输出是空的，只有这一条报错，退出码 1。
 - **启动即退出，终端里没有被上面几条覆盖的报错** → 跑一次 `npx @voltojs/gateway doctor`，失败的硬性项就是原因。
 

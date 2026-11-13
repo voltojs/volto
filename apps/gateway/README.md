@@ -13,24 +13,8 @@ and [remote access](https://github.com/voltojs/volto/blob/main/docs/user/using/g
 
 ## Run it
 
-The packages are published to GitHub Packages (`https://npm.pkg.github.com`),
-not npmjs.com, and are **private by default**. `npx` resolves `@voltojs` through
-your own `.npmrc`, so configure it once — a GitHub personal access token
-(classic) with `read:packages`, and a scope pointing at GitHub Packages:
-
-```bash
-export GITHUB_NPM_AUTH_TOKEN=ghp_xxxxxxxx     # in ~/.zshrc
-```
-
-```text
-# ~/.npmrc
-@voltojs:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
-```
-
-Keep the token out of any project `.npmrc`: it takes precedence over `~/.npmrc` and would mask it with an empty value. `npm whoami --registry=https://npm.pkg.github.com` confirms the credential. CI uses `NODE_AUTH_TOKEN` instead (written by `setup-node` — see [publishing and installing](https://github.com/voltojs/volto/blob/main/docs/user/integrating/guides/publishing.md)).
-Without it `npx` looks on npmjs.com and fails with `404`. See
-[publishing and installing](https://github.com/voltojs/volto/blob/main/docs/user/integrating/guides/publishing.md).
+The packages are published to the public npm registry, so `npx` works without extra
+configuration — no token and no scope mapping:
 
 ```bash
 npx @voltojs/gateway          # gateway + Web UI on http://127.0.0.1:3100

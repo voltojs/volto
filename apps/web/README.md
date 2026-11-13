@@ -4,7 +4,7 @@ Volto 的 Web 聊天端（Next.js + Tailwind + Zustand）。
 
 Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/gateway`。因此本地开发需要同时起两个进程。
 
-这个包是私有应用，不发布；它依赖的 `@voltojs/*` 包发布在 GitHub Packages 上（默认私有）。在仓库里开发用 workspace 链接，不需要配 registry；脱离仓库单独装这些包时，需要 `~/.npmrc` 里两行 scoped 配置和一个勾了 `read:packages` 的 GitHub token，见[发布与安装](../../docs/user/integrating/guides/publishing.md)。
+这个包是私有应用，不发布；它依赖的 `@voltojs/*` 包发布在 npm 公共 registry 上。在仓库里开发用 workspace 链接；脱离仓库单独装这些包时直接 `npm i @voltojs/...` 即可，不需要额外配置，见[发布与安装](../../docs/user/integrating/guides/publishing.md)。
 
 ## 本地联调
 
