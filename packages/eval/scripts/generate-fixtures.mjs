@@ -14,8 +14,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createTrajectoryRecorder } from "@voltojs/eval";
-import { step, createInitialState } from "@voltojs/core";
+import { simulateTrajectory } from "@voltojs/eval";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(HERE, "../trajectories");
@@ -50,24 +49,11 @@ const writeTool = {
 
 /**
  * Simulate one agent session: feed `inputs` through step(), recording every
- * step's full state + full effects. Returns a Trajectory object.
+ * step's full state + full effects via the same record path `--record` uses.
+ * Returns a Trajectory object.
  */
 function simulate({ name, inputs, tools = [] }) {
-  const recorder = createTrajectoryRecorder();
-  recorder.start(name, { model: MODEL, maxTokens: MAX_TOKENS, tools });
-  const ctx = { tools, model: MODEL, maxTokens: MAX_TOKENS };
-  let state = createInitialState();
-  for (const input of inputs) {
-    const r = step(state, input, ctx);
-    recorder.capture(
-      input,
-      r.state,
-      r.effects.map((e) => e.type),
-      { fullState: r.state, fullEffects: r.effects },
-    );
-    state = r.state;
-  }
-  return recorder.stop();
+  return simulateTrajectory(name, inputs, { model: MODEL, maxTokens: MAX_TOKENS, tools });
 }
 
 // ── Fixture definitions (fixed input sequences) ──────────────────────────

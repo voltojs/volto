@@ -1,6 +1,6 @@
 import type { AgentInput, AgentState } from "@voltojs/core";
-import type { Trajectory, ExpectedStep } from "./trajectory.js";
-import { createTrajectory, addStep } from "./trajectory.js";
+import type { Trajectory } from "./trajectory.js";
+import { createTrajectory, addStep, toExpectedStep } from "./trajectory.js";
 
 /** Options for a single capture call */
 export interface CaptureOptions {
@@ -45,21 +45,7 @@ export function createTrajectoryRecorder(): TrajectoryRecorder {
       if (!recording || !trajectory) {
         throw new Error("TrajectoryRecorder: no active recording. Call start() first.");
       }
-      const expected: ExpectedStep = {
-        state: {
-          status: state.status,
-        },
-        effects: effectTypes,
-      };
-      if (opts?.fullState) {
-        // Full-state snapshot enables strict deep-equal replay. Copied so
-        // later mutations of the live state cannot corrupt the recording.
-        expected.fullState = structuredClone(opts.fullState);
-      }
-      if (opts?.fullEffects) {
-        // Full effect objects (type + payload) for strict payload comparison.
-        expected.fullEffects = structuredClone(opts.fullEffects);
-      }
+      const expected = toExpectedStep(state, effectTypes, opts?.fullState, opts?.fullEffects);
       addStep(trajectory, input, expected);
     },
 

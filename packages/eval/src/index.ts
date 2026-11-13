@@ -9,12 +9,12 @@
  */
 
 // Trajectory format
-export { createTrajectory, addStep } from "./trajectory.js";
-export type { Trajectory, ExpectedStep } from "./trajectory.js";
+export { createTrajectory, addStep, toExpectedStep } from "./trajectory.js";
+export type { Trajectory, ExpectedStep, StateProjection } from "./trajectory.js";
 
-// Replay runner
-export { replayTrajectory } from "./replay.js";
-export type { StepReplayResult, ReplayResult } from "./replay.js";
+// Replay runner + record path
+export { replayTrajectory, recordTrajectory, observedStep } from "./replay.js";
+export type { StepReplayResult, ReplayResult, ReplayOptions } from "./replay.js";
 
 // Trajectory recorder
 export { createTrajectoryRecorder } from "./recorder.js";
@@ -28,5 +28,6 @@ export {
   createScriptedModelPort,
   createTrajectoryModelPort,
   createSimulation,
+  simulateTrajectory,
 } from "./simulate.js";
 export type { SimulationPorts } from "./simulate.js";
