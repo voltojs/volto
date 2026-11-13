@@ -10,7 +10,7 @@ const BASE = {
     "./package.json": "./package.json",
   },
   files: ["dist", "!dist/**/__tests__"],
-  publishConfig: { registry: "https://npm.pkg.github.com" },
+  publishConfig: { access: "public" },
   engines: { node: ">=22" }, license: "MIT",
   repository: { type: "git", url: "git+https://example.com/volto.git" },
   dependencies: { "@voltojs/core": "0.1.0" },
@@ -27,16 +27,20 @@ test("缺 files / engines / license 都报告", () => {
   const bad = { ...BASE, files: undefined, engines: undefined, license: undefined };
   assert.equal(validateManifest(bad, "/tmp/x").length, 3);
 });
-test("publishConfig 缺 registry 时报告", () => {
+test("publishConfig 缺失时报告", () => {
   const bad = { ...BASE, publishConfig: undefined };
-  assert.deepEqual(validateManifest(bad, "/tmp/x"), ["publishConfig.registry: not https://npm.pkg.github.com"]);
+  assert.deepEqual(validateManifest(bad, "/tmp/x"), ["publishConfig: missing"]);
 });
-test("publishConfig.registry 指向其它仓库时报告", () => {
-  const bad = { ...BASE, publishConfig: { registry: "https://registry.npmjs.org" } };
-  assert.deepEqual(validateManifest(bad, "/tmp/x"), ["publishConfig.registry: not https://npm.pkg.github.com"]);
+test("publishConfig.access 不是 public 时报告", () => {
+  const bad = { ...BASE, publishConfig: { access: "restricted" } };
+  assert.deepEqual(validateManifest(bad, "/tmp/x"), ["publishConfig.access: not public"]);
 });
-test("publishConfig 里的 access 不再被检查", () => {
-  const manifest = { ...BASE, publishConfig: { registry: "https://npm.pkg.github.com", access: "restricted" } };
+test("残留 GitHub Packages registry 时报告", () => {
+  const bad = { ...BASE, publishConfig: { access: "public", registry: "https://npm.pkg.github.com" } };
+  assert.deepEqual(validateManifest(bad, "/tmp/x"), ["publishConfig.registry: not https://registry.npmjs.org (remove it or point it at npmjs)"]);
+});
+test("显式指向 npmjs 的 registry 可以通过", () => {
+  const manifest = { ...BASE, publishConfig: { access: "public", registry: "https://registry.npmjs.org" } };
   assert.deepEqual(validateManifest(manifest, "/tmp/x"), []);
 });
 test("缺 ./package.json self export 时报告", () => {

@@ -30,7 +30,7 @@
     "test": "vitest run"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "engines": {
     "node": ">=22"

@@ -30,7 +30,7 @@
     "replay": "node dist/cli.js"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "engines": {
     "node": ">=22"

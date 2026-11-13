@@ -30,7 +30,7 @@
     "web:export": "VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web export && node scripts/copy-web-assets.mjs"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "engines": {
     "node": ">=22"

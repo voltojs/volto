@@ -575,7 +575,7 @@ export function buildSdkExportsPage(detail) {
     "",
     table(["导出"], rows(types)),
     "",
-    "> 这张表由 `pnpm docs:gen` 生成。`@voltojs/sdk` 与其他包同版本发布到 GitHub Packages（`npm i @voltojs/sdk`，安装前需要 scoped `.npmrc`，见 [发布与安装](../guides/publishing.md)），要求 **Node ≥ 22**，**只提供 ESM 入口**：`import` 或动态 `import()` 可用，`require()` 不能直接加载它。",
+    "> 这张表由 `pnpm docs:gen` 生成。`@voltojs/sdk` 与其他包同版本发布到 npm 公共 registry（`npm i @voltojs/sdk`，见 [发布与安装](../guides/publishing.md)），要求 **Node ≥ 22**，**只提供 ESM 入口**：`import` 或动态 `import()` 可用，`require()` 不能直接加载它。",
     "",
   ].join("\n");
 }

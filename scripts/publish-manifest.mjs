@@ -78,21 +78,23 @@ const TRIAGED_PACKAGES = new Set([
 const DEPENDENCY_FIELDS = ["dependencies", "peerDependencies", "optionalDependencies"];
 
 /**
- * The registry every package publishes to. GitHub Packages only accepts a package
- * whose scope matches the owning account, which is why the scope is `@voltojs`; the
- * publish gate below enforces this exact value in `publishConfig.registry`.
+ * The public npm registry. Packages publish there by default, so `publishConfig` does
+ * not need a `registry` entry; a leftover private registry would silently send
+ * publishes somewhere else, so the gate rejects any value other than this one.
  */
-const REGISTRY = "https://npm.pkg.github.com";
+const PUBLIC_REGISTRY = "https://registry.npmjs.org";
+
+/** Scoped packages must opt into public visibility; npm treats them as private otherwise. */
+const PUBLIC_ACCESS = "public";
 
 /**
  * The metadata `applyManifest` adds when a package does not have it yet.
  *
- * `publishConfig` deliberately carries only `registry`: GitHub ignores `access`, and
- * every package is private by default there (see the release runbook in
- * `docs/user/integrating/guides/publishing.md`).
+ * `publishConfig` only carries `access`: the default registry is already npmjs, and
+ * keeping the entry scoped-free makes the intent (public package) explicit.
  */
 const REQUIRED_METADATA = {
-  publishConfig: { registry: REGISTRY },
+  publishConfig: { access: PUBLIC_ACCESS },
   engines: { node: ">=22" },
   license: "MIT",
   repository: { type: "git", url: "git+https://github.com/voltojs/volto.git" },
@@ -251,8 +253,15 @@ export function validateManifest(manifest, dir, opts, reportWith) {
   if (!files.some((entry) => pointsIntoDist(entry))) {
     report("files: missing dist entry");
   }
-  if (!isPlainObject(manifest.publishConfig) || manifest.publishConfig.registry !== REGISTRY) {
-    report(`publishConfig.registry: not ${REGISTRY}`);
+  if (!isPlainObject(manifest.publishConfig)) {
+    report("publishConfig: missing");
+  } else {
+    if (manifest.publishConfig.access !== PUBLIC_ACCESS) {
+      report(`publishConfig.access: not ${PUBLIC_ACCESS}`);
+    }
+    if (manifest.publishConfig.registry !== undefined && manifest.publishConfig.registry !== PUBLIC_REGISTRY) {
+      report(`publishConfig.registry: not ${PUBLIC_REGISTRY} (remove it or point it at npmjs)`);
+    }
   }
   if (!isPlainObject(manifest.engines) || typeof manifest.engines.node !== "string") {
     report("engines.node: missing");
@@ -533,7 +542,7 @@ const COMPLETE_FIXTURE = {
   types: "./dist/index.d.ts",
   exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" }, "./package.json": "./package.json" },
   files: ["dist"],
-  publishConfig: { registry: "https://npm.pkg.github.com" },
+  publishConfig: { access: "public" },
   engines: { node: ">=22" },
   license: "MIT",
   repository: { type: "git", url: "git+https://example.com/volto.git" },
@@ -596,7 +605,7 @@ function selfTest() {
     ["applyManifest fills files", applied.files, ["dist", "!dist/**/__tests__"]],
     ["applyManifest fills license", applied.license, "MIT"],
     ["applyManifest output passes the check", validateManifest(applied, dir), []],
-    ["applyManifest points at the GitHub Packages registry", applied.publishConfig.registry, "https://npm.pkg.github.com"],
+    ["applyManifest makes the package public", applied.publishConfig.access, "public"],
     [
       "applyManifest is a fixpoint",
       JSON.stringify(applyManifest(applied, dir)) === JSON.stringify(applied),

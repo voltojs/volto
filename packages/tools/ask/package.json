@@ -16,9 +16,14 @@
     "!dist/**/__tests__",
     "!dist/**/*.test.*"
   ],
-  "scripts": { "build": "tsc --build", "typecheck": "tsc --noEmit", "lint": "eslint src/", "test": "vitest run" },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "engines": {
     "node": ">=22"
@@ -28,5 +33,9 @@
     "type": "git",
     "url": "git+https://github.com/voltojs/volto.git"
   },
-  "dependencies": { "@voltojs/core": "workspace:*", "@voltojs/tools-common": "workspace:*", "zod": "^4.4.3" }
+  "dependencies": {
+    "@voltojs/core": "workspace:*",
+    "@voltojs/tools-common": "workspace:*",
+    "zod": "^4.4.3"
+  }
 }
