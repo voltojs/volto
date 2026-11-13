@@ -266,7 +266,7 @@ a per-answer `TurnUsageChip`.
   projected, not stored; `buildTurnRecords` is the only event parser and
   `toConversationView` / `toTrajectoryView` are shallow core derivations with SDK facades.
   Rejected: a parallel `message` row; v1 migration (v1 files answer `410`); per-chunk
-  persistence (aggregate per call); dsh's `ignorable` flag (no out-of-repo writers);
+  persistence (aggregate per call); an earlier design's `ignorable` flag (no out-of-repo writers);
   separate live/history projections; a read-side port fused with `TranscriptStore`;
   projecting in web. `seq` is store-assigned; sub-agents get their own session and file;
   `request_header` is written only on hash change (the code later added the cross-turn
@@ -284,7 +284,7 @@ a per-answer `TurnUsageChip`.
   means uncached prompt, fixing CostMeter's double-priced cache tokens.
 - **2026-09-11 — dynamic injections are auditable but never enter the chat feed.**
   `context_reminder` is one shell with a closed `kind` union; `compaction` keeps its own
-  event. Rejected: dsh's open `source:{kind,form}` tags and unknown-kind fallback; folding
+  event. Rejected: open `source:{kind,form}` tags and unknown-kind fallback; folding
   compaction into the reminder union.
 - **2026-09-26 — token usage is summed per turn, not per call.** Rejected: one chip per
   call; showing both; deriving the sum in web; counting a missing-usage call as 0 (declared
