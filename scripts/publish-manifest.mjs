@@ -128,6 +128,15 @@ const KEY_ORDER = [
 const DIST_DIR = "dist";
 const DIST_PREFIX = `${DIST_DIR}/`;
 
+/**
+ * The self export every published package must carry. Consumers (bundlers, license
+ * scanners, smoke scripts) resolve `@voltojs/<pkg>/package.json`; without this subpath
+ * the `exports` map answers `ERR_PACKAGE_PATH_NOT_EXPORTED` instead.
+ */
+const SELF_EXPORT = "./package.json";
+const SELF_EXPORT_TARGET = "./package.json";
+const SELF_EXPORT_PROBLEM = `exports.${SELF_EXPORT}: missing self export`;
+
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -149,6 +158,50 @@ function pointsIntoDist(value) {
 /** Whether `name` is one of the packages that must never be published. */
 function isPrivatePackage(name) {
   return PRIVATE_PACKAGES.has(name);
+}
+
+/**
+ * Whether an `exports` field already re-exports the package's own `package.json`.
+ *
+ * Only the object form can carry subpaths, so the string shorthand (a bare `"."`) has
+ * no self export no matter what it says.
+ *
+ * @param {unknown} exportsField the manifest's `exports` value
+ */
+function hasSelfExport(exportsField) {
+  if (!isPlainObject(exportsField)) return false;
+  const target = exportsField[SELF_EXPORT];
+  return typeof target === "string"
+    ? normalizePath(target) === normalizePath(SELF_EXPORT_TARGET)
+    : isPlainObject(target) && collectTargetPaths(target).includes(normalizePath(SELF_EXPORT_TARGET));
+}
+
+/** Flatten an `exports` condition object to its target paths, for `hasSelfExport`. */
+function collectTargetPaths(value) {
+  if (typeof value === "string") return [normalizePath(value)];
+  if (Array.isArray(value)) return value.flatMap(collectTargetPaths);
+  if (isPlainObject(value)) return Object.values(value).flatMap(collectTargetPaths);
+  return [];
+}
+
+/**
+ * Append the self export to an `exports` field, preserving every existing key and its
+ * order. A string shorthand becomes `{ ".": <shorthand> }` first; a missing field
+ * becomes `{ ".": <main> }` (`main` points into `dist/` by then), so an added `exports`
+ * map never contradicts the entry point the package already declares.
+ *
+ * @param {unknown} exportsField the manifest's `exports` value
+ * @param {string} main the manifest's `main`, already normalized to point into `dist/`
+ * @returns {Record<string, unknown>} a new `exports` object ending with `./package.json`
+ */
+function withSelfExport(exportsField, main) {
+  const base = isPlainObject(exportsField)
+    ? exportsField
+    : typeof exportsField === "string"
+      ? { ".": exportsField }
+      : { ".": main };
+  if (hasSelfExport(base)) return { ...base };
+  return { ...base, [SELF_EXPORT]: SELF_EXPORT_TARGET };
 }
 
 /**
@@ -219,6 +272,9 @@ export function validateManifest(manifest, dir, opts, reportWith) {
   if (!pointsIntoDist(manifest.types)) {
     report("types: not under dist");
   }
+  if (!hasSelfExport(manifest.exports)) {
+    report(SELF_EXPORT_PROBLEM);
+  }
   if (!options.strictWorkspace) return problems;
   for (const field of DEPENDENCY_FIELDS) {
     const section = manifest[field];
@@ -277,6 +333,7 @@ export function applyManifest(manifest, dir) {
   }
   if (!pointsIntoDist(next.main)) next.main = `./${DIST_PREFIX}index.js`;
   if (!pointsIntoDist(next.types)) next.types = `./${DIST_PREFIX}index.d.ts`;
+  next.exports = withSelfExport(next.exports, next.main);
   return placeKeys(manifest, normalizeManifest(next));
 }
 
@@ -474,6 +531,7 @@ const COMPLETE_FIXTURE = {
   type: "module",
   main: "./dist/index.js",
   types: "./dist/index.d.ts",
+  exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" }, "./package.json": "./package.json" },
   files: ["dist"],
   publishConfig: { registry: "https://npm.pkg.github.com" },
   engines: { node: ">=22" },
@@ -496,6 +554,44 @@ function selfTest() {
       "workspace protocol is ignored by default",
       validateManifest(withWorkspaceRange, dir),
       [],
+    ],
+    [
+      "a missing self export is reported",
+      validateManifest({ ...COMPLETE_FIXTURE, exports: { ".": "./dist/index.js" } }, dir),
+      ["exports../package.json: missing self export"],
+    ],
+    [
+      "a self export pointing elsewhere is reported",
+      validateManifest({ ...COMPLETE_FIXTURE, exports: { "./package.json": "./package.json.bak" } }, dir),
+      ["exports../package.json: missing self export"],
+    ],
+    [
+      "a present self export passes",
+      validateManifest(COMPLETE_FIXTURE, dir),
+      [],
+    ],
+    [
+      "applyManifest appends the self export last, keeping existing keys in order",
+      applyManifest(
+        { ...COMPLETE_FIXTURE, exports: { ".": { import: "./dist/index.js" }, "./sse": "./dist/sse.js" } },
+        dir,
+      ).exports,
+      { ".": { import: "./dist/index.js" }, "./sse": "./dist/sse.js", "./package.json": "./package.json" },
+    ],
+    [
+      "applyManifest converts a string shorthand and keeps it as '.'",
+      applyManifest({ ...COMPLETE_FIXTURE, exports: "./dist/index.js" }, dir).exports,
+      { ".": "./dist/index.js", "./package.json": "./package.json" },
+    ],
+    [
+      "applyManifest adds an exports map rooted at main when the field is missing",
+      applyManifest({ ...COMPLETE_FIXTURE, exports: undefined }, dir).exports,
+      { ".": "./dist/index.js", "./package.json": "./package.json" },
+    ],
+    [
+      "a derived exports map follows a non-index main",
+      applyManifest({ ...COMPLETE_FIXTURE, exports: undefined, main: "./dist/server.js" }, dir).exports,
+      { ".": "./dist/server.js", "./package.json": "./package.json" },
     ],
     ["applyManifest fills files", applied.files, ["dist", "!dist/**/__tests__"]],
     ["applyManifest fills license", applied.license, "MIT"],

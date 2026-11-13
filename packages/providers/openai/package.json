@@ -12,7 +12,8 @@
     "./stream-normalize.js": {
       "types": "./dist/stream-normalize.d.ts",
       "import": "./dist/stream-normalize.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

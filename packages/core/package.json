@@ -12,7 +12,8 @@
     "./testing": {
       "types": "./dist/testing/store-contract.d.ts",
       "import": "./dist/testing/store-contract.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

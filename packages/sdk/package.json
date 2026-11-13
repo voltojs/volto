@@ -16,7 +16,8 @@
     "./file-refs": {
       "types": "./dist/file-refs/index.d.ts",
       "import": "./dist/file-refs/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

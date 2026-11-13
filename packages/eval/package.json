@@ -12,7 +12,8 @@
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "volto-eval-replay": "./dist/cli.js"

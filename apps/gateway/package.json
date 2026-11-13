@@ -4,6 +4,10 @@
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
+  "exports": {
+    ".": "./dist/server.js",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "volto": "./dist/bin.js"
   },

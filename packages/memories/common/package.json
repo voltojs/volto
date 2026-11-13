@@ -12,7 +12,8 @@
     "./contract": {
       "types": "./dist/contract.d.ts",
       "import": "./dist/contract.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
