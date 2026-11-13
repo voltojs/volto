@@ -47,7 +47,7 @@ Under "Settings → Model routing" you can define a number of tiers (the factory
 
 ## Connectivity probe
 
-Provider cards have a "Test route" button: it sends one real minimal request with the current configuration and shows "Route is usable" or "Route is not usable: &lt;reason&gt;". After changing the key or the base URL, test once — faster than hitting the error in a conversation.
+Provider cards have a "Test route" button: it checks the current configuration (model resolvable, key present, protocol known) and shows "Route is usable" or "Route is not usable: &lt;reason&gt;". It does not send a request to the provider; the first real request happens in a conversation.
 
 ## Which model generates titles
 

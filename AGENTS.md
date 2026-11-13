@@ -266,7 +266,7 @@ below explain **why** it is that way; they do not guarantee the current behavior
 | Document | Path | Purpose | Freshness |
 | --- | --- | --- | --- |
 | **User docs** | `docs/user/` | Manuals for users and integrators; sync whenever a user-visible surface changes (see the User documentation section) | Tracks the code |
-| Architecture | `docs/pure-agent-core.md` | Pure-kernel architecture, module decomposition, port contracts — the source of the purity invariant | Long-lived |
+| Architecture | `docs/dev/architecture.md` | Pure-kernel architecture, module decomposition, port contracts — the source of the purity invariant | Tracks the code |
 | **Security position** | `SAFETY.md` | Threat model: prevents "the model makes a mistake", **does not promise** to prevent "the model is induced"; actual boundary strength and known gaps | Long-lived |
 | **Module documentation** | `docs/dev/` | Current behavior, invariants and decisions per module, verified against the code | Tracks the code |
 | **Internal archive** | `docs/archive/` (local only, not published) | Historical specs, plans, reports and roadmaps | Do not treat as current |

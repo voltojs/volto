@@ -3,7 +3,7 @@ title: Why everything is injected through ports
 type: concept
 source:
   - packages/core/src/ports.ts
-  - docs/pure-agent-core.md
+  - docs/dev/architecture.md
 generated: false
 verified: 2026-11-11
 ---

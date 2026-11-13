@@ -3,7 +3,7 @@ title: 为什么一切经端口注入
 type: concept
 source:
   - packages/core/src/ports.ts
-  - docs/pure-agent-core.md
+  - docs/dev/architecture.md
 generated: false
 verified: 2026-11-11
 ---

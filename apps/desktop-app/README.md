@@ -115,6 +115,6 @@ pnpm --filter @voltojs/desktop-app package:linux   # .AppImage + .deb
 
 ## 相关文档
 
-- `../../docs/pure-agent-core.md` — agent 内核架构
+- `../../docs/dev/architecture.md` — agent 内核架构
 - `../../docs/superpowers/specs/` 与 `../../docs/superpowers/plans/` — 每个特性的设计与实施记录
 - `../gateway/` — 同套 SDK 的 HTTP + SSE 网关宿主

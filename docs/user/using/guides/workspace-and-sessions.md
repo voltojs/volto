@@ -47,7 +47,7 @@ The sidebar layout (pins, workspace order, sort order, collapsed state) lives se
 - **Non-image attachments**: PDFs, text and the like are converted into text blocks and merged into the message (a PDF is parsed up to 50 pages and about 200k characters by default; anything beyond that is stated as truncated).
 - **`@` references**: type `@` to pick a file from the workspace and insert a file reference; the reference is resolved into a path or content at send time, which is more reliable than typing the path by hand.
 
-Attachments are stored per session. When a session is deleted, its attachment directory is cleaned up after 24 hours; attachments of sessions that still exist are never cleaned up.
+Attachments are stored per session. A background cleanup reclaims the attachment directory of a deleted session after a 24-hour grace period; attachments of sessions that still exist are never reclaimed.
 
 ## Audit trail
 
