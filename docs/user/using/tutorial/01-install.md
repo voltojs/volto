@@ -27,22 +27,31 @@ verified: 2026-11-13
 `npx` 也走同一个 `.npmrc`：npx 会按包名里的 scope（`@voltojs`）去找对应的 registry，没有这条配置就会去 npmjs.com 上找，然后报 `404 Not Found`。
 
 1. 在 GitHub **Settings → Developer settings → Personal access tokens → Tokens (classic)** 生成一个 token，勾选 **`read:packages`** 这一个 scope（只要装包的话，`repo` 也不用勾）。
-2. 把两行写进 `~/.npmrc`：
+2. token 放进 shell 配置（这里用 `GITHUB_NPM_AUTH_TOKEN` 这个名字）：
+
+```bash
+# ~/.zshrc
+export GITHUB_NPM_AUTH_TOKEN=ghp_xxxxxxxx
+```
+
+3. 在**用户级** `~/.npmrc` 里声明 scope，并引用上面那个变量：
 
 ```text
 @voltojs:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=<你的 token>
+//npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
 ```
 
-或者只写 registry 这一行，把 token 交给环境变量：
+直接写成 `_authToken=ghp_xxxxxxxx` 也可以，但 token 会明文落在文件里。
+
+**不要把这些写进任何仓库的 `.npmrc`**——项目级配置优先于 `~/.npmrc`，其中的 `_authToken` 会覆盖掉你自己的凭据（变量没设时等于空 token）。
+
+4. 确认这台机器认到了哪个账号：
 
 ```bash
-export NODE_AUTH_TOKEN=<你的 token>
+npm whoami --registry=https://npm.pkg.github.com
 ```
 
-同时写了两处时，`.npmrc` 里写死的那行优先。
-
-你应看到：`ls ~/.npmrc` 能看到这个文件，且里面那行 `@voltojs:registry` 没有被注释掉。
+你应看到：你的 GitHub 用户名。看到 `401` / `ENEEDAUTH` 就是上面几步没生效（注意变量要在**新开**的终端里才生效）。
 
 ### 2. 启动
 

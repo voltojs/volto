@@ -352,6 +352,10 @@ importers:
       '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
+    devDependencies:
+      '@voltojs/provider-openai':
+        specifier: workspace:*
+        version: link:../openai
 
   packages/providers/openai:
     dependencies:

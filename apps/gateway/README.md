@@ -1,15 +1,15 @@
 # @voltojs/gateway
 
-The gateway for [volto](https://github.com/zlipeng/volto): it hosts the agent
+The gateway for [volto](https://github.com/voltojs/volto): it hosts the agent
 runtime (sandboxed shell, file system, tools), serves the Web UI, and exposes
 everything over HTTP + SSE so the UI, the SDK and scripts talk to one process.
 
 This README covers the package itself — how to run it, what it writes where,
 and what ships in the tarball. How to *use* volto (tutorials, permissions,
 remote access, tools, configuration) lives in the user docs:
-[docs/user](https://github.com/zlipeng/volto/tree/main/docs/user) — start with
-[install and run](https://github.com/zlipeng/volto/blob/main/docs/user/using/tutorial/01-install.md)
-and [remote access](https://github.com/zlipeng/volto/blob/main/docs/user/using/guides/remote-access.md).
+[docs/user](https://github.com/voltojs/volto/tree/main/docs/user) — start with
+[install and run](https://github.com/voltojs/volto/blob/main/docs/user/using/tutorial/01-install.md)
+and [remote access](https://github.com/voltojs/volto/blob/main/docs/user/using/guides/remote-access.md).
 
 ## Run it
 
@@ -18,15 +18,19 @@ not npmjs.com, and are **private by default**. `npx` resolves `@voltojs` through
 your own `.npmrc`, so configure it once — a GitHub personal access token
 (classic) with `read:packages`, and a scope pointing at GitHub Packages:
 
+```bash
+export GITHUB_NPM_AUTH_TOKEN=ghp_xxxxxxxx     # in ~/.zshrc
+```
+
 ```text
 # ~/.npmrc
 @voltojs:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=<token>
+//npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
 ```
 
-(`NODE_AUTH_TOKEN=<token>` works too, with only the first line in `.npmrc`.)
+Keep the token out of any project `.npmrc`: it takes precedence over `~/.npmrc` and would mask it with an empty value. `npm whoami --registry=https://npm.pkg.github.com` confirms the credential. CI uses `NODE_AUTH_TOKEN` instead (written by `setup-node` — see [publishing and installing](https://github.com/voltojs/volto/blob/main/docs/user/integrating/guides/publishing.md)).
 Without it `npx` looks on npmjs.com and fails with `404`. See
-[publishing and installing](https://github.com/zlipeng/volto/blob/main/docs/user/integrating/guides/publishing.md).
+[publishing and installing](https://github.com/voltojs/volto/blob/main/docs/user/integrating/guides/publishing.md).
 
 ```bash
 npx @voltojs/gateway          # gateway + Web UI on http://127.0.0.1:3100
@@ -34,7 +38,7 @@ npx @voltojs/gateway          # gateway + Web UI on http://127.0.0.1:3100
 
 Requires **Node ≥ 22** on macOS or Linux. A platform without a sandbox backend
 (Windows included) is refused at startup rather than run unconfined — see
-[sandbox and platforms](https://github.com/zlipeng/volto/blob/main/docs/user/using/guides/sandbox-and-platforms.md).
+[sandbox and platforms](https://github.com/voltojs/volto/blob/main/docs/user/using/guides/sandbox-and-platforms.md).
 
 `serve` (the default command) prints exactly two lines on stdout, a contract a
 script can parse:
@@ -105,9 +109,9 @@ non-loopback bind. In remote mode the native dialogs (`/fs/pick-directory`,
 `/fs/reveal`) answer `501 capability_unavailable` and every route requires the
 access token; authentication failures are rate limited per client. It adds no
 encryption and opens no tunnel of its own — put it behind one, and read
-[remote access](https://github.com/zlipeng/volto/blob/main/docs/user/using/guides/remote-access.md)
+[remote access](https://github.com/voltojs/volto/blob/main/docs/user/using/guides/remote-access.md)
 first. The full threat model is in
-[SAFETY.md](https://github.com/zlipeng/volto/blob/main/SAFETY.md).
+[SAFETY.md](https://github.com/voltojs/volto/blob/main/SAFETY.md).
 
 ## What the tarball contains
 

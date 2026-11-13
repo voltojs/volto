@@ -6,13 +6,17 @@
 
 要求 **Node ≥ 22**（macOS / Linux），以及一个能读 `@voltojs` 包的 GitHub 账号。包发在 GitHub Packages 上且**默认私有**，所以先配 registry 和一个勾了 `read:packages` 的 GitHub personal access token（classic）：
 
+```bash
+export GITHUB_NPM_AUTH_TOKEN=ghp_xxxxxxxx     # 放进 ~/.zshrc
+```
+
 ```text
 # ~/.npmrc
 @voltojs:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=<你的 token>
+//npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
 ```
 
-token 也可以只放环境变量 `NODE_AUTH_TOKEN`，`.npmrc` 里只留第一行。`npx` 同样读这份配置。
+token 只写在这个用户级文件（及引用它的 shell 配置）里，不要写进仓库的 `.npmrc`（项目级配置优先，会把它覆盖成空值）。`npx` 同样读这份配置；`npm whoami --registry=https://npm.pkg.github.com` 可以确认是否生效。CI 环境用的是 `NODE_AUTH_TOKEN`，见 [发布与安装](docs/user/integrating/guides/publishing.md)。
 
 ```bash
 npx @voltojs/gateway

@@ -95,7 +95,7 @@ const REQUIRED_METADATA = {
   publishConfig: { registry: REGISTRY },
   engines: { node: ">=22" },
   license: "MIT",
-  repository: { type: "git", url: "git+https://github.com/zlipeng/volto.git" },
+  repository: { type: "git", url: "git+https://github.com/voltojs/volto.git" },
   type: "module",
 };
 
@@ -517,14 +517,14 @@ function selfTest() {
       false,
     ],
     [
-      "applyManifest uses the zlipeng repository URL",
+      "applyManifest uses the voltojs repository URL",
       applied.repository.url,
-      "git+https://github.com/zlipeng/volto.git",
+      "git+https://github.com/voltojs/volto.git",
     ],
     [
       "applyManifest corrects a stale repository URL",
       applyManifest({ ...COMPLETE_FIXTURE, name: "@voltojs/fixture2" }, dir).repository.url,
-      "git+https://github.com/zlipeng/volto.git",
+      "git+https://github.com/voltojs/volto.git",
     ],
     [
       "repository is corrected while a hand-set license is preserved",
@@ -540,7 +540,7 @@ function selfTest() {
         );
         return [applied2.repository.url, applied2.license, applied2.engines.node];
       })(),
-      ["git+https://github.com/zlipeng/volto.git", "Apache-2.0", ">=24"],
+      ["git+https://github.com/voltojs/volto.git", "Apache-2.0", ">=24"],
     ],
     [
       "repository normalization keeps unrelated repository fields",

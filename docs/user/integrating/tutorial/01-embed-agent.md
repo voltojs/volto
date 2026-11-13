@@ -20,10 +20,10 @@ verified: 2026-11-13
 
   ```text
   @voltojs:registry=https://npm.pkg.github.com
-  //npm.pkg.github.com/:_authToken=<你的 token>
+  //npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
   ```
 
-  也可以只写第一行，把 token 放进环境变量 `NODE_AUTH_TOKEN`。没有这步会得到 `404`。完整说明见 [发布与安装](../guides/publishing.md)。
+  token 本身放在 shell 配置里（`~/.zshrc` 中 `export GITHUB_NPM_AUTH_TOKEN=ghp_…`）。用 `npm whoami --registry=https://npm.pkg.github.com` 确认生效；token 不要写进项目里的 `.npmrc`，项目级配置优先，会把 `~/.npmrc` 里的凭据覆盖成空值。CI 里通常改用 `NODE_AUTH_TOKEN`（见 [发布与安装](../guides/publishing.md)）。没有这步会得到 `404`。
 - 装 SDK：
 
   ```bash

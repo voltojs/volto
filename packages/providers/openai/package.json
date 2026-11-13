@@ -33,7 +33,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zlipeng/volto.git"
+    "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
     "@voltojs/core": "workspace:*"
