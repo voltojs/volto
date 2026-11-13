@@ -78,8 +78,12 @@ applies visibility governance:
 
 `filterVisibleTools(tools, availableCapabilities, ceiling)` keeps a tool only when every
 entry of its `requires` is granted **and** its `riskTier` is at or below `ceiling`. The
-Runner computes this once per Runner instance (`runner.ts:912`), so the model never sees a
-tool it would only be refused for using.
+Runner computes this once per Runner instance (`runner.ts:912`). Hosts derive that ceiling
+with `visibleRiskCeiling(permissionConfig)`: normally it is `ceilingOf(sandbox)`, but
+`workspace-write` + `ask` raises it to `IRREVERSIBLE`, because `decide` escalates an
+above-ceiling call to a human and a prompt needs the tool to stay visible. `read-only` /
+`plan` and `auto` (`never`) still prune, so the model never sees a tool it would only be
+refused for using.
 
 The capability set is derived, not configured (`create-agent.ts:1620-1695`):
 
@@ -114,7 +118,8 @@ one of:
 - `Unknown tool: <name>` — the name is not in the visible set. A tool pruned by the risk
   ceiling reaches this branch, so the model sees "unknown tool", not "above your ceiling";
   the boundary reminder (`buildPermissionReminder`, see below) is what tells it the tools
-  were removed.
+  were removed. Under the `ask` preset, an `IRREVERSIBLE` tool above the sandbox ceiling
+  stays visible and its call is escalated to a human instead of reaching this branch.
 - `Tool "<name>" is not available: missing capability <cap>.`
 - `Invalid input for tool "<name>": …` from `validateToolInput`, which checks the object
   shape, `required`, `enum`, and top-level property types only. Element types inside
@@ -248,12 +253,18 @@ interface ToolDefinition {
   inputSchema: JSONSchema;            // abstract subset: type/properties/required/items/enum/oneOf/…
   requires: Capability[];             // gating, namespace:action
   riskTier: RiskTier;                 // READ_ONLY | WRITE_LOW | WRITE_HIGH | IRREVERSIBLE
+  writesSessionState?: boolean;       // true when it mutates volto's own session state
   trust?: "trusted" | "untrusted";    // untrusted output gets an isolation prefix
   pathInputs?: string[];              // fields the Runner resolves for pathPattern rules
   hostInputs?: string[];              // fields reduced to a hostname for hostPattern rules
   commandInputs?: string[];           // fields collected as raw command text for commandPrefix
 }
 ```
+
+A tool that only mutates volto's own session state — todos, task records, remembered
+facts, scheduled wakes — is graded `READ_ONLY` and sets `writesSessionState: true`. The
+grade is what keeps it visible under `read-only` / `plan`; the flag is descriptive (for
+hosts, audits and UI) and does not relax the sandbox by itself.
 
 Declaring a parameter input is the *only* way a parameter rule can reach a tool. Three
 consequences are load-bearing rather than incidental:
@@ -302,14 +313,14 @@ command-content classification is not a permission input.
 | `auto` | workspace-write | never | allow | allow | allow | deny |
 | `full` | danger-full-access | never | allow | allow | allow | allow |
 
-The matrix is the core verdict. In the visible set, tools ranked **above the ceiling are
-pruned before classification**, so the `IRREVERSIBLE` column is unreachable for `ask` and
-`auto`, and every write column is unreachable for `read-only` / `plan`. Concretely:
-`git_push` (`IRREVERSIBLE`) is never offered under `ask` and never asked about under
-`full` — a human is never prompted about it by a preset. `decide`'s above-ceiling `ask`
-branch therefore only fires for a Runner built without `riskCeiling` (custom hosts, core
-unit tests). It is kept because the clamp is what makes `resolvePermission` safe for any
-caller, not because a shipped host reaches it.
+The matrix is the core verdict. In the visible set, `read-only` / `plan` and `auto` prune
+tools ranked **above the ceiling before classification** (`visibleRiskCeiling` returns
+`ceilingOf` there), so every write column is unreachable for the read-only presets and
+`IRREVERSIBLE` is unreachable for `auto`. `ask` is the exception: `workspace-write` + `ask`
+keeps `IRREVERSIBLE` visible, so `git_push` is offered and reaches a human for approval
+instead of being pruned; under `full` it is allowed without a prompt. A Runner built
+without `riskCeiling` (custom hosts, core unit tests) still reaches `decide`'s above-ceiling
+branch for every tier; the clamp in `resolvePermission` keeps that safe for any caller.
 
 `plan` and `read-only` share a config on purpose: a plan session differs by what it is
 doing (plan artifact plus `save_plan`), not by its boundary, and `presetOf` therefore
@@ -360,26 +371,33 @@ rule object), dedups against identical or broader existing rules, and sets
 2. **`commandPrefix` is a text-layer interruption reducer.** The persistent bash session
    keeps aliases, functions and `PATH` across calls, and the rule says nothing about `cwd`;
    the same command text can run something else. The spec's R1/R2 residual risks still hold.
-3. **The write tier hides non-workspace tools.** `read-only` / `plan` prune everything above
-   `READ_ONLY`, which includes tools that never write to the workspace: `task` /
-   `task_output` (`WRITE_LOW`), `todo_write` (`WRITE_LOW`), `memory` (`WRITE_LOW`),
-   `schedule_task` (`WRITE_LOW`). Restricting a plan session to read-only therefore also
-   disables sub-agents and todos.
-4. **MCP tools are all graded `READ_ONLY`** (`packages/tools/mcp/src/connection.ts`). They
-   are gated only by `mcp:<serverId>`; the permission matrix will never ask about an MCP
-   tool, whatever the server actually does.
+3. **Session-state tools are graded `READ_ONLY`.** `task` / `task_output`, `todo_write`,
+   `memory`, `schedule_task` / `cancel_task` never touch the workspace, so they declare
+   `riskTier: "READ_ONLY"` plus `writesSessionState: true` and stay visible under
+   `read-only` / `plan`. Their capabilities still gate them: `task` / `task_output` need
+   `enableTaskTool`, `memory` needs a `memoryStore`, `schedule_*` need a `scheduler`, and
+   `todo_write` needs only `plan:write`.
+4. **MCP tools default to `WRITE_HIGH`** (`packages/tools/mcp/src/connection.ts`). The
+   protocol says nothing about what a tool does, so the default grade makes `ask` stop on
+   an MCP call, `read-only` / `plan` prune it, and `auto` / `full` allow it without a
+   prompt. A host that trusts a server can grade all of its tools lower with
+   `McpServerConfig.riskTier`. Gating is still only `mcp:<serverId>`.
 5. **Some `READ_ONLY` tools build shell text from their input.** `run_tests` / `build` take
-   a free-form `command`; `git_diff` interpolates `args` into ``git diff ${args}``. None
-   declares `commandInputs`, so `commandPrefix` cannot match them, and being `READ_ONLY`
-   they are never asked about — the tier names the workflow, not the argument's power.
+   a free-form `command`, so none declares `commandInputs`, `commandPrefix` cannot match
+   them, and being `READ_ONLY` they are never asked about — the tier names the workflow,
+   not the argument's power. `git_diff` is the exception: `args` is split into tokens and
+   allowlisted (a fixed flag set, `--unified=<n>`, and revision/range tokens); any other
+   token is a self-correctable error. The built command also passes `--no-ext-diff` /
+   `--no-textconv`, so repo config or `.gitattributes` cannot attach an external command
+   to a read.
 6. **Session-scoped grants do not exist.** No `allow_always`; every `ask` is one call, one
    answer. Remembered rules are user-level, durable, visible, cross-project, and take effect
    next turn (the receipt says `effectiveFrom: "next_turn"`).
 7. **The deny wording is part of the mechanism.** `policyDenialMessage` /
    `userDenialMessage` exist because a bare refusal invited the model to re-run the refused
    effect through `bash`; keep that scoping (the refused *effect*, not switching tools).
-8. **Host divergence.** Desktop keeps its own three-value vocabulary, maps its `auto` tier
-   to `danger-full-access` + `never` (not the gateway's `workspace-write` + `never`), and
+8. **Host divergence.** Desktop keeps its own three-value vocabulary but maps its `auto`
+   tier to `workspace-write` + `never`, the same pair as the gateway's `auto`, and it
    denies after 5 minutes where the gateway deliberately never times out. Name the host.
 9. **`permissionFingerprint` covers only `toolName` / `toolPattern` / `capability` /
    `decision`** while rules have six match keys. No reminder sentence depends on rules, so

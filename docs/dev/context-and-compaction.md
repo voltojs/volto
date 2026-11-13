@@ -125,8 +125,10 @@ Otherwise:
   is left alone ("soft" pairing).
 - `replacedIds = compressedIndices.map(i => messages[i].id)`; `compressibleMessages` is in
   original index order; `preservedMessages` is system plus unselected others.
-  `estimatedTokensAfter = estimateTokens(preservedMessages) + 200` — the `200` is a fixed
-  summary placeholder and nothing reads it.
+  `estimatedTokensAfter = estimateTokens(preservedMessages) + summaryMaxTokens` — the
+  summarization call's own output budget (`DEFAULT_SUMMARY_MAX_TOKENS`, 4096, when the
+  compaction config omits it), not a fixed placeholder. No production consumer reads the
+  field today, but the estimate now matches what the call may actually cost.
 
 `buildSummaryPrompt` emits a fixed-section checkpoint (`Primary Request and Intent`, `Key
 Technical Concepts`, `Files and Code`, `Errors and Fixes`, `Pending Jobs`, `Current Work`,

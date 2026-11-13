@@ -120,7 +120,11 @@ Usage is a separate `ModelEventUsage` (extends `TokenUsage`): `inputTokens` (the
 `cacheWriteTokens`, `reasoningTokens`, `cacheReporting`, under the identity
 `input + cacheRead + cacheWrite === prompt`. The Runner keeps the latest usage
 event and attaches it to the *following* `done` (`capturedUsage`); pi-ai and the
-Anthropic adapter emit usage before `done`, the shape this expects.
+Anthropic adapter emit usage before `done`, the shape this expects. When usage
+was requested, the OpenAI adapter buffers a trailing usage chunk and holds the
+terminal `done` until it lands (or the stream ends), because
+`stream_options.include_usage` normally sends that chunk *after* the one carrying
+`finish_reason` — emitting `done` first would strand the turn's usage behind it.
 
 `cacheReporting` is tri-state (`unsupported`, `reported`, `not-reported`); pi-ai
 derives it from the cache mode and counters because it normalizes missing cache
@@ -171,12 +175,16 @@ dispatch rather than carrying a provider id on the request.
 - **Stream.** Unknown model and unsupported effort are rejected before any I/O
   as non-retriable error events. Then `toPiContext` translates the request and
   `models.streamSimple` runs with `signal`, `apiKey`, `reasoning`, `maxTokens`,
-  `temperature`, `headers`.
+  `temperature`, `headers`, plus `cacheRetention: "short"` when the request carries
+  `cacheBreakpoints`.
 - **`toPiContext`** (`context.ts`) merges system messages into
   `Context.systemPrompt`, validates tool arguments as JSON, maps images (an
   unresolved `ref` throws — the Runner must have resolved it to base64), drops
   tool results whose originating `tool_use` was compacted away, and replays
-  assistant blocks through the envelope.
+  assistant blocks through the envelope. `responseFormat` has no pi-ai
+  equivalent, so it is appended to the system prompt as explicit JSON
+  instructions — prompt-level guidance, not provider-side schema enforcement; a
+  host that needs native enforcement uses the OpenAI-compatible adapter.
 - **Replay envelope** (`replay.ts`): `version: 1` + model id + one block per
   assistant content block carrying `textSignature` / `thinkingSignature` /
   `thoughtSignature` / `redacted`. `readReplayEnvelope` never throws: malformed
@@ -211,7 +219,7 @@ system prompt becomes the top-level `system` field; the tool role becomes a
 text. `max_tokens` defaults to 4096, and `responseFormat` (no native
 equivalent) is appended as a system instruction.
 
-It is the only adapter consuming `cacheBreakpoints`: index 0 puts
+It is the only adapter placing native markers index by index: index 0 puts
 `cache_control: ephemeral` on the system block, and message breakpoints apply at
 `index - systemCount` because system messages were extracted. `reasoning` blocks
 are dropped on replay — this adapter does not read `modelMeta`, and Anthropic
@@ -308,8 +316,9 @@ constructs one, and it does not forward `describeModel`.
   plaintext — is server-side only. Custom `headers` are non-secret by contract;
   the key is injected through `auth`.
 - **`cacheBreakpoints` are advisory.** Core always computes them; only the
-  standalone Anthropic adapter places native markers, and pi-ai relies on each
-  protocol's own prompt caching.
+  standalone Anthropic adapter places native markers index by index, while pi-ai
+  maps a non-empty list to `cacheRetention: "short"` and lets its own adapters
+  place the markers.
 
 ## Decisions and rejected alternatives (with dates)
 
@@ -341,8 +350,9 @@ constructs one, and it does not forward `describeModel`.
   provider-name branches; the HTTP client is never rewritten. Rejected global
   protocol switches and mid-turn switching. Two reversals: the shipped probe is
   a config/capability probe (`live: false`, no network), not the live wire probe
-  the spec described; and the pi-ai adapter ignores `cacheBreakpoints` entirely,
-  leaving native markers to the standalone Anthropic adapter.
+  the spec described; and the pi-ai adapter does not place markers index by
+  index either — it maps `cacheBreakpoints` to `cacheRetention: "short"` and
+  leaves marker placement to pi-ai's own adapters.
 
 ## How to change it (tests to run, regression points)
 

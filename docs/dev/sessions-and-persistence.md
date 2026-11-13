@@ -39,8 +39,8 @@ and names the reversal.
   a resumable execution snapshot answer different questions.
 - Wiring and hosts: `runtimes/node/src/{runner,transcript-recorder}.ts` produce events;
   `sdk/src/create-agent.ts` (`sessionStore`, `chatStore`, `chatSessionId`, `chatMeta`,
-  `initialTurn`, `initialStep`, `initialMessages`, `initialQueuedInputs`) and
-  `transcript-reader.ts` consume and project them;
+  `initialTurn`, `initialStep`, `initialMessages`, `initialQueuedInputs`,
+  `pinnedMessageIds`) and `transcript-reader.ts` consume and project them;
   `apps/gateway/src/{sessions,server,session-fork,session-store-factory}.ts` own the
   JSONL directory, routes, titles and sidebar layout.
 
@@ -72,7 +72,8 @@ model call and each tool batch, and **awaits** at the end of `run()`/`resume()`.
 
 `runner.ts` records `turn_start`/`user_message` before model I/O, `assistant_message`
 from `model_done`, `tool_call`/`tool_result` from sink events (including
-`displayMetadata`, which makes per-turn diffs replayable), `approval_asked`/
+`displayMetadata`, which makes per-turn diffs replayable, and `content` kept as
+`string | ToolResultBlock[]` — blocks are validated, never join-flattened), `approval_asked`/
 `approval_decision` around the gate, and `turn_end` in the shared `finally`. The SDK
 appends one `session_meta` at construction when `chatStore`, `chatSessionId` and
 `chatMeta` exist, and writes fallback `turn_end`/`error` for failures before a Runner
@@ -97,8 +98,10 @@ rebuild. It mirrors the reducer, not wire order: results flush in the assistant 
 denials synthesize an error result; steering renders at `steering_delivered` (with a
 cross-turn anchor rule) and undelivered entries drop; a mid-batch turn end gets the
 same interrupted results as `reducer.ts`; compaction with `replacedIds`/`summaryId`
-attempts the reducer's write-back. System prompts and seeds are not projected (the
-host re-injects) and projected ids (`proj-N`) are synthetic.
+attempts the reducer's write-back. The message-producing events (`user_message`,
+`assistant_message`, `tool_result`) carry the reducer's durable `messageId`, so a later
+compaction's `replacedIds` can match on a cold rebuild; a legacy log without one gets a
+synthetic `proj-N` id. System prompts and seeds are not projected (the host re-injects).
 
 Reads: `readConversation`/`readTrajectory` (`sdk/src/transcript-reader.ts`) call
 `buildTurnRecords` + `toConversationView`/`toTrajectoryView`. The gateway serves
@@ -152,6 +155,15 @@ full `ReducerState` (SDK and debugger cast), including internals such as
 `request_approval` handler, before the gate is awaited) and at the end of `runLoop()`
 when `status === "done"`. Both `save` calls are awaited; unlike transcript writes, a
 failing checkpoint propagates and fails the turn.
+
+`n` starts at `turn * 1000` (`CHECKPOINTS_PER_TURN`), not at 0: the Runner is rebuilt for
+every turn, so a per-instance counter counted from 0 and rewrote `<sessionId>#1` each turn,
+losing the earlier history. A Runner built without `turn` keeps the old within-Runner
+numbering.
+
+Pins live on `ReducerState` (`pinnedMessageIds`), so a HITL checkpoint carries them; a cold
+rebuild from the transcript does not, and the host re-seeds the first turn with the
+`CreateAgentOptions.pinnedMessageIds` option instead.
 
 The HITL `sessionId` is per turn (`"session-" + idPort.next()`); sub-agent Runners get
 `"sub-" + idPort.next()` and an in-memory store. `createTimeTravelDebugger`
@@ -303,18 +315,14 @@ the file store replaces atomically itself (tmp + rename).
 
 Current gaps and inconsistencies:
 
-- `transcript-projection.ts`'s compaction branch cannot match `replacedIds` in
-  production: events carry no message ids, projection ids are `proj-N`, and the branch
-  falls through to "skip". A cold rebuild projects pre-compaction messages despite the
-  event's `summaryId`/`summaryText`; the write-back replay is effectively dead.
+- A compaction event whose `replacedIds` match nothing in the projection — a legacy log,
+  or a span containing only synthesized messages such as a denial — is skipped, so a cold
+  rebuild projects the pre-compaction messages despite the event's `summaryId` /
+  `summaryText`.
 - `tool_results_pruned` is log-only by design, so a cold rebuild keeps unpruned content
   until the Runner prunes again; state and projection can disagree until then.
-- `checkpointSeq` is a per-Runner counter, so every normal turn rewrites
-  `<sessionId>#1`; it is not a turn index (multi-entry history only within one Runner).
 - `renderSessionJsonl` documents "events[0] is the session_meta" but does not enforce
   it; a `createIfMissing` title write appends a meta after earlier events.
-- `runner.ts` records `tool_result.content` as `(event.data["content"] as string) ?? ""`,
-  hiding that the runtime value can be a `ToolResultBlock[]`; the value is unchanged.
 - `TranscriptStore` has no read half; `asTranscriptReader` is a jsonl-specific adapter,
   not a core bridge.
 

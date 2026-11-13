@@ -76,7 +76,7 @@ are noted only where they change behavior.
 | Model | `model`, `providerId`, `maxTokens`, `temperature`, `reasoningEffort`, `responseFormat`, `modelVision`, `contextWindow`, `compaction`, `pricing`, `reasoningStrategy` | `compaction.maxTokens` derives from the window; 60k only when unknown |
 | Tools/adapters | `fs`, `shell`, `sandboxConfig`, `cwd`, `sessionSpawner`, `network`, `egressPolicy`, `lsp`, `browserAdapter`, `db`, `documentParser`, `attachmentStore`, `scheduler`, `fileWatcher` (+`fileWatchAutoWake`, `onFileWatchEvents`), `planStore`, `tools`, `toolSources`, `toolSource` (deprecated), `capabilities`, `toolVisibility` | An adapter both creates its tools and grants its capability; `ask_user`, `todo_write`, `read_document` are always registered |
 | Policy/limits | `permissionConfig`, `approvalGate`, `askUserGate`, `maxIterations`, `tokenBudget`, `maxToolCalls`, `maxTokensPerTurn`, `maxDollarsPerTurn`, `maxCostTokens` (deprecated), `maxWallclockMs`, `maxLoopCount`, `maxLoopInterventions`, `selfCorrectionMax`, `auditSink`, `policyEngine` | Default policy is `{ sandbox: "workspace-write", approval: "ask" }`; `approvalGate` defaults to auto-allow |
-| Persistence/events | `sessionStore`, `chatStore` + `chatSessionId` + `chatMeta`, `eventSink`, `clock`, `id`, `initialMessages`, `initialTurn`, `initialStep`, `initialContextLayers`, `initialQueuedInputs`, `initialAnnouncedWorkflowMode`, `memoryStore`/`memory`/`embedder`, `telemetry`, `cache`, `secrets`, `sandbox` | `chatStore` is write-only; seeds are the only way to restore history into a rebuilt instance |
+| Persistence/events | `sessionStore`, `chatStore` + `chatSessionId` + `chatMeta`, `eventSink`, `clock`, `id`, `initialMessages`, `pinnedMessageIds`, `initialTurn`, `initialStep`, `initialContextLayers`, `initialQueuedInputs`, `initialAnnouncedWorkflowMode`, `memoryStore`/`memory`/`embedder`, `telemetry`, `cache`, `secrets`, `sandbox` | `chatStore` is write-only; seeds are the only way to restore history into a rebuilt instance; `pinnedMessageIds` seeds the first turn and the state carries the set afterwards |
 | Extensions and context | `systemPrompt`, `resolveContextLayers`, `resolveWorkspaceReminder`, `workflowReminder`, `skillRegistry`, `skillCatalogDescriptionMaxLength`, `plugins`, `hooks`, `commands`, `config` | Context layers resolve once per conversation; see "Plugins and extension points" |
 | Subagents | `enableTaskTool`, `agentSpecs`, `maxAgentDepth`, `maxAcceptanceReworks`, `routingTiers`, `resolveSubagentModelPort` | Task tools exist only with `enableTaskTool`; depth default 2; rework budget clamped 0–2 |
 
@@ -205,7 +205,9 @@ tool. There is no plugin discovery/install surface in the SDK.
   over the same two directories.
 - **Declarative agents and layered config** — `resolveAgentSpec(spec, registry)` is a pure
   `AgentSpec` → tools/capabilities/policy resolver; `loadAgentSpec()` instantiates it through
-  `createAgent()`, independently of `agentSpecs` dispatch. `mergeConfig(global?, project?,
+  `createAgent()`, independently of `agentSpecs` dispatch. An unknown `tools` name is reported
+  as an error and the name is dropped rather than throwing; `loadAgentSpec` returns the agent
+  with `specErrors: string[]` so the host can surface it. `mergeConfig(global?, project?,
   runtime?, strategy?)` deep-merges in priority order, concatenating arrays by default
   (`replace` per field) and reporting the winning layer per key.
 - **Transcript reads and checkpoints** — `readConversation`/`readTrajectory` are thin reads
