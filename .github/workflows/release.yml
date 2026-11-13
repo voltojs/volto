@@ -20,13 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The version comes from `packageManager` in package.json; passing
       # `with.version` as well makes the action refuse to run.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           # Writes a `//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}` line
