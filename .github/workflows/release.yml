@@ -1,0 +1,62 @@
+# Publishes the `@voltojs/*` packages to GitHub Packages.
+#
+# Triggered manually or by pushing a `v*` tag. The version bump itself is still
+# done locally with changesets (see docs/user/integrating/guides/publishing.md):
+# this workflow only packs, gates and publishes what is already on the ref.
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Writes a `//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}` line
+          # into the runner's .npmrc; NODE_AUTH_TOKEN is set below.
+          registry-url: https://npm.pkg.github.com
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # `check:pack` is the release build: build:fresh (clean rebuild of every
+      # package) + web:export + the publish-manifest and tarball gates. Running
+      # it here means the artifacts published by the step below are exactly the
+      # ones the gate inspected, and the build never runs twice.
+      - name: Pack gate (clean build + manifest + tarball contents)
+        run: pnpm check:pack
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The user docs gate: generated pages vs. their inputs, links, and the
+      # integrator examples. Same check CI runs; a tag should not ship docs
+      # that no longer match the code.
+      - name: User docs check
+        run: pnpm docs:check
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # `publishConfig.registry` is what routes each package to GitHub Packages.
+      - name: Publish to GitHub Packages
+        run: pnpm -r publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
