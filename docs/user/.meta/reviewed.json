@@ -1,5 +1,5 @@
 {
-  "surfaceHash": "71b089216a31692f195d808ba0917b84a1209bced56a49c76330aa01b2a307ab:22813c38efc38e5af29f92614e37d5b88e39a8c204550e6742dd41c75671ce1c:d270172e9548b17c2742e88a1221351f605a6ff00cd7526eb9a41f59f6bf7c6e:f70896155502d634d8e0616b604fc1e32b7923ce795252b6d9dbec350feba8e7:cda5bc18cbeb93b3aaaff5710b6ab858f3e2c240bcfe39543b955c7f6b256ad6:21a7110a80a538fce8568ad4f16440a6d02aef604341291aae53ec1c58d6b743",
-  "note": "验收面已同步：subagents-and-tasks 与 events-and-ui 补验收判定，sdk-api 补 maxAcceptanceReworks，tools/sdk-exports 生成页已重建；ports-and-defaults 与 01-embed-agent 核对后无需改动（端口契约未变）",
-  "at": "2026-11-11"
+  "surfaceHash": "5e123c0c20339fec61c83735751c63a04d6085dc060c1aef3bc0a45eda88a119:0dee94909e94c76bae10056df0e661c7e90dd1a2e4da74e4163826d7365e5114:ee9ef99d2ff4b1e35d1378501def037e0bbcffa95e1e5231145092fdd0c108d4:f70896155502d634d8e0616b604fc1e32b7923ce795252b6d9dbec350feba8e7:8d71f915a58870a45e4dbc619b0f16ebf2a5aa8d09597520108c78e4fdc5bc9d:940aaa46c3acc8bedbc589aacabd574c74d539f403d31b90da7b1cfb2da37dd6",
+  "note": "scope renamed @volto/* -> @voltojs/*, so packages/sdk/dist/index.d.ts re-export specifiers changed; type surface identical (reverse-mapping the scope reproduces the old hash); no type-level doc change",
+  "at": "2026-11-13"
 }

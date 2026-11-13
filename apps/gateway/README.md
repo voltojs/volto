@@ -1,4 +1,4 @@
-# @volto/gateway
+# @voltojs/gateway
 
 The gateway for [volto](https://github.com/zlipeng/volto): it hosts the agent
 runtime (sandboxed shell, file system, tools), serves the Web UI, and exposes
@@ -13,8 +13,23 @@ and [remote access](https://github.com/zlipeng/volto/blob/main/docs/user/using/g
 
 ## Run it
 
+The packages are published to GitHub Packages (`https://npm.pkg.github.com`),
+not npmjs.com, and are **private by default**. `npx` resolves `@voltojs` through
+your own `.npmrc`, so configure it once — a GitHub personal access token
+(classic) with `read:packages`, and a scope pointing at GitHub Packages:
+
+```text
+# ~/.npmrc
+@voltojs:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=<token>
+```
+
+(`NODE_AUTH_TOKEN=<token>` works too, with only the first line in `.npmrc`.)
+Without it `npx` looks on npmjs.com and fails with `404`. See
+[publishing and installing](https://github.com/zlipeng/volto/blob/main/docs/user/integrating/guides/publishing.md).
+
 ```bash
-npx @volto/gateway          # gateway + Web UI on http://127.0.0.1:3100
+npx @voltojs/gateway          # gateway + Web UI on http://127.0.0.1:3100
 ```
 
 Requires **Node ≥ 22** on macOS or Linux. A platform without a sandbox backend
@@ -100,8 +115,8 @@ first. The full threat model is in
 `*.test.*`), `web/` (the exported UI), `README.md`, `LICENSE` and
 `package.json` — `files` is `["dist", "web", "README.md",
 "!dist/**/__tests__", "!dist/**/*.test.*"]`. In the monorepo `pnpm --filter
-@volto/gateway web:export` builds the export and stages it into `web/` (the
-`copy-web-assets.mjs` step wrapping `@volto/web build`); a published tarball
+@voltojs/gateway web:export` builds the export and stages it into `web/` (the
+`copy-web-assets.mjs` step wrapping `@voltojs/web build`); a published tarball
 already contains it. `pnpm pack` does NOT build or copy anything, so what is on
 disk is exactly what ships. The one server entry is `dist/server.js` (`bin` →
 `dist/bin.js`).

@@ -14,7 +14,7 @@ verified: 2026-11-11
 
 网关（`apps/gateway`）是官方宿主：它把 SDK 与模型、沙箱、文件系统接线，再用 HTTP + SSE 暴露给 Web UI 与桌面端。
 
-**对外契约**指自建宿主或替代前端可以直接依赖的接口：路径、方法、鉴权方式与响应形状保持向后兼容。也可以完全不用网关，直接调 `@volto/sdk`（见 [接入 SDK](../tutorial/01-embed-agent.md)）。
+**对外契约**指自建宿主或替代前端可以直接依赖的接口：路径、方法、鉴权方式与响应形状保持向后兼容。也可以完全不用网关，直接调 `@voltojs/sdk`（见 [接入 SDK](../tutorial/01-embed-agent.md)）。
 
 ## 对外契约
 
@@ -78,6 +78,6 @@ verified: 2026-11-11
 ## 鉴权与传输
 
 - 除 `/health` 外都要鉴权：带 `Authorization: Bearer <launchToken>`，或先访问任意路径并在查询串上带 `?token=<launchToken>`——网关会换取一个 cookie 并重定向回干净路径，token 不再留在地址栏。
-- 请求与响应体为 JSON；一轮对话的流式事件走 `GET /events` 的 SSE 长连接（`@volto/sdk/sse` 有对应客户端）。
+- 请求与响应体为 JSON；一轮对话的流式事件走 `GET /events` 的 SSE 长连接（`@voltojs/sdk/sse` 有对应客户端）。
 
 > 这张表由 `pnpm docs:gen` 从 `server.ts` 抽取路由，用途来自 `docs/user/reference/gateway-notes.json`。新增或删除路由会让 `pnpm docs:check` 失败，直到 notes 同步。

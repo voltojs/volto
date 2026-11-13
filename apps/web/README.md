@@ -1,8 +1,10 @@
-# @volto/web
+# @voltojs/web
 
 Volto 的 Web 聊天端（Next.js + Tailwind + Zustand）。
 
 Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/gateway`。因此本地开发需要同时起两个进程。
+
+这个包是私有应用，不发布；它依赖的 `@voltojs/*` 包发布在 GitHub Packages 上（默认私有）。在仓库里开发用 workspace 链接，不需要配 registry；脱离仓库单独装这些包时，需要 `~/.npmrc` 里两行 scoped 配置和一个勾了 `read:packages` 的 GitHub token，见[发布与安装](../../docs/user/integrating/guides/publishing.md)。
 
 ## 本地联调
 
@@ -19,13 +21,13 @@ Web 端**不内嵌 agent 内核**——它通过 SSE 协议连接 `apps/gateway`
 2. 启动 agent 网关（默认 `http://localhost:3100`）：
 
    ```bash
-   pnpm --filter @volto/gateway dev
+   pnpm --filter @voltojs/gateway dev
    ```
 
 3. 启动 Web 端（默认 `http://localhost:6100`）：
 
    ```bash
-   pnpm --filter @volto/web dev
+   pnpm --filter @voltojs/web dev
    ```
 
 4. **认证**：用网关启动时打印的 `Open:` 链接登录，再把里面 `/?token=…` 的 token 带到前端
@@ -71,7 +73,7 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3100/sessions
 
 ## 传输协议
 
-对话走 `@volto/sdk/sse` 定义的协议，分两条通道：
+对话走 `@voltojs/sdk/sse` 定义的协议，分两条通道：
 
 | 通道 | 方法 | 说明 |
 | ---- | ---- | ---- |

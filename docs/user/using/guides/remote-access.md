@@ -9,7 +9,7 @@ source:
   - apps/gateway/src/capabilities.ts
   - apps/gateway/src/web-server.ts
 generated: false
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 # 远程访问
@@ -32,7 +32,7 @@ verified: 2026-11-12
 | 局域网直连 | 同一 Wi-Fi、信任这个网络 | 不用 | 不用 |
 | SSH 端口转发 | 网关在远程机器上，你只在本机用浏览器 | 不用 | 要：在你自己电脑上转发 |
 
-共同前提：机器上先按 [安装并启动](../tutorial/01-install.md) 跑起网关，网关在自己的终端里跑着。
+共同前提：机器上先按 [安装并启动](../tutorial/01-install.md) 跑起网关（那台机器上也要配好 `@voltojs` 的 registry 与 token，否则 `npx @voltojs/gateway` 装不下来），网关在自己的终端里跑着。
 
 ### 1. 隧道（推荐）
 
@@ -79,7 +79,7 @@ volto.example.com {
 隧道在网关前面终止 HTTPS，网关自己看到的是明文 HTTP。想让限流按真实客户端计数、cookie 带上 `Secure` 标记，加 `--trust-proxy`：
 
 ```bash
-npx @volto/gateway --trust-proxy
+npx @voltojs/gateway --trust-proxy
 ```
 
 只有**确定网关除了这层隧道之外无人可达**时才开：开启后网关会相信 `X-Forwarded-For` / `X-Forwarded-Proto`，而这两个头谁都能伪造（见下文）。
@@ -89,7 +89,7 @@ npx @volto/gateway --trust-proxy
 同一网段、信任这台机器所在的网络时，可以让网关直接对外监听：
 
 ```bash
-npx @volto/gateway --serve-remote --host 0.0.0.0
+npx @voltojs/gateway --serve-remote --host 0.0.0.0
 ```
 
 不加 `--serve-remote` 会直接拒绝启动：
@@ -142,7 +142,7 @@ curl -X POST http://127.0.0.1:3100/projects \
 远程场景用持久 token——重启网关不会让它失效：
 
 ```bash
-npx @volto/gateway token
+npx @voltojs/gateway token
 ```
 
 你应看到两行：token 本身，然后一条 `Open: http://<地址>/?token=<token>` 的登录链接。**把里面的地址换成你的隧道域名**再打开就能登录。
@@ -157,7 +157,7 @@ npx @volto/gateway token
 怀疑 token 泄露了就换掉：
 
 ```bash
-npx @volto/gateway token --rotate
+npx @voltojs/gateway token --rotate
 ```
 
 它打印新 token，并且**立刻**让所有已经发出的 cookie 失效——网关还在跑，不用重启。已经登录的浏览器下一次调用接口就会被要求重新登录，用新链接重新进即可。
@@ -176,7 +176,7 @@ npx @volto/gateway token --rotate
 **`VOLTO_CORS_ORIGINS`** 只在浏览器界面的源和网关不一致时才需要（用 `next dev` 开发前端、或让网关直接伺服界面而隧道域名和网关不同源）。走下面 `volto web` 的做法时界面和转发在同一个源上，不需要它。逗号分隔，启动网关前设置：
 
 ```bash
-VOLTO_CORS_ORIGINS="https://volto.example.com,http://localhost:6100" npx @volto/gateway
+VOLTO_CORS_ORIGINS="https://volto.example.com,http://localhost:6100" npx @voltojs/gateway
 ```
 
 不在名单里的浏览器来源会被回 403。同源请求不需要它。网关默认只认 `http://localhost:6100` 这一个开发地址。
@@ -187,9 +187,9 @@ VOLTO_CORS_ORIGINS="https://volto.example.com,http://localhost:6100" npx @volto/
 
 ```bash
 # 终端 1：网关照旧，只监听本机
-npx @volto/gateway
+npx @voltojs/gateway
 # 终端 2：界面在 6100，把 API 转发给 3100
-npx @volto/gateway web --port 6100 --gateway http://127.0.0.1:3100
+npx @voltojs/gateway web --port 6100 --gateway http://127.0.0.1:3100
 ```
 
 `volto web` 打印三行——前两行和网关 `serve` 的两行形状相同，第三行 `Login:` 才是能直接登录的地址（已经带着持久 token）：
@@ -207,7 +207,7 @@ Login: http://127.0.0.1:6100/?token=…
 界面构建不在默认位置时用 `--web-dir`（从源码构建时就是 `apps/web/out`）：
 
 ```bash
-npx @volto/gateway web --port 6100 --web-dir apps/web/out
+npx @voltojs/gateway web --port 6100 --web-dir apps/web/out
 ```
 
 `--host` 的规则和网关一致：非 loopback 必须加 `--serve-remote`。
@@ -225,7 +225,7 @@ npx @volto/gateway web --port 6100 --web-dir apps/web/out
 
 ## 出问题怎么办
 
-- **页面 401** → 用 `npx @volto/gateway token` 打印的链接重新登录（把域名换成隧道域名）。网关重启过的话，之前 `Open:` 里的启动 token 已经失效。
+- **页面 401** → 用 `npx @voltojs/gateway token` 打印的链接重新登录（把域名换成隧道域名）。网关重启过的话，之前 `Open:` 里的启动 token 已经失效。
 - **登录后发消息 403** → 浏览器来源不在 `VOLTO_CORS_ORIGINS` 里；走隧道 + `volto web` 的部署不应出现这一条，出现了说明前端和网关不在同一个源上。
 - **加工作区一直失败** → 远程模式下系统目录对话框被禁用：在「按路径添加工作区」里填网关那台机器上的绝对路径，或用接口注册路径。
 

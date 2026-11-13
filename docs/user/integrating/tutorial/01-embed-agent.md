@@ -6,7 +6,7 @@ source:
   - packages/sdk/src/defaults.ts
   - packages/providers/pi-ai/src/model-port.ts
 generated: false
-verified: 2026-11-12
+verified: 2026-11-13
 ---
 
 # 把 agent 嵌进自己的宿主
@@ -16,30 +16,38 @@ verified: 2026-11-12
 ## 前提
 
 - **Node ≥ 22**（`node -v` 确认）。
+- **GitHub Packages 的读取权限**。`@voltojs/*` 发布在 GitHub Packages 上，**默认私有**，所以 `npm i @voltojs/sdk` 之前要先配 registry 和一个勾了 `read:packages` 的 GitHub personal access token（classic）。把这两行写进 `~/.npmrc`：
+
+  ```text
+  @voltojs:registry=https://npm.pkg.github.com
+  //npm.pkg.github.com/:_authToken=<你的 token>
+  ```
+
+  也可以只写第一行，把 token 放进环境变量 `NODE_AUTH_TOKEN`。没有这步会得到 `404`。完整说明见 [发布与安装](../guides/publishing.md)。
 - 装 SDK：
 
   ```bash
-  npm i @volto/sdk
+  npm i @voltojs/sdk
   ```
 
 - **只提供 ESM 入口**（`package.json` 里没有 `require`）。你的宿主用 `import` 就直接写；宿主是 CommonJS 时，用动态 `import()` 把它当模块加载：
 
   ```js
   // CommonJS 宿主（.cjs / "type" 不是 "module" 的老包）
-  const { createAgent } = await import("@volto/sdk");
+  const { createAgent } = await import("@voltojs/sdk");
   ```
 
   Node 20.19 / 22.12 起 `require()` 也能加载 ESM，但 SDK 的实际支持基准是 Node 22，别依赖更早的行为。
 
-- 可选包按需单独装，不全在 `@volto/sdk` 里：`@volto/provider-pi-ai`、`@volto/provider-openai`、`@volto/provider-anthropic`、`@volto/store-sqlite` 等。下面第一步只用 `@volto/sdk` 自带的默认值，可以先不装。
+- 可选包按需单独装，不全在 `@voltojs/sdk` 里：`@voltojs/provider-pi-ai`、`@voltojs/provider-openai`、`@voltojs/provider-anthropic`、`@voltojs/store-sqlite` 等。下面第一步只用 `@voltojs/sdk` 自带的默认值，可以先不装。
 
 ## 第一步：用假模型验证接线
 
 `createAgent` 只有一个必填项：模型连接（`modelPort`）。先用一个脚本化模型跑通，不联网、不需要 Key：
 
 ```ts
-import { createAgent } from "@volto/sdk";
-import type { ModelPort } from "@volto/sdk";
+import { createAgent } from "@voltojs/sdk";
+import type { ModelPort } from "@voltojs/sdk";
 
 // 脚本化模型：不联网，也不读环境变量。先用它确认接线正确。
 const scripted: ModelPort = {
@@ -66,12 +74,12 @@ for await (const event of agent.stream("介绍一下你自己")) {
 用 pi-ai 适配器接一个 OpenAI 兼容端点（自定义供应商）。换成任何厂商只是换 `providers` 里的配置。先装这个适配器：
 
 ```bash
-npm i @volto/provider-pi-ai
+npm i @voltojs/provider-pi-ai
 ```
 
 ```ts
-import { createAgent } from "@volto/sdk";
-import { createPiAiModelPort } from "@volto/provider-pi-ai";
+import { createAgent } from "@voltojs/sdk";
+import { createPiAiModelPort } from "@voltojs/provider-pi-ai";
 
 const modelPort = createPiAiModelPort({
   providers: [

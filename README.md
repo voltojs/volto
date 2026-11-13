@@ -1,13 +1,21 @@
 # Volto
 
-跑在本机的编程 agent。核心（`@volto/core`）是零依赖、零副作用的状态机——`step(state, input) → { state, effects[] }`，时间 / 随机 / ID 全部经端口注入，真正的副作用由薄解释器在核心之外执行。工具、模型供应商、运行时（沙箱 / Shell / 文件系统）、存储、宿主（网关 / Web UI / 桌面端）全部可插拔。
+跑在本机的编程 agent。核心（`@voltojs/core`）是零依赖、零副作用的状态机——`step(state, input) → { state, effects[] }`，时间 / 随机 / ID 全部经端口注入，真正的副作用由薄解释器在核心之外执行。工具、模型供应商、运行时（沙箱 / Shell / 文件系统）、存储、宿主（网关 / Web UI / 桌面端）全部可插拔。
 
 ## 快速开始
 
-要求 **Node ≥ 22**（macOS / Linux）。
+要求 **Node ≥ 22**（macOS / Linux），以及一个能读 `@voltojs` 包的 GitHub 账号。包发在 GitHub Packages 上且**默认私有**，所以先配 registry 和一个勾了 `read:packages` 的 GitHub personal access token（classic）：
+
+```text
+# ~/.npmrc
+@voltojs:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=<你的 token>
+```
+
+token 也可以只放环境变量 `NODE_AUTH_TOKEN`，`.npmrc` 里只留第一行。`npx` 同样读这份配置。
 
 ```bash
-npx @volto/gateway
+npx @voltojs/gateway
 ```
 
 网关同时提供 API 和 Web 界面，启动（`volto` 或 `volto serve`）后只打印两行：
@@ -21,9 +29,10 @@ Open: http://127.0.0.1:3100/?token=…
 
 打开 `Open:` 那个网址即可登录（token 会换成 cookie，之后 `http://127.0.0.1:3100/` 直接可进；没自动开浏览器时就手动粘这个链接）。然后在「设置 → 模型配置」里加供应商与 API Key，选一个工作区目录就能开始对话。
 
-- `npx @volto/gateway doctor` — 检查这台机器能否运行（Node 版本 / 沙箱 / 配置目录 / 会话库 / 端口）
-- `npx @volto/gateway token` — 打印持久 token 与登录链接；`--rotate` 立即作废已登录的浏览器
+- `npx @voltojs/gateway doctor` — 检查这台机器能否运行（Node 版本 / 沙箱 / 配置目录 / 会话库 / 端口）
+- `npx @voltojs/gateway token` — 打印持久 token 与登录链接；`--rotate` 立即作废已登录的浏览器
 - 从手机或另一台电脑用：[远程访问](docs/user/using/guides/remote-access.md)
+- 发布、版本号、谁能装：[发布与安装](docs/user/integrating/guides/publishing.md)
 
 逐步说明（含每一步「你应看到」）：[安装并启动](docs/user/using/tutorial/01-install.md)。从源码跑、开发前端见同一页的「从源码运行 / 给贡献者」一节。
 

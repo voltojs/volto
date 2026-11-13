@@ -49,6 +49,7 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 - [工具契约](integrating/reference/tool-contract.md) — 写一个能被正确调度的工具
 - [SDK 导出清单](integrating/reference/sdk-exports.md) — 公开导出的完整列表
 - [网关 HTTP 接口](integrating/reference/gateway-api.md) — 自建前端可以对接的契约
+- [发布与安装](integrating/guides/publishing.md) — 包发到哪、谁能装、怎么发一个版本
 
 ## 想先搞懂概念
 

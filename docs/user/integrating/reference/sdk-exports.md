@@ -12,7 +12,7 @@ verified: 2026-11-11
 
 # SDK 导出清单
 
-`@volto/sdk` 的公开导出。逐项语义见 [SDK 导读](./sdk-api.md)。
+`@voltojs/sdk` 的公开导出。逐项语义见 [SDK 导读](./sdk-api.md)。
 
 ## 值（函数 / 常量 / 类）· 53 个
 
@@ -145,4 +145,4 @@ verified: 2026-11-11
 | `ToolSource` |
 | `ToolVisibility` |
 
-> 这张表由 `pnpm docs:gen` 生成。`@volto/sdk` 与其他包同版本发布到 npm（`npm i @volto/sdk`），要求 **Node ≥ 22**，**只提供 ESM 入口**：`import` 或动态 `import()` 可用，`require()` 不能直接加载它。
+> 这张表由 `pnpm docs:gen` 生成。`@voltojs/sdk` 与其他包同版本发布到 GitHub Packages（`npm i @voltojs/sdk`，安装前需要 scoped `.npmrc`，见 [发布与安装](../guides/publishing.md)），要求 **Node ≥ 22**，**只提供 ESM 入口**：`import` 或动态 `import()` 可用，`require()` 不能直接加载它。
