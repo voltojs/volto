@@ -28,7 +28,8 @@
  */
 import { cpSync, existsSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isShippedAsset } from "./shipped-asset.mjs";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(packageRoot, "..", "..");
@@ -42,61 +43,46 @@ function fail(message) {
   process.exit(1);
 }
 
-// Run from a packed tarball, `repoRoot` points at wherever the package happens to
-// be installed, so the export path below would name a nonsense location. Say what
-// actually went wrong instead of blaming a missing build.
-if (!existsSync(join(repoRoot, "apps", "web"))) {
-  fail(
-    `No apps/web next to ${repoRoot}: this script only works inside the volto monorepo ` +
-      "(a published tarball already contains web/ — do not copy into it).",
-  );
+function main() {
+  // Run from a packed tarball, `repoRoot` points at wherever the package happens to
+  // be installed, so the export path below would name a nonsense location. Say what
+  // actually went wrong instead of blaming a missing build.
+  if (!existsSync(join(repoRoot, "apps", "web"))) {
+    fail(
+      `No apps/web next to ${repoRoot}: this script only works inside the volto monorepo ` +
+        "(a published tarball already contains web/ — do not copy into it).",
+    );
+  }
+
+  if (!existsSync(entryFile) || !statSync(entryFile).isFile()) {
+    fail(
+      `Missing web export entry: ${entryFile}\n` +
+        `Run \`${BUILD_HINT}\` first (the export only exists after an explicit export build).`,
+    );
+  }
+
+  // Remove the destination first: `cpSync` merges, and a merged copy would ship
+  // stale chunks from a previous export alongside the current ones.
+  rmSync(destination, { recursive: true, force: true });
+
+  try {
+    cpSync(source, destination, {
+      recursive: true,
+      // `src` is the absolute path `cpSync` was handed, `dest` the one it would write.
+      filter: (src) => isShippedAsset(src.slice(source.length)),
+    });
+  } catch (error) {
+    fail(`Copying ${source} → ${destination} failed: ${error instanceof Error ? error.message : error}`);
+  }
+
+  if (!existsSync(join(destination, "index.html"))) {
+    fail(`Copy finished but ${join(destination, "index.html")} is missing.`);
+  }
+
+  console.log(`[copy-web-assets] Copied ${source} → ${destination}`);
 }
 
-if (!existsSync(entryFile) || !statSync(entryFile).isFile()) {
-  fail(
-    `Missing web export entry: ${entryFile}\n` +
-      `Run \`${BUILD_HINT}\` first (the export only exists after an explicit export build).`,
-  );
-}
-
-/** Top-level export directory Next uses for its own not-found route. */
-const NOT_FOUND_PREFIX = "_not-found/";
-
-/**
- * Whether a web-root-relative path (`/`-separated, as `cpSync` filter
- * receives it) belongs in the staged site.
- *
- * Dropped: any `.txt` document at the web root (Next's RSC payloads) and
- * everything under `_not-found/` (the same payloads plus a duplicate
- * `index.html` the single-page shell never links to). `404.html` is kept: a
- * static host in front of the gateway uses it.
- *
- * @param {string} relPath path relative to the export root
- * @returns {boolean} true when the path ships and is served
- */
-export function isShippedAsset(relPath) {
-  const rel = relPath.replace(/^\/+/, "");
-  // The directory entry itself (`cpSync` visits it before its children).
-  if (rel === NOT_FOUND_PREFIX.slice(0, -1) || rel.startsWith(NOT_FOUND_PREFIX)) return false;
-  return !(rel.endsWith(".txt") && !rel.includes("/"));
-}
-
-// Remove the destination first: `cpSync` merges, and a merged copy would ship
-// stale chunks from a previous export alongside the current ones.
-rmSync(destination, { recursive: true, force: true });
-
-try {
-  cpSync(source, destination, {
-    recursive: true,
-    // `src` is the absolute path `cpSync` was handed, `dest` the one it would write.
-    filter: (src) => isShippedAsset(src.slice(source.length)),
-  });
-} catch (error) {
-  fail(`Copying ${source} → ${destination} failed: ${error instanceof Error ? error.message : error}`);
-}
-
-if (!existsSync(join(destination, "index.html"))) {
-  fail(`Copy finished but ${join(destination, "index.html")} is missing.`);
-}
-
-console.log(`[copy-web-assets] Copied ${source} → ${destination}`);
+// Importing this module must not run the copy.
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) main();
