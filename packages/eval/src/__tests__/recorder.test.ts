@@ -17,7 +17,7 @@ describe("TrajectoryRecorder", () => {
     recorder.capture(
       { type: "user_message", content: "hello" },
       { status: "calling_model", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
-      ["call_model", "emit"],
+      ["emit", "call_model"],
     );
 
     recorder.capture(
@@ -32,7 +32,7 @@ describe("TrajectoryRecorder", () => {
     expect(traj.inputs).toHaveLength(2);
     expect(traj.expected).toHaveLength(2);
     expect(traj.inputs[0]!.type).toBe("user_message");
-    expect(traj.expected[0]!.effects).toEqual(["call_model", "emit"]);
+    expect(traj.expected[0]!.effects).toEqual(["emit", "call_model"]);
     expect(traj.expected[1]!.state.status).toBe("done");
   });
 
@@ -43,7 +43,7 @@ describe("TrajectoryRecorder", () => {
     recorder.capture(
       { type: "user_message", content: "test" },
       { status: "calling_model", messages: [{ id: "", role: "user", content: "test" }], pendingTools: [] },
-      ["call_model", "emit"],
+      ["emit", "call_model"],
     );
 
     const traj = recorder.stop();
@@ -66,7 +66,7 @@ describe("TrajectoryRecorder", () => {
     recorder.capture(
       { type: "user_message", content: "hello" },
       { status: "calling_model", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
-      ["call_model", "emit"],
+      ["emit", "call_model"],
     );
 
     recorder.capture(
@@ -90,7 +90,7 @@ describe("TrajectoryRecorder", () => {
     recorder.capture(
       { type: "user_message", content: "hello" },
       { status: "calling_model", messages: [{ id: "", role: "user", content: "hello" }], pendingTools: [] },
-      ["call_model", "emit"],
+      ["emit", "call_model"],
       {
         fullState: {
           status: "calling_model",
@@ -99,8 +99,8 @@ describe("TrajectoryRecorder", () => {
           tokensUsed: 0,
         },
         fullEffects: [
-          { type: "call_model", request: { messages: [{ id: "", role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0], layerOrigins: [] } },
           { type: "emit", event: { type: "user_message", data: { content: "hello" } } },
+          { type: "call_model", request: { messages: [{ id: "", role: "user", content: "hello" }], tools: [], model: "test", maxTokens: 100, cacheBreakpoints: [0], layerOrigins: [] } },
         ],
       },
     );

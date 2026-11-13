@@ -55,6 +55,7 @@ import {
   hasCommandRules,
   policyDenialMessage,
   decideCompaction,
+  DEFAULT_SUMMARY_MAX_TOKENS,
   estimateFromAnchor,
   estimateContextLayerTokens,
   estimateToolDefinitionTokens,
@@ -111,6 +112,41 @@ function toolResultText(content: string | ToolResultBlock[]): string {
   return content
     .map((b) => (b.type === "text" || b.type === "structured" ? b.text : ""))
     .join("\n");
+}
+
+/**
+ * Shape check for one entry of an untrusted block array. Deliberately a
+ * predicate, not an assertion: the reducer's `tool_result` emit payload is
+ * typed `Record<string, unknown>`, and the transcript recorder must accept
+ * the block array it actually received without an unchecked cast claiming
+ * `string`. Text/structured need their required text projection; an image
+ * needs a source object (the ref-vs-bytes split is validated downstream).
+ */
+function isToolResultBlock(value: unknown): value is ToolResultBlock {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  switch (record["type"]) {
+    case "text":
+    case "structured":
+      return typeof record["text"] === "string";
+    case "image":
+      return typeof record["source"] === "object" && record["source"] !== null;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Narrow a reducer `tool_result` payload to the transcript event shape: a
+ * plain string, or the block array (`string | ToolResultBlock[]`). Anything
+ * malformed degrades to "" instead of fabricating a bogus transcript record.
+ */
+function transcriptToolResultContent(
+  value: unknown,
+): TranscriptEventMap["tool_result"]["content"] {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.filter(isToolResultBlock);
 }
 
 /**
@@ -501,6 +537,21 @@ const RAG_MAX_CHARS = 4000;
 /** Appended to the RAG injection when it had to be cut at RAG_MAX_CHARS. */
 const RAG_TRUNCATION_MARKER = "\n(truncated)";
 
+/**
+ * Sequence slots reserved per conversation turn for checkpoint history.
+ *
+ * The Runner is rebuilt for every turn (the SDK creates one per turn), so a
+ * per-instance counter restarting at 0 rewrote `<sessionId>#1` on every turn
+ * and lost the earlier checkpoints. The turn ordinal survives the rebuild —
+ * the SDK tracks it across turns and a rebuilt host seeds it via
+ * `initialTurn` — so the counter starts at a per-turn block instead. The key
+ * shape stays `<sessionId>#<integer>`: `createTimeTravelDebugger` parses the
+ * suffix with `parseInt`, and checkpoints sort numerically. Hosts that omit
+ * `turn` keep within-Runner numbering; passing it is what preserves history
+ * across the rebuild.
+ */
+const CHECKPOINTS_PER_TURN = 1_000;
+
 export interface Runner {
   run(initialInput: AgentInput): Promise<ReducerState>;
   getState(): ReducerState;
@@ -825,8 +876,11 @@ export function createRunner(opts: RunnerOptions): Runner {
       forwardEmit(feed(preOpenQueue.shift()!));
     }
   }
-  // M12 Phase 4: checkpoint history sequence counter
-  let checkpointSeq = 0;
+  // M12 Phase 4: checkpoint history sequence counter. Seeded from the turn
+  // ordinal so history survives the per-turn Runner rebuild (see
+  // CHECKPOINTS_PER_TURN). A direct Runner user that omits `turn` keeps the
+  // original within-runner 0-based numbering.
+  let checkpointSeq = Math.max(0, Math.floor(opts.turn ?? 0)) * CHECKPOINTS_PER_TURN;
   // Retry state for retriable model errors
   let consecutiveModelErrors = 0;
 
@@ -1117,8 +1171,10 @@ export function createRunner(opts: RunnerOptions): Runner {
    *   - budget_exceeded / steering_queued / steering_delivered /
    *     steering_edited / steering_removed / context_reminder → same-name
    *     transcript events
-   *   - user_message (only ever emitted for the initial idle feed) → covered
-   *     by the runner-originated record at run(), which now streams too
+   *   - user_message (only ever emitted for the initial idle feed) →
+   *     same-name transcript event, recorded here because only the reducer
+   *     knows the stamped message id (run() would record it before the feed,
+   *     without one)
    * Delta increments (text_delta / reasoning_delta / tool_use_delta) ride raw
    * — they are not transcript events and are never persisted. A few raw
    * events have no transcript counterpart (error / cancelled);
@@ -1145,12 +1201,22 @@ export function createRunner(opts: RunnerOptions): Runner {
           opts.eventSink?.emit(event);
           continue;
 
-        case "user_message":
+        case "user_message": {
           // The reducer emits this only when the initial input (fed from
-          // run()) enters from idle. run() records — and therefore streams —
-          // the transcript user_message at the same logical moment; emitting
-          // this raw twin would duplicate it on the wire.
+          // run()) enters from idle. run() used to record it before the feed,
+          // but at that point the message has no durable id yet — so the
+          // transcript event now comes from this emit, which carries the
+          // reducer-stamped `messageId`. That id is what lets a later
+          // compaction event's replacedIds match on a cold rebuild.
+          const source = event.data["source"] as TranscriptEventMap["user_message"]["source"];
+          const messageId = event.data["messageId"];
+          recorder.record("user_message", {
+            content: event.data["content"] as TranscriptEventMap["user_message"]["content"],
+            ...(source !== undefined ? { source } : {}),
+            ...(typeof messageId === "string" && messageId !== "" ? { messageId } : {}),
+          });
           continue;
+        }
 
         case "steering_queued":
           // steering_queued is the one transcript event the Runner cannot
@@ -1216,6 +1282,9 @@ export function createRunner(opts: RunnerOptions): Runner {
           recorder.record(
             "assistant_message",
             {
+              // Durable reducer identity — a later compaction's replacedIds
+              // must be able to name this message on a cold rebuild.
+              ...(message.id !== "" ? { messageId: message.id } : {}),
               content: message.content,
               ...(message.stopReason !== undefined ? { stopReason: message.stopReason } : {}),
               ...(message.source !== undefined ? { source: message.source } : {}),
@@ -1241,13 +1310,18 @@ export function createRunner(opts: RunnerOptions): Runner {
           );
           continue;
 
-        case "tool_result":
+        case "tool_result": {
+          // `content` is string | ToolResultBlock[] in the reducer's payload
+          // (never stringified — joining would drop attachment ids); narrow
+          // it instead of asserting `string`.
+          const messageId = event.data["messageId"];
           recorder.record(
             "tool_result",
             {
               callId: event.data["toolCallId"] as string,
               name: event.data["toolName"] as string | undefined,
-              content: (event.data["content"] as string) ?? "",
+              ...(typeof messageId === "string" && messageId !== "" ? { messageId } : {}),
+              content: transcriptToolResultContent(event.data["content"]),
               isError: event.data["isError"] === true,
               durationMs: event.data["durationMs"] as number | undefined,
               displayMetadata: event.data["displayMetadata"] as Record<string, unknown> | undefined,
@@ -1256,6 +1330,7 @@ export function createRunner(opts: RunnerOptions): Runner {
             { step: stepCounter },
           );
           continue;
+        }
 
         case "budget_exceeded":
           turnHadBudgetExceeded = true;
@@ -1473,6 +1548,10 @@ export function createRunner(opts: RunnerOptions): Runner {
       recentKeepCount: opts.compaction.recentKeepCount ?? 4,
       pinnedMessageIds: state.pinnedMessageIds,
       reservedTokens,
+      // The same cap the summarization call below is given: the compactor's
+      // estimatedTokensAfter must reserve the real summary budget, not a
+      // fixed placeholder.
+      summaryMaxTokens: opts.compaction.summaryMaxTokens ?? DEFAULT_SUMMARY_MAX_TOKENS,
     };
 
     const decision = decideCompaction(messages, {
@@ -1644,7 +1723,7 @@ export function createRunner(opts: RunnerOptions): Runner {
         ],
         tools: [],
         model: stepContext.model,
-        maxTokens: opts.compaction.summaryMaxTokens ?? 4096,
+        maxTokens: opts.compaction.summaryMaxTokens ?? DEFAULT_SUMMARY_MAX_TOKENS,
         abortSignal: opts.abortSignal,
       });
 
@@ -2887,18 +2966,7 @@ export function createRunner(opts: RunnerOptions): Runner {
     // The reducer only emits CheckpointEffect during HITL approval pauses;
     // this ensures every completed turn is durable for resume / audit.
     if (state.status === "done" && opts.sessionStore && opts.sessionId) {
-      const now = opts.clock?.now() ?? Date.now();
-      await opts.sessionStore.save({
-        id: opts.sessionId,
-        state,
-        createdAt: now,
-      });
-      checkpointSeq++;
-      await opts.sessionStore.save({
-        id: `${opts.sessionId}#${checkpointSeq}`,
-        state,
-        createdAt: now,
-      });
+      await saveCheckpoint(state, opts.clock?.now() ?? Date.now());
     }
 
     // M13: turn:end hook
@@ -2914,6 +2982,30 @@ export function createRunner(opts: RunnerOptions): Runner {
   }
 
   /**
+   * Persist one checkpoint at a turn boundary or HITL pause: the canonical
+   * resume key plus the next checkpoint-history entry.
+   *
+   * The history sequence is a stable per-session counter, not a per-Runner
+   * one: `checkpointSeq` starts in the turn's own block (see
+   * CHECKPOINTS_PER_TURN), so rebuilding the Runner each turn appends instead
+   * of rewriting `<sessionId>#1`.
+   */
+  async function saveCheckpoint(snapshotState: AgentState, now: number): Promise<void> {
+    if (!opts.sessionStore || !opts.sessionId) return;
+    await opts.sessionStore.save({
+      id: opts.sessionId,
+      state: snapshotState,
+      createdAt: now,
+    });
+    checkpointSeq += 1;
+    await opts.sessionStore.save({
+      id: `${opts.sessionId}#${checkpointSeq}`,
+      state: snapshotState,
+      createdAt: now,
+    });
+  }
+
+  /**
    * Interpret effects that require I/O (checkpoint, request_approval).
    * Checkpoints are persisted FIRST (durable before any approval interaction),
    * so a gate that throws / defers cannot lose the snapshot needed for resume.
@@ -2921,20 +3013,7 @@ export function createRunner(opts: RunnerOptions): Runner {
   async function interpretEffects(effects: Effect[]): Promise<void> {
     for (const e of effects) {
       if (e.type === "checkpoint" && opts.sessionStore && opts.sessionId) {
-        const now = opts.clock?.now() ?? Date.now();
-        // Save canonical single-key checkpoint (for resume)
-        await opts.sessionStore.save({
-          id: opts.sessionId,
-          state: e.state,
-          createdAt: now,
-        });
-        // M12: Append checkpoint history (key = sessionId#seq)
-        checkpointSeq++;
-        await opts.sessionStore.save({
-          id: `${opts.sessionId}#${checkpointSeq}`,
-          state: e.state,
-          createdAt: now,
-        });
+        await saveCheckpoint(e.state, opts.clock?.now() ?? Date.now());
       }
     }
     for (const e of effects) {
@@ -3057,20 +3136,21 @@ export function createRunner(opts: RunnerOptions): Runner {
           });
           if (promptOutcome.action === "deny") {
             const rejectionText = `[prompt rejected by hook: ${promptOutcome.reason}]`;
+            const rejectionMsg: Message = {
+              id: stepContext.id?.next() ?? "",
+              role: "user",
+              content: rejectionText,
+            };
             state = {
               ...state,
-              messages: [
-                ...state.messages,
-                {
-                  id: stepContext.id?.next() ?? "",
-                  role: "user",
-                  content: rejectionText,
-                },
-              ],
+              messages: [...state.messages, rejectionMsg],
               status: "done",
             };
             recorder.record("turn_start", { turn: opts.turn ?? 0 });
-            recorder.record("user_message", { content: rejectionText });
+            recorder.record("user_message", {
+              content: rejectionText,
+              ...(rejectionMsg.id !== "" ? { messageId: rejectionMsg.id } : {}),
+            });
             // The turn closed without opening — buffered steering input must
             // still land (queued into the done state) instead of dying in
             // the buffer.
@@ -3081,24 +3161,19 @@ export function createRunner(opts: RunnerOptions): Runner {
         }
 
         recorder.record("turn_start", { turn: opts.turn ?? 0 });
-        // Only a user_message input opens the turn with a transcript
-        // user_message. A steering_flush turn must record NO user_message:
-        // the queued content already rode its steering_queued records and is
-        // realized by steering_delivered — recording it again here would
-        // double-cover the same content.
-        if (initialInput.type === "user_message") {
-          recorder.record("user_message", {
-            content: initialInput.content,
-            ...(initialInput.source === undefined ? {} : { source: initialInput.source }),
-          });
-        }
+        // The opening user_message is recorded by forwardEmit from the
+        // reducer's own emit — that is where the stamped Message.id exists
+        // (see the `user_message` case there). A steering_flush turn records
+        // none: its queued content already rode steering_queued records and
+        // is realized by steering_delivered.
+        forwardEmit(feed(initialInput));
         // Persist the turn opening before any model I/O: a client that
         // reconnects mid-turn rebuilds the live state from this log tail
         // (`GET /sessions/:id/events?tail=1`), and without the flush it would
-        // see nothing until the first model call returns.
+        // see nothing until the first model call returns. `feed` only runs
+        // the pure reducer; the model request is issued later in runLoop.
         void recorder.flush();
 
-        forwardEmit(feed(initialInput));
         turnOpened = true;
         // Steering input buffered before the open queues right after the
         // opening message (D4) — never opening the turn itself, never lost.

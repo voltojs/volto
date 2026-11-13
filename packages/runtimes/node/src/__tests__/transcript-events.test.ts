@@ -176,6 +176,49 @@ describe("Runner transcript capture", () => {
     expect(events.every((e) => e.turn === 3)).toBe(true);
   });
 
+  it("records the reducer's durable messageId on every message event", async () => {
+    // Cold rebuilds replay compaction by matching the compaction event's
+    // replacedIds against projected messages. That only works when the
+    // message-producing transcript events carry the reducer's stamped id —
+    // and tool_result content must keep its block array, not stringify it.
+    const echoTool: ToolDefinition = {
+      name: "echo",
+      description: "echo input",
+      inputSchema: { type: "object", properties: {} },
+      requires: [],
+      riskTier: "READ_ONLY",
+    };
+    const model = createMockModelPort([
+      [toolUseStart("call-1", "echo"), toolUseDelta("call-1", "{}"), modelDone("tool_use")],
+      [textDelta("done"), modelDone("end_turn")],
+    ]);
+    const { store, events } = fakeChatStore();
+    let n = 0;
+    const structured = {
+      type: "structured" as const,
+      kind: "test.roundtrip",
+      data: { a: 1 },
+      text: "projection",
+    };
+    const runner = createRunner({
+      modelPort: model,
+      stepContext: { tools: [echoTool], model: "test-model", id: { next: () => `msg-${++n}` } },
+      chatStore: store,
+      chatSessionId: "chat-1",
+      toolExecutor: async () => ({ modelContent: [structured] }),
+    });
+    await runner.run({ type: "user_message", content: "hi" });
+
+    const user = firstOf<{ messageId?: string }>(events, "user_message")!;
+    const assistant = firstOf<{ messageId?: string }>(events, "assistant_message")!;
+    const result = firstOf<{ messageId?: string; content: unknown }>(events, "tool_result")!;
+    expect(user.messageId).toBe("msg-1");
+    expect(assistant.messageId).toBe("msg-2");
+    expect(result.messageId).toBe("msg-3");
+    // The block array survives the record: no join-flattening, no `as string`.
+    expect(result.content).toEqual([structured]);
+  });
+
   it("records the user message source from the opening input", async () => {
     const model = createMockModelPort([[textDelta("hi"), modelDone("end_turn")]]);
     const { store, events } = fakeChatStore();

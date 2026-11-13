@@ -38,6 +38,28 @@ describe("toPiContext", () => {
     expect(ctx.messages).toHaveLength(1);
   });
 
+  it("carries responseFormat as a system instruction (pi-ai has no native request option)", () => {
+    const req = baseRequest({
+      messages: [{ id: "m1", role: "system", content: "Be concise." }],
+      responseFormat: {
+        type: "json",
+        schema: { type: "object", properties: { answer: { type: "string" } } },
+      },
+    });
+
+    const ctx = toPiContext(req, model);
+
+    expect(ctx.systemPrompt).toContain("Be concise.");
+    expect(ctx.systemPrompt).toContain("You MUST respond with valid JSON matching this schema:");
+    expect(ctx.systemPrompt).toContain('"answer"');
+  });
+
+  it("carries a schema-less responseFormat as a JSON-only instruction", () => {
+    const ctx = toPiContext(baseRequest({ responseFormat: { type: "json" } }), model);
+
+    expect(ctx.systemPrompt).toContain("You MUST respond with valid JSON only");
+  });
+
   it("translates a plain string user message", () => {
     const req = baseRequest({
       messages: [{ id: "m4", role: "user", content: "hello there" }],

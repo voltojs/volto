@@ -56,6 +56,7 @@ import type {
 import {
   createDefaultPermissionConfig,
   ceilingOf,
+  visibleRiskCeiling,
   extractPlainText,
   createInitialState,
   resetTurnForNextInput,
@@ -678,6 +679,18 @@ export interface CreateAgentOptions {
    * 对话历史重新灌入，让上下文不因实例重建而丢失。
    */
   initialMessages?: Message[];
+
+  /**
+   * Message ids that must survive compaction and stay in the prompt's stable
+   * prefix. Seeds `ReducerState.pinnedMessageIds` on the first turn; the
+   * state carries the set forward across turns and through rebuilds.
+   *
+   * Ids are `Message.id`s: host-provided ones on `initialMessages`, or the
+   * ids the reducer stamps on messages it appends (the same ids the durable
+   * transcript events carry). A pinned id that never matches anything is
+   * harmless.
+   */
+  pinnedMessageIds?: string[];
 
   /**
    * Budget for MODEL-DRIVEN repair prompts. Today the Runner uses it for one
@@ -2261,8 +2274,11 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
   // The sandbox mode fixes the highest risk tier the session may reach at
   // all. Passed to every Runner as `riskCeiling` so above-ceiling tools are
   // pruned from the model's visible set (filterVisibleTools) instead of only
-  // being refused after the model tries them.
-  const riskCeiling = ceilingOf(permissionConfig.sandbox);
+  // being refused after the model tries them. `visibleRiskCeiling` keeps the
+  // IRREVERSIBLE tier visible when the approval policy can escalate it to a
+  // human (workspace-write + ask) — a prompt needs a visible tool to fire on;
+  // auto/read-only keep the hard prune.
+  const riskCeiling = visibleRiskCeiling(permissionConfig);
 
   // ── Step context ─────────────────────────
   const resolvedReasoningEffort = resolve(opts.reasoningEffort, "reasoningEffort");
@@ -2418,9 +2434,24 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     }
   }
 
-  // ── M9: Cost meter (created per-run via wrapping EventSink) ──
+  // ── M9: Cost meter (one per agent, reset at every turn boundary) ──
+  /**
+   * Sink the current turn's cost summary rides on. `createNextRunner()` points
+   * it at that turn's EventSink — for `stream()` that is the channel sink, so
+   * a caller that only consumes the generator still sees `cost_summary`;
+   * `run()` and the fallback resume use the construction-time sink. The
+   * CostMeter itself lives for the whole agent because it must accumulate
+   * across a turn's model calls, and is reset once `turn_end` closes the turn.
+   */
+  let costSummarySink: EventSink = opts.eventSink ?? defaultEventSink;
   const costMeter = opts.pricing
-    ? createCostMeter({ pricing: opts.pricing, eventSink: opts.eventSink ?? defaultEventSink, telemetry: resolvedPorts.telemetry })
+    ? createCostMeter({
+        pricing: opts.pricing,
+        // Same key the Runner's budget gate uses for `opts.pricing[model]`.
+        ...(stepContext.model !== undefined ? { model: stepContext.model } : {}),
+        eventSink: { emit: (event) => costSummarySink.emit(event) },
+        telemetry: resolvedPorts.telemetry,
+      })
     : null;
 
   // ── Public API ────────────────────────────
@@ -2545,6 +2576,8 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     // Wrap EventSink to intercept usage events for cost metering
     // and filter reasoning_delta based on reasoningStrategy.
     const reasoningStrategy = resolve(opts.reasoningStrategy, "reasoningStrategy") ?? "emit";
+    // The cost summary belongs on the sink this turn's events flow to.
+    costSummarySink = runnerEventSink;
     const effectiveSink: EventSink = (costMeter || reasoningStrategy !== "emit")
       ? {
           emit(event) {
@@ -2557,15 +2590,33 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
             // Cost metering: the Runner no longer emits raw model_done events
             // (task-r6) — usage rides on the transcript assistant_message it
             // records and streams, so that is what the meter intercepts.
+            // Forward every bucket: the cache split is exactly what the
+            // USD total needs, and dropping it underprices cached turns.
             if (event.type === "assistant_message" && costMeter) {
-              const usage = event.data.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+              const usage = event.data.usage as TokenUsage | undefined;
               if (usage) {
                 costMeter.record({
                   type: "usage",
-                  inputTokens: usage.inputTokens ?? 0,
-                  outputTokens: usage.outputTokens ?? 0,
+                  inputTokens: usage.inputTokens,
+                  outputTokens: usage.outputTokens,
+                  ...(usage.cacheReadTokens !== undefined
+                    ? { cacheReadTokens: usage.cacheReadTokens }
+                    : {}),
+                  ...(usage.cacheWriteTokens !== undefined
+                    ? { cacheWriteTokens: usage.cacheWriteTokens }
+                    : {}),
                 });
               }
+            }
+
+            // `turn_end` is the turn boundary: emit the summary for the turn
+            // that just closed, then clear the accumulator so the next turn
+            // (and a HITL pause that deferred its turn_end into a resume)
+            // starts from zero. Emitted before forwarding turn_end so the
+            // summary precedes the closing event.
+            if (event.type === "turn_end" && costMeter) {
+              costMeter.result();
+              costMeter.reset();
             }
 
             runnerEventSink.emit(event);
@@ -2699,6 +2750,13 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // parent's queued steering messages (its own steering_delivered would
       // also desynchronize the parent's queue-rebuild fold).
       ...(seedQueuedInputs.length > 0 ? { queuedUserInputs: [...seedQueuedInputs] } : {}),
+      // First-turn pin seed. Later turns (and rebuilds) carry the set on
+      // ReducerState, so this is the only production entry point the compactor
+      // and ContextAssembler need. Copied so the caller's array is never
+      // aliased by the reducer's copy-on-write.
+      ...(opts.pinnedMessageIds !== undefined && opts.pinnedMessageIds.length > 0
+        ? { pinnedMessageIds: [...opts.pinnedMessageIds] }
+        : {}),
       contextLayers: layers,
       ...(opts.initialAnnouncedWorkflowMode !== undefined
         ? { _announcedWorkflowMode: opts.initialAnnouncedWorkflowMode }
@@ -3105,6 +3163,9 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       // turn start, before the approval pause), so a cross-process resume
       // picks them up from the snapshot and keeps the stable prefix intact.
       const resumeLayers = await resolveContextLayersOnce("", restoredState.contextLayers);
+      // This fallback runner streams to the construction-time sink; the cost
+      // summary must ride the same one (see costSummarySink).
+      costSummarySink = opts.eventSink ?? defaultEventSink;
       const resumeRunner = createRunner({
         modelPort,
         // Same RAG wiring as the normal path: a mid-turn resume continues the
@@ -4509,6 +4570,9 @@ function createSubAgentExecutor(
         // Derived from the child's OWN (narrowed) policy, not the parent's: a
         // definition narrowed to read-only must lose its write tools from the
         // visible set exactly like a parent session configured read-only.
+        // Deliberately `ceilingOf`, not `visibleRiskCeiling`: a child has no
+        // human, so the ask-above-ceiling escalation must NOT keep an
+        // IRREVERSIBLE tool visible — its approval gate would only deny it.
         riskCeiling: childPermissionConfig
           ? ceilingOf(childPermissionConfig.sandbox)
           : undefined,

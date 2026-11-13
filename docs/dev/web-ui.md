@@ -78,7 +78,8 @@ connection indicator, theme toggle and settings entry.
 `ChatPanel` is the content column: `ChatHeader` (title = session title → project name →
 welcome tagline; new-conversation, fork, rewind-to-turn, export, compact, and a
 pane-expand control that only exists while the pane is hidden), an offline banner when
-`connectionState !== 'connected'`, then a `Tabs` host with two tabs — `chat` and
+`connectionState !== 'connected'` naming `getGatewayBase()` (the page's own origin when the
+resolved base is empty, i.e. same origin), then a `Tabs` host with two tabs — `chat` and
 `trajectory`. The active tab is local component state, so switching sessions keeps the
 user where they were (the pane, not this tab, is what carries per-session memory). The
 welcome screen replaces the feed while `entries.length === 0` and exposes project / model
@@ -329,6 +330,11 @@ no navigation, no `router.refresh()` — which is what makes it work without a s
 once `preferences.locale` arrives from the gateway it wins and rewrites the cookie. The
 `pre-boot` script in `lib/browser-boot.ts` applies the same rule before first paint.
 
+Locale-dependent value formatting goes through `Intl`, never hardcoded punctuation:
+`formatList` (`lib/trajectory-view-model.ts`) joins the trajectory drawer's
+variable-length values (dropped tools/capabilities, permission downgrades) with
+`Intl.ListFormat` for the active locale.
+
 Guardrails:
 
 - `apps/web/__tests__/message-catalogs.test.ts` asserts `zh` and `en` carry identical key
@@ -426,10 +432,8 @@ Where the changes land:
   only device-local view state (widths, pane snapshots, current session id) belongs in
   `localStorage`.
 
-Known rough edges, recorded rather than fixed: two Chinese list separators are hardcoded in
-`TrajectoryDrawer` (`join('、')`, `join('；')`), the offline banner hardcodes
-`http://localhost:3100` instead of the resolved base, `lib/sse-client.ts` exports a
-singleton only its own test uses (real channels are created per session in `useChatAgent` /
+Known rough edges, recorded rather than fixed: `lib/sse-client.ts` exports a singleton
+only its own test uses (real channels are created per session in `useChatAgent` /
 `useSubagentChatAgent`), and several modules still carry Chinese comments
 (`lib/projection.ts`, `lib/trajectory-view-model.ts`, `components/pane/SubagentTab.tsx`,
 `stores/pane-store.ts`).

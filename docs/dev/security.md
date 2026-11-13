@@ -43,7 +43,8 @@ Four strengths are distinguished throughout; conflating them is what this page p
 
 - **Enforced** — the effect is blocked whatever tool or argument the model picks.
 - **Conditional** — enforced only when the host wired it or a helper binary exists
-  (`socat`, a backend runner); the code says so where it degrades.
+  (`socat`, a backend runner); a missing `socat` now refuses the shell/session surface
+  instead of running unfiltered.
 - **Advisory** — text or display metadata; no decision reads it.
 - **Declared but unenforced** — a config field with no reader (listed under gaps).
 
@@ -63,7 +64,7 @@ What the "mistake" tier actually bounds, and with what:
 | Destructive or irreversible command | Risk tier + approval policy, and the sandbox for the file effect | `decide` (`permission-policy.ts`), `createSandboxedShell` |
 | Writing outside the granted tree, or through a symlink | realpath-based containment, twice: in-process fs fence and the OS profile | `assertWritable` / `realResolve` (`sandboxed-filesystem.ts`), `buildSeatbeltProfile`, `buildBwrapArgs` |
 | Running in the wrong directory | Only the writable range is enforced; `cwd` is a hint the session reports (`cwdAfter`), not a boundary | `persistent-session.ts` |
-| An irreversible call "just happening" under a permissive preset | `IRREVERSIBLE` tools are pruned from the visible set above the ceiling, so the prompt never arises | `filterVisibleTools` + `riskCeiling` (`runner.ts`) |
+| An irreversible call "just happening" under a permissive preset | `read-only` / `plan` / `auto` prune `IRREVERSIBLE` above the ceiling; `ask` keeps it visible only so an explicit human approval can fire | `filterVisibleTools` + `visibleRiskCeiling` (`runner.ts`, `permission-policy.ts`) |
 | Reading a credential and pasting it into an answer | Config-dir read fence + env stripping | `deniedReadPaths`, `SECRET_ENV_PATTERNS` |
 | Escaping via a dangling/relative/ancestor symlink | Component-wise `realResolve` (the 2026-09-09 escape, now regression-tested) | `sandboxed-filesystem.ts` |
 
@@ -151,7 +152,9 @@ feature is a documented revisit rather than a silent hole.
 Two mechanisms, both in the runtime package:
 
 1. **Read fence over the credential directory.** `deniedReadPaths` carries the realpath of
-   `~/.volto` (config, `auth-secret`, `access-token`, sessions, attachments, memory). On
+   `~/.volto` (config, `auth-secret`, `access-token`, sessions, attachments, memory); the
+   gateway passes that one path, and the desktop passes `~/.volto` plus its own config
+   directory (where the plaintext `electron-store` file lives). On
    seatbelt it emits `(deny file-read-data…)` **and** `(deny file-read-metadata…)` — the
    wildcard form `file-read*` was verified on-host to silently no-op. On bwrap it is a
    `--tmpfs` mask, with a `PARITY NOTE`: a process holding an open fd keeps reading, and
@@ -188,14 +191,15 @@ Three distinct things are often collapsed into "egress". The code keeps them apa
   comes from `config.json`'s `egress` section
   (`config/egress.ts`, legacy `egress.json` still read via the store's migration fallback);
   a malformed document refuses the session build.
-- **The sandbox-side proxy — host filtering for shell children, conditionally.** Only when
+- **The sandbox-side proxy — host filtering for shell children.** Only when
   `network.enabled === true` **and** `allowedHosts` is non-empty: `createSandboxProxy`
   listens on a unix socket (CONNECT only, exact or `*.example.com` suffix), `socat` bridges
   `127.0.0.1:<port>` to it, and the child gets `http_proxy` / `HTTP_PROXY` / `HTTPS_PROXY`.
   The lowercase `http_proxy` is required — curl ignores the uppercase form for plain
-  `http://`. No `socat` means a warning and **no proxy variables**, i.e. the allowlist is
-  silently unenforced — the same fail-open direction as the hooks-config load, and unlike
-  every other policy failure.
+  `http://`. A missing bridge is **refused**, not warned about: the shell/session spawners
+  throw at construction, `launch` throws, a per-`exec` re-check reports
+  `INFRASTRUCTURE FAILURE` with exit `126`, and `forSession()` throws, so the allowlist is
+  never silently unenforced. The binary is overridable with `SandboxConfig.socatBinary`.
   Plain-HTTP requests through the proxy get `405` and are therefore refused even for
   allowlisted hosts — over-blocking, not a bypass.
 - **The model's own transport and anything a bash child opens directly.** Outside both
@@ -320,7 +324,7 @@ adjudicates approvals, so it is treated as hostile-adjacent:
 | --- | --- | --- |
 | Malformed `egress` / `permissions` / `lsp` config | fail-closed | the session build is refused; no silent "no policy" |
 | Malformed `hooks` config | **fail-open** | warning, session builds without config hooks — interception silently absent |
-| `socat` missing | **fail-open** | allowlisted shell egress is not filtered; a warning is all there is |
+| `socat` missing | fail-closed | the spawners and `launch` refuse; `exec` reports `INFRASTRUCTURE FAILURE` + exit 126, so an allowlist is never silently unenforced |
 | No isolation backend under a confining mode | fail-closed | construction throws; `failIfUnavailable: false` opts out (shell/session unconfined, process spawner returns `undefined`) |
 | Runner binary missing after construction | fail-closed | `exec` yields `INFRASTRUCTURE FAILURE` + exit 126; `launch` throws |
 | Unknown permission preset in the gateway | fail-closed | `read-only` for the legacy shared agent (`server.ts:702`) and `EMPTY_CONFIG`; `normaliseUiPermissionMode` maps retired names, never to the widest tier |
@@ -346,13 +350,13 @@ Declared-but-unenforced fields, worth knowing before trusting a config:
 1. **Non-loopback bind.** `SAFETY.md` says bindings other than loopback are "refused at
    startup". They are refused unless `--serve-remote` is passed (`server.ts:645`). The code
    is the truth; the sentence describes the default posture.
-2. **The credential-directory fence is a gateway-wired config.**
+2. **The credential-directory fence is host-wired config, now on both hosts.**
    `SAFETY.md` states `~/.volto` is denied on the shell, filesystem and LSP-child sides.
-   That holds for gateway sessions, which pass `[configDirRealPath]` into
-   `buildSandboxConfigs`. `apps/desktop-app/src/main/agent/wiring.ts:116-125` builds its
-   `SandboxConfig` without `deniedReadPaths` (and without an `lspConfig`), so a sandboxed
-   desktop command can read `~/.volto` — and the desktop's own credential store
-   (`electron-store`, plaintext under the app's `userData`) is not fenced at all.
+   Gateway sessions pass `[configDirRealPath]` into `buildSandboxConfigs`. The desktop now
+   passes `deniedReadPaths` too — its own config directory (the plaintext `electron-store`
+   file) plus `~/.volto` — on the one config that feeds both the shell/session and the fs
+   decorator. It still passes no `lspConfig` because it wires no language servers, so the
+   LSP-child side of the claim remains gateway-only.
 3. **Spill read-back when the workspace is the home directory.** `SAFETY.md` requires spill
    files to be readable back by `read_file`. The fence covers the *realpath* of the
    credential directory, so in the configuration where the workspace root **is** (or

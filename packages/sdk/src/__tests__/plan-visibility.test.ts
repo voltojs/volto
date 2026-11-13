@@ -121,3 +121,32 @@ describe("createAgent — pruned visible set inherits into dispatched sub-agents
     expect(names).toContain("read_file");
   });
 });
+
+describe("createAgent — ask keeps an IRREVERSIBLE tool visible, auto does not", () => {
+  // The ceiling is what decides whether the approval gate ever gets a chance
+  // to ask: pruned tools reach the "Unknown tool" path instead. Only `ask`
+  // escalates the above-ceiling IRREVERSIBLE tier to a human.
+  const runWith = async (approval: "ask" | "never"): Promise<string[]> => {
+    requests.length = 0;
+    const agent = createAgent({
+      modelPort,
+      fs: createNodeFileSystem({ root: process.cwd() }),
+      shell: createNodeShell({ defaultCwd: process.cwd() }),
+      permissionConfig: { sandbox: "workspace-write", approval },
+    });
+    await agent.run("go");
+    return requests[0]!.tools.map((t) => t.name);
+  };
+
+  it("workspace-write + ask surfaces git_push so the gate can ask", async () => {
+    expect(await runWith("ask")).toContain("git_push");
+  });
+
+  it("workspace-write + never (auto) still prunes it", async () => {
+    const names = await runWith("never");
+    expect(names).not.toContain("git_push");
+    // The cap must not be what hid it: the write-tier tools in the same batch
+    // are still visible.
+    expect(names).toContain("git_commit");
+  });
+});

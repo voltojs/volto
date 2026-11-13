@@ -3,7 +3,7 @@ import { projectMessages, projectMessageEntries } from "../transcript-projection
 import { step, createInitialState } from "../reducer.js";
 import type { ReducerState, StepContext } from "../reducer.js";
 import type { AgentInput } from "../input.js";
-import type { AssistantMessage, ContentBlock, ImageContent, Message, ToolResultContent } from "../state.js";
+import type { AssistantMessage, ContentBlock, ImageContent, Message, ToolResultBlock, ToolResultContent } from "../state.js";
 import type { ToolDefinition } from "../tool.js";
 import type { TranscriptEvent, TranscriptEventMap, TranscriptEventType, TokenUsage, Id } from "../index.js";
 
@@ -131,8 +131,14 @@ function driveAndRecord(
           push("steering_removed", event.data as TranscriptEventMap["steering_removed"]);
           break;
         case "model_done": {
-          const data = event.data as { stopReason?: AssistantMessage["stopReason"]; usage?: TokenUsage; message: AssistantMessage };
+          const data = event.data as {
+            stopReason?: AssistantMessage["stopReason"];
+            usage?: TokenUsage;
+            messageId?: string;
+            message: AssistantMessage;
+          };
           push("assistant_message", {
+            ...(data.messageId !== undefined ? { messageId: data.messageId } : {}),
             content: data.message.content,
             stopReason: data.message.stopReason,
             usage: data.usage,
@@ -150,13 +156,15 @@ function driveAndRecord(
             toolName?: string;
             isError: boolean;
             durationMs?: number;
-            content: string;
+            messageId?: string;
+            content: string | ToolResultBlock[];
             displayMetadata?: Record<string, unknown>;
             orderInBatch: number;
           };
           push("tool_result", {
             callId: data.toolCallId,
             name: data.toolName,
+            ...(data.messageId !== undefined ? { messageId: data.messageId } : {}),
             content: data.content,
             isError: data.isError,
             durationMs: data.durationMs,
@@ -191,11 +199,9 @@ function driveAndRecord(
  * a tool didn't set it. The two are semantically equivalent; normalize
  * instead of weakening the assertion.
  *
- * Also blanks message ids: transcript events do not yet carry the reducer's
- * stable message ids (write-back is a later task), so the projection
- * synthesizes `proj-N` while the reducer's ids come from StepContext.id.
- * Comparing them would pin this suite to two independent counters instead
- * of the ordering contract under test.
+ * Also blanks message ids: tests that use no Id port leave reducer ids empty
+ * while the projection synthesizes `proj-N`; compare the ordering contract,
+ * not two independent counters.
  */
 function normalizeIsError(messages: Message[]): Message[] {
   return messages.map((m) =>
@@ -400,11 +406,10 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
   });
 
   it("11. compaction_applied replacing a mid-history tool batch", () => {
-    // Align the reducer's Id port with the projection's proj-N counter so
-    // replacedIds match on both sides. Exact id equality between the two
-    // independent counters is still deferred for production logs (transcript
-    // events do not yet carry reducer message ids); this test pins the
-    // ordering contract under aligned ids.
+    // The reducer's Id port is aligned with the projection's proj-N counter
+    // here. Production identity now comes from the `messageId` the events
+    // carry (see test 12b); this pins the ordering contract under ids that
+    // happen to coincide as well.
     let n = 0;
     const idPort: Id = { next: () => `proj-${++n}` };
     const ctxWithId: StepContext = { tools, model: "test-model", id: idPort };
@@ -497,6 +502,62 @@ describe("projectMessages ~ reducer equivalence (differential)", () => {
     expect(projectedCarrier.content).toEqual([
       { type: "text", text: "[image preserved from compressed conversation: 640x480 image/png]" },
       img as unknown as ContentBlock,
+    ]);
+  });
+
+  it("12b. cold rebuild replays compaction from the ids the events carry (production shape)", () => {
+    // Production does not align the reducer's Id port with the projection's
+    // counter — events carry the reducer's durable messageId instead. This is
+    // the shape a rebuild-from-transcript sees: no live state, no aligned ids.
+    let n = 0;
+    const idPort: Id = { next: () => `m-${++n}` };
+    const ctxWithId: StepContext = { tools, model: "test-model", id: idPort };
+
+    const inputs = [
+      { type: "user_message", content: "go" },
+      toolUseDelta("c1", "read_file", '{"path":"a.ts"}'),
+      { type: "model_done", stopReason: "tool_use" },
+      { type: "tool_result", toolCallId: "c1", toolName: "read_file", result: { modelContent: "file contents" } },
+      { type: "model_chunk", chunk: { type: "text_delta", text: "done" } },
+      { type: "model_done", stopReason: "end_turn" },
+      {
+        type: "compaction_applied",
+        summaryId: "sum-1",
+        summaryText: "checkpoint",
+        // user=m-1, assistant(tool_use)=m-2, tool=m-3, assistant=m-4.
+        // Replace the tool batch, keep the opening user and final reply.
+        replacedIds: ["m-2", "m-3"],
+      },
+    ] as AgentInput[];
+
+    const { events, finalState } = driveAndRecord(inputs, ctxWithId);
+
+    expect(finalState.messages.map((m) => m.id)).toEqual(["m-1", "sum-1", "m-4"]);
+    // The projection adopts the events' durable ids, so replacedIds match on
+    // a cold rebuild and the pre-compaction messages are really gone.
+    expect(projectMessages(events).map((m) => m.id)).toEqual(["m-1", "sum-1", "m-4"]);
+    expect(JSON.stringify(projectMessages(events))).not.toContain("file contents");
+    expect(normalizeIsError(projectMessages(events))).toEqual(normalizeIsError(finalState.messages));
+
+    // Counter-witness: strip the durable identity (the legacy log shape) and
+    // the same events fall back to the "skip the unmatched write-back" branch
+    // — exactly the dead branch this test exists to prevent from returning.
+    const legacyEvents = events.map((event) => {
+      if (
+        event.type !== "user_message"
+        && event.type !== "assistant_message"
+        && event.type !== "tool_result"
+      ) {
+        return event;
+      }
+      const { messageId: _dropped, ...data } = event.data as Record<string, unknown>;
+      return { ...event, data } as TranscriptEvent;
+    });
+    expect(projectMessages(legacyEvents).map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "tool",
+      "assistant",
     ]);
   });
 

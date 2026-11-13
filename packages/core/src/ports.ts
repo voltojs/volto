@@ -591,6 +591,12 @@ export interface TranscriptEventMap {
   model_request: ModelRequestManifest;
   /** One model call's complete output, aggregated. */
   assistant_message: {
+    /**
+     * Durable `Message.id` the reducer stamped for this message. Optional for
+     * legacy logs (the projection synthesizes an id); when present it lets a
+     * later `compaction` event's `replacedIds` match on a cold rebuild.
+     */
+    messageId?: string;
     /** Includes the reasoning block when the model produced one — the single source of truth. */
     content: ContentBlock[];
     stopReason?: "end_turn" | "tool_use" | "max_tokens";
@@ -614,6 +620,12 @@ export interface TranscriptEventMap {
   tool_result: {
     callId: string;
     name?: string;
+    /**
+     * Durable `Message.id` the reducer stamped for this result message.
+     * Optional for legacy logs; when present it lets a later `compaction`
+     * event's `replacedIds` match on a cold rebuild.
+     */
+    messageId?: string;
     /**
      * String for plain-text results (legacy logs stay valid); a block array
      * when the tool returned images or mixed content. Never join-flattened on
@@ -700,7 +712,17 @@ export interface TranscriptEventMap {
 
   // ── Input ──
   /** A user-role message's producer; absent on plain human input and old logs. */
-  user_message: { content: string | ContentBlock[]; source?: UserMessageSource };
+  user_message: {
+    content: string | ContentBlock[];
+    source?: UserMessageSource;
+    /**
+     * Durable `Message.id` the reducer stamped for this message. Legacy logs
+     * omit it and the projection falls back to a synthetic id; when present it
+     * lets a later `compaction` event's `replacedIds` match the projected
+     * message on a cold rebuild, where no live state exists to consult.
+     */
+    messageId?: string;
+  };
   /** Steering — a user message queued mid-turn. Name mirrors the reducer's own event.
    *  `id` is stamped at enqueue time (Id port) so projections can match the
    *  queued entry to its delivery. */

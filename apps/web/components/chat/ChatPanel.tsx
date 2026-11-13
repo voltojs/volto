@@ -43,6 +43,7 @@ import { rememberEffort, rememberedEffort } from '@/lib/reasoning-preferences';
 import { matchPlanCommand, type InputAction } from '@/lib/input-commands';
 import { exportSessionUrl, fetchPlan, fetchServerTrajectory, forkSession } from '@/lib/sessions-api';
 import { foldTodosFromEvents, selectLastTurnEnd } from '@/lib/todos-model';
+import { getGatewayBase } from '@/lib/gateway-base';
 import { useFileRefs } from '@/hooks/use-file-refs';
 import { useChatAgent } from '@/hooks/use-chat-agent';
 import { useAddProject } from '@/hooks/use-add-project';
@@ -987,7 +988,15 @@ export function ChatPanel() {
         >
           {connectionState === 'connecting'
             ? t('connection.connecting')
-            : t('connection.offline', { url: 'http://localhost:3100' })}
+            : t('connection.offline', {
+                // The banner previously named a hardcoded localhost port even
+                // for a deployed/same-origin gateway. Use the shared resolver;
+                // an empty base means same-origin, where the page's own origin
+                // is the gateway address.
+                url:
+                  getGatewayBase() ||
+                  (typeof window !== 'undefined' ? window.location.origin : ''),
+              })}
         </div>
       )}
       {/* Tabs host: the chat column (messages + TodoDock + input) and the

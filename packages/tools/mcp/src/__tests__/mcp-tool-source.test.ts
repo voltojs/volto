@@ -86,6 +86,21 @@ describe("McpToolSource", () => {
     expect(tools).toHaveLength(1);
     expect(tools[0]!.name).toBe("mcp__srv1__echo");
     expect(tools[0]!.requires).toEqual(["mcp:srv1"]);
+    expect(tools[0]!.riskTier).toBe("WRITE_HIGH");
+  });
+
+  it("forwards a per-server riskTier to the connection", async () => {
+    const trusted = createMockTransport([
+      { name: "echo", description: "Echo", inputSchema: { type: "object" } },
+    ]);
+    const source = new McpToolSource({
+      servers: [{ serverId: "trusted", transport: trusted, riskTier: "READ_ONLY" }],
+    });
+
+    await source.connectAll();
+    const tools = await source.list();
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.riskTier).toBe("READ_ONLY");
   });
 
   it("disconnectServer removes capability and tools", async () => {

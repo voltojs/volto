@@ -117,6 +117,21 @@ describe("createPiAiModelPortFromModels: stream()", () => {
     expect(options).toMatchObject({ maxTokens: 111, temperature: 0.42, reasoning: "low" });
   });
 
+  it("asks pi-ai for prompt caching when the kernel supplies cache breakpoints", async () => {
+    const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) =>
+      textConversationStream(),
+    );
+    const models = registerFakeProvider(streamSimple);
+    const port = createPiAiModelPortFromModels(models, "acme");
+
+    await collect(
+      port.stream({ ...baseRequest("plain-model"), cacheBreakpoints: [0, 2] }),
+    );
+
+    const options = streamSimple.mock.calls[0]![2]!;
+    expect(options).toMatchObject({ cacheRetention: "short" });
+  });
+
   it("rejects an unsupported reasoning effort WITHOUT attempting any I/O", async () => {
     const streamSimple = vi.fn((..._args: Parameters<Provider["streamSimple"]>) => textConversationStream());
     const models = registerFakeProvider(streamSimple);

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs, probeBinary } from "../sandbox.js";
+import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxedShell, buildBwrapArgs, probeBinary, createSandboxSessionSpawner } from "../sandbox.js";
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import { createNodeShell } from "../shell.js";
 import type { SandboxConfig } from "../sandbox.js";
@@ -152,6 +152,104 @@ describe("createNodeSandbox", () => {
       const exitEvent = events.find((e) => e.type === "exit");
       expect(exitEvent?.code).toBe(0);
     });
+  });
+
+  describe("backend refusal", () => {
+    it("rejects a backend this adapter does not implement instead of running bare", () => {
+      // "landlock" is not implemented anywhere. It used to fall through to the
+      // unisolated `none` branch while callers believed they were sandboxed.
+      expect(() =>
+        createNodeSandbox({ policy: { backend: "landlock" as unknown as "none" } }),
+      ).toThrow(/landlock/);
+    });
+
+    it("rejects bubblewrap rather than silently running unisolated", () => {
+      // createNodeSandbox implements seatbelt only; bubblewrap belongs to
+      // createSandboxedShell / createSandboxSessionSpawner.
+      expect(() =>
+        createNodeSandbox({ policy: { backend: "bubblewrap" as unknown as "none" } }),
+      ).toThrow(/bubblewrap/);
+    });
+  });
+});
+
+describe("createNodeSandbox — real seatbelt execution (darwin only)", () => {
+  itDarwin("uses -f with a profile file and removes that file afterwards", async () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "volto-nodesandbox-"));
+    try {
+      // The defect this guards: `-p <profile-file-path>` parses the PATH as an
+      // inline profile and exits 65 with "unbound variable". The assertion is
+      // a real command's stdout + exit 0, never emptiness alone.
+      const profiles = (): string[] =>
+        fs.readdirSync(os.tmpdir()).filter(
+          (f) => f.startsWith(`volto-node-sandbox-${process.pid}-`) && f.endsWith(".sb"),
+        );
+      const before = profiles().length;
+
+      const sandbox = createNodeSandbox({
+        policy: { backend: "seatbelt", fsReadWrite: [scratch] },
+      });
+      const events: Array<{ type: string; data?: string; code?: number }> = [];
+      for await (const event of sandbox.run({
+        command: "echo",
+        args: ["node-sandbox-ok"],
+        cwd: scratch,
+      })) {
+        events.push(event);
+      }
+
+      expect(events.find((e) => e.type === "exit")?.code).toBe(0);
+      expect(events.filter((e) => e.type === "stdout").map((e) => e.data).join(""))
+        .toContain("node-sandbox-ok");
+      expect(profiles().length).toBe(before);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});
+
+// ──────────────────────────────────────────────
+// Egress fail-closed — a configured host allowlist that cannot be enforced
+// (no socat bridge) must refuse, not warn and run unfiltered.
+// ──────────────────────────────────────────────
+
+describe("egress allowlist fails closed without a TCP bridge", () => {
+  const base = {
+    mode: "workspace-write" as const,
+    backend: "seatbelt" as const,
+    // Keep backend probing from short-circuiting the egress check on hosts
+    // without sandbox-exec: the egress refusal is what this suite asserts.
+    failIfUnavailable: false,
+    socatBinary: "volto-test-missing-socat-binary",
+  };
+
+  it("createSandboxedShell refuses allowedHosts when socat is unavailable", () => {
+    expect(() =>
+      createSandboxedShell(createMockShell(), {
+        ...base,
+        network: { enabled: true, allowedHosts: ["example.com"] },
+      }),
+    ).toThrow(/allowedHosts[\s\S]*SILENTLY UNENFORCED/);
+  });
+
+  it("createSandboxSessionSpawner refuses allowedHosts when socat is unavailable", () => {
+    expect(() =>
+      createSandboxSessionSpawner({
+        ...base,
+        network: { enabled: true, allowedHosts: ["example.com"] },
+      }),
+    ).toThrow(/allowedHosts[\s\S]*SILENTLY UNENFORCED/);
+  });
+
+  it("does not refuse when no host allowlist is configured", () => {
+    // Nothing to filter, so the missing bridge is irrelevant; egress is
+    // explicitly all-or-nothing here.
+    expect(() =>
+      createSandboxedShell(createMockShell(), {
+        ...base,
+        network: { enabled: true, allowedHosts: [] },
+      }),
+    ).not.toThrow();
   });
 });
 

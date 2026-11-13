@@ -53,8 +53,10 @@
  * of it, preserving the provider prefix cache), and, when the event carries
  * non-empty `preservedImages` (D5 v1.2), the user-role images carrier right
  * after the summary (`${summaryId}-images`, markers verbatim before each
- * image ref). Legacy compaction events without ids are skipped, and so is a
- * write-back whose replacedIds match nothing in the projection.
+ * image ref). Ids match because the message-producing events carry the
+ * reducer's durable `messageId`; legacy events without one project a `proj-N`
+ * fallback, so a legacy compaction event (or one whose replacedIds match
+ * nothing in the projection) is skipped.
  * `tool_results_pruned` stays log-only: the event omits pruned content by
  * design, so the projection has nothing to rewrite with.
  */
@@ -224,12 +226,22 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
   /** callId -> tool name, from `assistant_message` tool_use blocks and `approval_asked`. */
   const toolNamesById = new Map<string, string>();
   /**
-   * Synthetic ids for reconstructed messages. Transcript events do not yet
-   * carry the reducer's stable message ids; a local counter keeps projection
-   * deterministic (same events in, same ids out) without inventing I/O.
+   * Synthetic ids for reconstructed messages. Events recorded before the
+   * durable-id write-back (and synthetic messages the reducer never emits an
+   * id for) still need deterministic identity, so a local counter fills the
+   * gap without inventing I/O.
    */
   let projSeq = 0;
   const nextProjId = (): string => `proj-${++projSeq}`;
+  /**
+   * Prefer the durable message id a transcript event carries (the reducer's
+   * stamped `Message.id`), falling back to a synthetic one for legacy logs.
+   * Durable ids are what let a later `compaction` event's `replacedIds`
+   * match projected messages on a cold rebuild — without them the compaction
+   * branch is dead in production (events used to carry no identity).
+   */
+  const projectMessageId = (durable: string | undefined): string =>
+    durable !== undefined && durable !== "" ? durable : nextProjId();
 
   /** Registers an id-tracked queued entry (FIFO per id). */
   const registerQueued = (id: string, entry: ProjectedMessage): void => {
@@ -268,7 +280,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
         const data = event.data as TranscriptEventMap["user_message"];
         const entry: ProjectedMessage = {
-          message: { id: nextProjId(), role: "user", content: data.content },
+          message: { id: projectMessageId(data.messageId), role: "user", content: data.content },
           time: event.time,
         };
         messages.push(entry);
@@ -283,7 +295,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         const data = event.data as TranscriptEventMap["assistant_message"];
         messages.push({
           message: {
-            id: nextProjId(),
+            id: projectMessageId(data.messageId),
             role: "assistant",
             content: data.content,
             ...(data.stopReason !== undefined ? { stopReason: data.stopReason } : {}),
@@ -312,7 +324,7 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
           content: normalizeToolResultContent(data.content),
           isError: data.isError,
         };
-        const entry: ProjectedMessage = { message: { id: nextProjId(), role: "tool", content: [block] }, time: event.time };
+        const entry: ProjectedMessage = { message: { id: projectMessageId(data.messageId), role: "tool", content: [block] }, time: event.time };
 
         if (batch && resolveInBatch(batch, data.callId, entry, data.orderInBatch)) {
           flushBatch(batch, steering, messages);
@@ -367,8 +379,16 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
 
       case "steering_queued": {
         const data = event.data as TranscriptEventMap["steering_queued"];
+        // A queued entry's id IS its durable Message.id, so the projected
+        // entry adopts it (delivery preserves it) — the same identity a
+        // later compaction names. Legacy events without one fall back.
+        const id: unknown = (data as { id?: unknown }).id;
         const entry: ProjectedMessage = {
-          message: { id: nextProjId(), role: "user", content: data.content },
+          message: {
+            id: projectMessageId(typeof id === "string" ? id : undefined),
+            role: "user",
+            content: data.content,
+          },
           time: event.time,
         };
         // Both paths at once: the structural buffer keeps the pre-feature
@@ -376,7 +396,6 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         // lets steering_edited / steering_removed / steering_delivered fold
         // the entry. Legacy events carry no id — buffer only, never throw.
         steering.push(entry);
-        const id: unknown = (data as { id?: unknown }).id;
         if (typeof id === "string") registerQueued(id, entry);
         break;
       }
@@ -505,9 +524,12 @@ export function projectMessageEntries(events: readonly TranscriptEvent[]): Proje
         // break the provider prefix cache (see reducer.ts).
         const replaced = new Set(data.replacedIds);
         const firstIdx = messages.findIndex((e) => replaced.has(e.message.id));
-        // No projected id matched replacedIds. Production logs always hit
-        // this (events lack message ids), so treat it like a legacy event:
-        // skip entirely rather than inventing a summary at index 0.
+        // No projected id matched replacedIds. Current logs carry durable
+        // `messageId`s on user/assistant/tool_result events, so a normal
+        // write-back matches; legacy logs (events without identity) and a
+        // summary span containing only synthesized messages (a denial or an
+        // interrupted result) land here. Skip entirely rather than inventing
+        // a summary at index 0.
         if (firstIdx === -1) break;
         const kept = messages.filter((e) => !replaced.has(e.message.id));
         const insertAt = messages.slice(0, firstIdx).filter((e) => !replaced.has(e.message.id)).length;

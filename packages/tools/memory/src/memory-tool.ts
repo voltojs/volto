@@ -105,7 +105,9 @@ export function createMemoryTool(deps: MemoryToolDeps): Tool {
     description: DESCRIPTION,
     schema: memorySchema,
     requires: [CAP_MEMORY_READ, CAP_MEMORY_WRITE],
-    riskTier: "WRITE_LOW",
+    // Writes the project memory store, never the workspace.
+    riskTier: "READ_ONLY",
+    writesSessionState: true,
     trust: "untrusted",
     run: async (input): Promise<ToolResult> => {
       if (projectId === undefined || projectId === null || projectId === "") {

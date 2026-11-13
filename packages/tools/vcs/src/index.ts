@@ -72,8 +72,65 @@ export function createGitStatusTool(shell: Shell): Tool {
 // git_diff — structured diff output
 // ──────────────────────────────────────────────
 
+/**
+ * Flags `git_diff` accepts from the model. An allowlist, not a sanitiser:
+ * the command is built as shell text, so an arbitrary token is shell text
+ * too — and being READ_ONLY the tool is never asked about. Anything else is
+ * rejected with a self-correctable error instead of reaching the shell.
+ *
+ * `--ext-diff` / `--textconv` are deliberately absent (and disabled in the
+ * built command): repo config / gitattributes can attach external commands,
+ * which would turn a read into arbitrary execution.
+ */
+const SAFE_DIFF_FLAGS: ReadonlySet<string> = new Set([
+  "--cached",
+  "--staged",
+  "--stat",
+  "--numstat",
+  "--shortstat",
+  "--name-only",
+  "--name-status",
+  "--summary",
+  "--patch",
+  "-p",
+  "--check",
+  "--color",
+  "--no-color",
+  "--word-diff",
+]);
+
+/** `--unified=<n>`, the only flag form carrying a numeric value. */
+const SAFE_UNIFIED_FLAG = /^--unified=\d{1,4}$/;
+
+/** A revision or range token: HEAD~1, main...HEAD, origin/main. */
+const SAFE_DIFF_REF = /^[A-Za-z0-9_][A-Za-z0-9_./@~^-]*$/;
+
+/** Split `args` into validated tokens; reject the whole value on one bad token. */
+function parseDiffArgs(args: string | undefined): { tokens: string[]; error?: string } {
+  const raw = args?.trim() ?? "";
+  if (raw === "") return { tokens: [] };
+  const tokens = raw.split(/\s+/);
+  for (const token of tokens) {
+    if (SAFE_DIFF_FLAGS.has(token) || SAFE_UNIFIED_FLAG.test(token) || SAFE_DIFF_REF.test(token)) {
+      continue;
+    }
+    return {
+      tokens: [],
+      error:
+        `unsupported argument ${JSON.stringify(token)}. Use only git diff flags ` +
+        `and revision/range tokens (e.g. "--cached", "HEAD~1", "main...HEAD").`,
+    };
+  }
+  return { tokens };
+}
+
 const diffSchema = z.object({
-  args: z.string().optional().describe("Extra args for git diff (e.g. 'HEAD~1' or '--cached')."),
+  args: z
+    .string()
+    .optional()
+    .describe(
+      "Extra git diff arguments: simple flags (--cached, --stat) and a revision/range (HEAD~1, main...HEAD).",
+    ),
   cwd: z.string().optional().describe("Working directory."),
 });
 
@@ -85,8 +142,19 @@ export function createGitDiffTool(shell: Shell): Tool {
     requires: [CAP_SHELL_EXEC],
     riskTier: "READ_ONLY",
     run: async ({ args, cwd }) => {
+      const parsed = parseDiffArgs(args);
+      if (parsed.error !== undefined) {
+        return { modelContent: `git_diff: ${parsed.error}`, isError: true };
+      }
       try {
-        const cmd = `git diff ${args ?? ""}`.trim();
+        // --no-ext-diff / --no-textconv pin the read to git's own diff engine.
+        const cmd = [
+          "git",
+          "diff",
+          "--no-ext-diff",
+          "--no-textconv",
+          ...parsed.tokens,
+        ].join(" ");
         const { stdout, exitCode } = await collectStdout(shell, cmd, cwd);
         if (exitCode !== 0) {
           return { modelContent: `git_diff failed (exit ${exitCode}): ${stdout}`, isError: true };

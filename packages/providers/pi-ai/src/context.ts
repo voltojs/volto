@@ -38,12 +38,18 @@ import { readReplayEnvelope, type PiReplayBlock } from "./replay.js";
  */
 export function toPiContext(req: ModelRequest, model: PiModel<PiApi>): PiContext {
   const modelId = model.id;
-  const systemPrompt = req.messages
+  const systemSections = req.messages
     .filter((m): m is Extract<Message, { role: "system" }> => m.role === "system")
     // String-typed in core, but a block array can arrive at runtime (see
     // projectSystemContent) — project instead of joining "[object Object]".
-    .map((m) => projectSystemContent(m.content))
-    .join("\n\n");
+    .map((m) => projectSystemContent(m.content));
+  // `ModelRequest.responseFormat` has no pi-ai equivalent to forward (see
+  // responseFormatInstruction), so it is carried as a system instruction —
+  // never silently dropped.
+  if (req.responseFormat !== undefined) {
+    systemSections.push(responseFormatInstruction(req.responseFormat));
+  }
+  const systemPrompt = systemSections.join("\n\n");
 
   // Built once per call (not rescanned per tool-result block): maps a
   // tool_use block's id to its name, for mapToolResultMessage's reverse
@@ -72,6 +78,31 @@ export function toPiContext(req: ModelRequest, model: PiModel<PiApi>): PiContext
     context.tools = req.tools.map(mapToolDefinition);
   }
   return context;
+}
+
+/**
+ * pi-ai exposes no request-level response-format option: `SimpleStreamOptions`
+ * carries sampling, reasoning and cache knobs only, and `constrainedSampling`
+ * is a per-tool grammar setting rather than a reply format. Native JSON-schema
+ * support is also uneven across the provider catalog this adapter serves, so
+ * there is nothing portable to forward. Mirror the standalone Anthropic
+ * adapter: state the required JSON shape in the system prompt. This is
+ * prompt-level guidance, not provider-side constrained decoding; a host that
+ * needs native schema enforcement must use the OpenAI-compatible adapter.
+ */
+function responseFormatInstruction(
+  format: NonNullable<ModelRequest["responseFormat"]>,
+): string {
+  if (format.schema !== undefined) {
+    return (
+      "You MUST respond with valid JSON matching this schema:\n" +
+      JSON.stringify(format.schema, null, 2)
+    );
+  }
+  return (
+    "You MUST respond with valid JSON only. No markdown, no explanations " +
+    "outside the JSON."
+  );
 }
 
 /**

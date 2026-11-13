@@ -184,9 +184,13 @@ prices; cache read/write use their dedicated rate when defined and **zero** othe
   the injected `Tokenizer`. Production uses `ContextUsageSnapshot` + `foldSnapshotEvent` +
   `snapshotView`; `ContextUsageFold` is the test oracle. `breakdown` is three independent
   estimates and intentionally does not sum to `projectedTokens`.
-- The SDK `CostMeter` contributes nothing: `result()` is never called, so `cost_summary` is
-  never emitted; it has no `model`, `record()` takes only input/output, and it is built once
-  per agent. Dollar numbers exist only as Runner telemetry (`cost_usd`).
+- The SDK `CostMeter` is live only when `pricing` is configured. One meter per agent (it must
+  accumulate across a turn's model calls) records every `assistant_message`'s usage —
+  input, output and both cache buckets — then at `turn_end` emits `cost_summary` for the turn
+  that just closed and calls `reset()`, so the next turn starts from zero and the summary
+  precedes the closing event. It rides the sink the turn's events flow to, so a `stream()`
+  consumer that never calls `run()` still sees it. Runner telemetry (`cost_usd`) remains the
+  per-call view.
 
 ### Known inaccuracies
 
@@ -318,8 +322,9 @@ Adding or changing a transcript event:
 Cost changes: pricing is `packages/core/src/pricing.ts`, the budget gate is
 `accumulateUsage` / `checkBudgetLimits`, per-call telemetry is in `runModelStream`'s
 `finally`, and the UI fold is `summariseTurnUsage`; changing one alone makes the meter and
-the transcript disagree. Before making the SDK `CostMeter` live, give it a model, forward all
-four token buckets, call `reset()` per turn and `result()` at the turn boundary.
+the transcript disagree. The SDK `CostMeter` now records all four token buckets and resets at
+the turn boundary; a change to `assistant_message.usage` must reach both the meter and
+`summariseTurnUsage`, or the two reports diverge.
 
 ```bash
 pnpm turbo run typecheck lint test --filter @voltojs/core --filter @voltojs/runtime-node \

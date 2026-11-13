@@ -41,7 +41,9 @@ export function createTodoWriteTool(opts: TodoWriteToolOptions = {}) {
     description: DESCRIPTION,
     schema: todoWriteSchema,
     requires: [CAP_PLAN_WRITE],
-    riskTier: "WRITE_LOW",
+    // The todo list is session state, not a workspace file.
+    riskTier: "READ_ONLY",
+    writesSessionState: true,
     run: async (input): Promise<ToolResult> => {
       const seen = new Set<string>();
       const todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> = [];

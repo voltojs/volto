@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { filterVisibleTools, resolvePermission } from "@voltojs/core";
 import {
   createTaskTool,
   createTaskOutputTool,
@@ -13,8 +14,27 @@ describe("createTaskTool", () => {
     expect(tool.definition.name).toBe("task");
     expect(tool.definition.requires).toContain(CAP_AGENT_TASK);
     expect(tool.definition.requires).toContain(CAP_AGENT_DEPTH_AVAILABLE);
-    expect(tool.definition.riskTier).toBe("WRITE_LOW");
+    expect(tool.definition.riskTier).toBe("READ_ONLY");
+    // Dispatch records a child task; it is session state, not a workspace
+    // write, so read-only/plan sessions keep the tool.
+    expect(tool.definition.writesSessionState).toBe(true);
     expect(tool.definition.inputSchema).toBeDefined();
+  });
+
+  it("stays visible and allowed under a read-only/plan ceiling", () => {
+    const tool = createTaskTool(async () => ({ taskId: "t1" }));
+    const caps = new Set([CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE]);
+
+    const visible = filterVisibleTools([tool.definition], caps, "READ_ONLY");
+    expect(visible.map((t) => t.name)).toEqual(["task"]);
+
+    const { decision } = resolvePermission(
+      { sandbox: "read-only", approval: "never" },
+      tool.definition.name,
+      tool.definition.riskTier,
+      caps,
+    );
+    expect(decision).toBe("allow");
   });
 
   it("should call the dispatch with the message and return its output", async () => {
@@ -227,5 +247,7 @@ describe("createTaskOutputTool", () => {
     expect(tool.definition.name).toBe("task_output");
     expect(tool.definition.requires).toContain(CAP_AGENT_TASK);
     expect(tool.definition.requires).toContain(CAP_AGENT_DEPTH_AVAILABLE);
+    expect(tool.definition.riskTier).toBe("READ_ONLY");
+    expect(tool.definition.writesSessionState).toBe(true);
   });
 });

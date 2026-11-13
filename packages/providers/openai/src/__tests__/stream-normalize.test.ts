@@ -204,6 +204,42 @@ describe("normalizeStream", () => {
       });
     });
 
+    it("emits usage before done when it arrives in a trailing chunk after finish_reason", async () => {
+      // OpenAI sends finish_reason first, then a choices-less chunk carrying
+      // usage. Emitting done at finish_reason would put usage behind the
+      // terminal event and the Runner would drop it (lastUsage is reset on
+      // done).
+      const events = await collect(
+        [
+          chunk({ content: "Hi" }),
+          chunk({}, "stop"),
+          { choices: [], usage: { prompt_tokens: 100, completion_tokens: 50 } },
+        ],
+        { includeUsageRequested: true },
+      );
+
+      const usageIndex = events.findIndex((e) => e.type === "usage");
+      const doneIndex = events.findIndex((e) => e.type === "done");
+      expect(usageIndex).toBeGreaterThanOrEqual(0);
+      expect(doneIndex).toBe(usageIndex + 1);
+      expect(events[doneIndex]).toMatchObject({ type: "done", stopReason: "end_turn" });
+      expect(events[usageIndex]).toMatchObject({ type: "usage", inputTokens: 100, outputTokens: 50 });
+    });
+
+    it("does not emit usage_unavailable when the trailing chunk carries usage", async () => {
+      const events = await collect(
+        [
+          chunk({ content: "Hi" }),
+          chunk({}, "stop"),
+          { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+        ],
+        { includeUsageRequested: true },
+      );
+
+      expect(events.filter((e) => e.type === "usage_unavailable")).toHaveLength(0);
+      expect(events.filter((e) => e.type === "done")).toHaveLength(1);
+    });
+
     it("should handle missing token counts gracefully", async () => {
       const events = await collect([
         chunk({}, "stop", { prompt_tokens: undefined, completion_tokens: undefined }),

@@ -176,6 +176,16 @@ export function createPiAiModelPortFromModels(
             : {}),
           ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
           ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+          // `cacheBreakpoints` cannot be forwarded index-by-index: pi-ai's
+          // public request options expose only `cacheRetention`, and its
+          // adapters place Anthropic-style cache_control markers themselves
+          // (system prompt, last tool, last user/assistant text) — the same
+          // prefix-plus-tail a multi-turn request needs. Passing the retention
+          // when the kernel asked for caching keeps that on and makes the
+          // intent explicit instead of relying on pi-ai's implicit default.
+          ...((req.cacheBreakpoints?.length ?? 0) > 0
+            ? { cacheRetention: "short" as const }
+            : {}),
           ...(Object.keys(routeHeaders).length > 0 ? { headers: routeHeaders } : {}),
         });
 

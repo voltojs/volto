@@ -220,7 +220,7 @@ describe("loadAgentSpec (M13)", () => {
     expect(mockModel.callCount).toBe(2);
   });
 
-  it("unknown tools are silently skipped (not errors thrown)", async () => {
+  it("unknown tools are skipped but surfaced as specErrors", async () => {
     const registry = makeRegistry(createEchoTool());
     const spec: AgentSpec = {
       name: "partial-agent",
@@ -235,9 +235,24 @@ describe("loadAgentSpec (M13)", () => {
       toolRegistry: registry,
     });
 
-    // No error thrown — unknown tool is just not loaded
+    // Loading still succeeds — one stale name must not take the agent down —
+    // but the dropped tool is no longer invisible.
+    expect(agent.specErrors).toEqual([
+      'Unknown tool: "nonexistent" not found in registry',
+    ]);
     const state = await agent.run("hello");
     expect(state.status).toBe("done");
+  });
+
+  it("reports no specErrors when every tool resolves", () => {
+    const registry = makeRegistry(createEchoTool());
+    const agent = loadAgentSpec({
+      spec: { name: "clean-agent", tools: ["echo"] },
+      modelPort: createMockModelPort([textScript("ok")]),
+      toolRegistry: registry,
+    });
+
+    expect(agent.specErrors).toEqual([]);
   });
 
   it("backward compat — existing createAgent path unchanged", async () => {

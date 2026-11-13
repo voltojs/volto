@@ -195,8 +195,9 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     const tools = await sessionToolNames("read-only");
 
     expect(tools.length).toBeLessThanOrEqual(26);
-    // WRITE_LOW memory is above the READ_ONLY ceiling and is pruned.
-    expect(tools).not.toContain("memory");
+    // Session-state tools grade READ_ONLY + writesSessionState, so they stay
+    // visible even under the read-only ceiling (they cannot touch the workspace).
+    expect(tools).toContain("memory");
     // The READ_ONLY floor subset that must survive both layers.
     for (const name of ["read_file", "ls", "glob", "grep", "bash_output", "git_status", "git_diff"]) {
       expect(tools, `read-only floor tool missing: ${name}`).toContain(name);

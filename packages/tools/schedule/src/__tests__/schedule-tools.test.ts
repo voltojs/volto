@@ -22,7 +22,8 @@ describe("createScheduleTool", () => {
   it("has correct tool definition", () => {
     const tool = createScheduleTool(createMockScheduler());
     expect(tool.definition.name).toBe("schedule_task");
-    expect(tool.definition.riskTier).toBe("WRITE_LOW");
+    expect(tool.definition.riskTier).toBe("READ_ONLY");
+    expect(tool.definition.writesSessionState).toBe(true);
     expect(tool.definition.requires).toContain("scheduler:exec");
   });
 
@@ -53,6 +54,7 @@ describe("createCancelScheduleTool", () => {
     const tool = createCancelScheduleTool(createMockScheduler());
     expect(tool.definition.name).toBe("cancel_task");
     expect(tool.definition.riskTier).toBe("READ_ONLY");
+    expect(tool.definition.writesSessionState).toBe(true);
   });
 
   it("cancel returns success for existing task", async () => {

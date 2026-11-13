@@ -38,8 +38,11 @@ Wiring lives outside this package. `apps/gateway/src/wiring.ts` builds one
 `SandboxConfig` triple per session in `buildSandboxConfigs(mode, cwd, deniedReadPaths)` —
 `fsConfig`, `shellConfig`, `lspConfig` — and `createAgent`
 (`packages/sdk/src/create-agent.ts`) turns `shellConfig` into both the wrapped `Shell` and
-the persistent-session spawner, so the two can never disagree. The desktop host builds a
-comparable pair of its own in `apps/desktop-app/src/main/agent/wiring.ts`.
+the persistent-session spawner, so the two can never disagree. The desktop host builds one
+comparable `SandboxConfig` of its own in `apps/desktop-app/src/main/agent/wiring.ts`, used
+for both the shell/session and the fs decorator: its `auto` tier is `workspace-write` +
+`never` (the gateway's pair, not `danger-full-access`), and `deniedReadPaths` lists both
+its own config directory (where its `electron-store` file lives) and `~/.volto`.
 
 **Why one config feeds every shell surface.** A previous wiring revision wrapped the
 `Shell` port in `wiring.ts` while `createAgent` built the session spawner from the same
@@ -191,9 +194,12 @@ URLs, which would bypass the allowlist. The proxy accepts `CONNECT` only, exact 
 
 The shell spawner starts the proxy lazily on first use; the session spawner starts it
 eagerly at construction (its `spawn()` is synchronous) and each session gets its own socat
-bridge, killed by the session's `cleanup`. **If `socat` is absent, the code warns and
-injects no proxy variables** — the child then reaches any host while an allowlist is
-configured. That is a fail-open path in an otherwise fail-closed design.
+bridge, killed by the session's `cleanup`. The bridge binary defaults to `socat` and is
+overridable with `socatBinary`. **A missing bridge is refused, not warned about**: the
+shell and session spawners throw at construction, `launch` throws, a per-`exec` re-check
+(the bridge can disappear after construction) emits an `[sandbox] INFRASTRUCTURE FAILURE:`
+line with exit code `126`, and `forSession()` throws. Running on without the proxy would
+leave the allowlist silently unenforced.
 
 `createSandboxedProcessSpawner` refuses to build at all when `allowedHosts` is non-empty,
 because it builds no proxy and the backend rule cannot filter hosts. The LSP config carries
@@ -306,8 +312,7 @@ browser). The gateway constructs one host per process and hands each chat sessio
 - `resolveHeadless` defaults to **headed**, except Linux without `DISPLAY` /
   `WAYLAND_DISPLAY`, which runs headless with a warning. The gateway config defaults
   `browser.headless` to `true` (`apps/gateway/src/config/browser.ts`), so gateway sessions
-  are headless in practice. The comment in that file claiming an absent section keeps a
-  *headed* browser contradicts its own `headless: true` default.
+  are headless in practice; its file comment states the same default.
 - Lifecycle: one Chromium per host (lazy `chromium.launch`), one `BrowserContext` + `Page`
   per session, at most 4 live contexts (LRU eviction), 600 s idle close, and — in the
   gateway — the session's context is closed at the end of every turn
@@ -333,7 +338,8 @@ browser). The gateway constructs one host per process and hands each chat sessio
 - **Egress is a tool-level allowlist, not a firewall.** Bash children and the model's own
   transport are outside it; a configured `allowedHosts` is enforced only for
   `web_fetch`/`web_search`/`http_query` and browser top-level navigation, plus shell
-  children *when* `socat` exists.
+  children through the sandbox proxy — and a missing `socat` refuses the spawner rather
+  than running them unfiltered.
 - **Enforcement must be read from `sandboxEnforcement`, never from `config.mode`.**
   Every sandbox test does this. The fact is attached to the adapter object only: `createAgent`
   widens the shell to `Shell` and the gateway widens the fs to `FileSystem`, no host reads
@@ -355,10 +361,13 @@ browser). The gateway constructs one host per process and hands each chat sessio
 - **The workspace `.volto/spill/` and the credential dir `~/.volto` are different
   things** and must never be merged: spill data must stay readable, credential data must
   not.
-- **The `Sandbox` and `Secrets` ports are placeholders today.** `createNodeSandbox`
-  (`-p` with an inline profile string, no runner-failure classification, an `EGRESS_HOST`
-  env hack) and `createNodeSecrets` are exported and tested but not wired; treating either
-  as the real boundary would be wrong.
+- **The `Sandbox` and `Secrets` ports are placeholders today.** `createNodeSandbox` writes
+  its generated seatbelt profile to a temp file, passes it with `-f`, and deletes it after
+  the run; it implements only `seatbelt` / `none`, so an explicitly requested `landlock` or
+  an auto-detected bubblewrap throws instead of falling through to an unisolated bare
+  spawn. It still does no runner-failure classification and keeps the `EGRESS_HOST` env
+  hack, and `createNodeSecrets` is likewise exported and tested but not wired; treating
+  either as the real boundary would be wrong.
 
 ## Decisions and rejected alternatives (with dates)
 

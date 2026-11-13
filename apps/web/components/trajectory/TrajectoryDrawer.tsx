@@ -20,6 +20,7 @@ import {
   userSourceLabelKey,
   drawerTabsFor,
   formatDuration,
+  formatList,
   locationTextRef,
   parseSystemLayers,
 } from '@/lib/trajectory-view-model';
@@ -130,6 +131,7 @@ function Code({ text }: { text: string }) {
 
 function OverviewTab({ row }: { row: TrajectoryRow }) {
   const t = useTranslations('trajectory');
+  const locale = useLocale();
   const sessionId = useTrajectoryDrawerStore((s) => s.sessionId);
   const duration = formatDuration(row.durationMs) ?? formatDuration(row.metrics?.durationMs);
   // Keep the original truthiness guard; the const also carries the narrowing
@@ -237,21 +239,24 @@ function OverviewTab({ row }: { row: TrajectoryRow }) {
       )}
       {row.subagentDroppedTools !== undefined && row.subagentDroppedTools.length > 0 && (
         <Field label={t('drawer.subagentDroppedTools')}>
-          <Cell text={row.subagentDroppedTools.join('、')} />
+          <Cell text={formatList(row.subagentDroppedTools, locale)} />
         </Field>
       )}
       {row.subagentDroppedCapabilities !== undefined &&
         row.subagentDroppedCapabilities.length > 0 && (
           <Field label={t('drawer.subagentDroppedCapabilities')}>
-            <Cell text={row.subagentDroppedCapabilities.join('、')} />
+            <Cell text={formatList(row.subagentDroppedCapabilities, locale)} />
           </Field>
         )}
       {row.subagentDowngrades !== undefined && row.subagentDowngrades.length > 0 && (
         <Field label={t('drawer.subagentDowngrades')}>
           <Cell
-            text={row.subagentDowngrades
-              .map((axis) => `${axis.field}: ${axis.requested} → ${axis.effective}`)
-              .join('；')}
+            text={formatList(
+              row.subagentDowngrades.map(
+                (axis) => `${axis.field}: ${axis.requested} → ${axis.effective}`,
+              ),
+              locale,
+            )}
           />
         </Field>
       )}

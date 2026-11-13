@@ -80,6 +80,42 @@ describe("McpConnection", () => {
     expect(defs[0]!.name).toBe("mcp__myserver__greet");
     expect(defs[0]!.requires).toEqual(["mcp:myserver"]);
     expect(defs[0]!.description).toBe("Say hello");
+    // A server's capabilities are unknown, so the permission matrix must be
+    // able to ask about the call: READ_ONLY would let it through silently.
+    expect(defs[0]!.riskTier).toBe("WRITE_HIGH");
+  });
+
+  it("honours an explicit riskTier for a trusted server", async () => {
+    const transport = createMockTransport();
+    transport.request = vi.fn(async (method: string) => {
+      if (method === "tools/list") return { tools: [{ name: "echo", description: "", inputSchema: { type: "object" } }] };
+      if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a" }] };
+      if (method === "prompts/list") return { prompts: [{ name: "greet" }] };
+      return {};
+    });
+
+    const conn = new McpConnection({ serverId: "trusted", transport, riskTier: "READ_ONLY" });
+    await conn.connect();
+
+    expect(conn.toToolDefinitions()[0]!.riskTier).toBe("READ_ONLY");
+    expect(conn.toResourceToolDefinitions()[0]!.riskTier).toBe("READ_ONLY");
+    expect(conn.toPromptToolDefinitions()[0]!.riskTier).toBe("READ_ONLY");
+  });
+
+  it("defaults resource and prompt wrappers to the same write tier", async () => {
+    const transport = createMockTransport();
+    transport.request = vi.fn(async (method: string) => {
+      if (method === "tools/list") return { tools: [] };
+      if (method === "resources/list") return { resources: [{ uri: "file:///a.txt", name: "a" }] };
+      if (method === "prompts/list") return { prompts: [{ name: "greet" }] };
+      return {};
+    });
+
+    const conn = new McpConnection({ serverId: "s1", transport });
+    await conn.connect();
+
+    expect(conn.toResourceToolDefinitions()[0]!.riskTier).toBe("WRITE_HIGH");
+    expect(conn.toPromptToolDefinitions()[0]!.riskTier).toBe("WRITE_HIGH");
   });
 
   it("callTool forwards to transport and returns normalized ToolResult", async () => {

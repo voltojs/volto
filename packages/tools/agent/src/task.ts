@@ -310,7 +310,10 @@ export function createTaskTool(
     description: renderDescription(types, tiers),
     schema: buildTaskSchema(types, tiers),
     requires: [CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE],
-    riskTier: "WRITE_LOW",
+    // Dispatching records a child task but does not write the workspace; the
+    // child's own permission boundary guards whatever it does next.
+    riskTier: "READ_ONLY",
+    writesSessionState: true,
     run: async (input): Promise<ToolResult> => {
       // Reject an unknown subagent_type BEFORE dispatching, and list the valid
       // values so the model can self-correct in the next attempt. With the

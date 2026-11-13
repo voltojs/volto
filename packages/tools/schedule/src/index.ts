@@ -36,7 +36,9 @@ export function createScheduleTool(scheduler: Scheduler): Tool {
       "will be fired. Returns a task_id that can be used with cancel_task.",
     schema: scheduleSchema,
     requires: [CAP_SCHEDULER],
-    riskTier: "WRITE_LOW",
+    // A scheduled wake-up is session state, not a workspace write.
+    riskTier: "READ_ONLY",
+    writesSessionState: true,
     run: async ({ delay_ms, ref }) => {
       try {
         const taskId = await scheduler.schedule(delay_ms, ref);
@@ -63,7 +65,9 @@ export function createCancelScheduleTool(scheduler: Scheduler): Tool {
     description: "Cancel a previously scheduled task by its task_id.",
     schema: cancelSchema,
     requires: [CAP_SCHEDULER],
+    // Cancelling mutates scheduler state only.
     riskTier: "READ_ONLY",
+    writesSessionState: true,
     run: async ({ task_id }) => {
       try {
         const cancelled = await scheduler.cancel(task_id);

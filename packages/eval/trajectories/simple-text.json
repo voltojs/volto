@@ -32,8 +32,8 @@
         "status": "calling_model"
       },
       "effects": [
-        "call_model",
-        "emit"
+        "emit",
+        "call_model"
       ],
       "fullState": {
         "messages": [
@@ -61,6 +61,15 @@
       },
       "fullEffects": [
         {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "你好，介绍一下你自己"
+            }
+          }
+        },
+        {
           "type": "call_model",
           "request": {
             "messages": [
@@ -77,15 +86,6 @@
               0
             ],
             "layerOrigins": []
-          }
-        },
-        {
-          "type": "emit",
-          "event": {
-            "type": "user_message",
-            "data": {
-              "content": "你好，介绍一下你自己"
-            }
           }
         }
       ]

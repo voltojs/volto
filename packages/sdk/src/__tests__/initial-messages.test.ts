@@ -46,4 +46,20 @@ describe("createAgent initialMessages", () => {
     expect(finalState.messages[0]).toMatchObject({ role: "system", content: "你是一个助手" });
     expect(finalState.messages[1]).toMatchObject({ id: "m5", role: "user", content: "历史消息" });
   });
+
+  it("seeds pinnedMessageIds into state so the compactor/assembler see them", async () => {
+    // Production entry point for pinning: before this option existed only
+    // tests could construct a state with pinnedMessageIds.
+    const agent = createAgent({
+      modelPort: makeModelPort({ type: "text", text: "ok" }),
+      initialMessages: [{ id: "keep-me", role: "user", content: "重要历史" }],
+      pinnedMessageIds: ["keep-me"],
+    });
+
+    const finalState = await agent.run("继续");
+
+    expect(finalState.pinnedMessageIds).toEqual(["keep-me"]);
+    // The carried-forward state keeps the pin for the next turn.
+    expect(finalState.messages.some((m) => m.id === "keep-me")).toBe(true);
+  });
 });

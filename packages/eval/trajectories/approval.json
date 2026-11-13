@@ -82,8 +82,8 @@
         "status": "calling_model"
       },
       "effects": [
-        "call_model",
-        "emit"
+        "emit",
+        "call_model"
       ],
       "fullState": {
         "messages": [
@@ -110,6 +110,15 @@
         "_toolResultBuffer": {}
       },
       "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "把 hello 写入 output.txt"
+            }
+          }
+        },
         {
           "type": "call_model",
           "request": {
@@ -151,15 +160,6 @@
               0
             ],
             "layerOrigins": []
-          }
-        },
-        {
-          "type": "emit",
-          "event": {
-            "type": "user_message",
-            "data": {
-              "content": "把 hello 写入 output.txt"
-            }
           }
         }
       ]

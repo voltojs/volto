@@ -4,6 +4,12 @@
  * Consumes normalized usage events, aggregates token counts and dollar costs,
  * and exposes results via EventSink + Telemetry port. Does NOT trigger any
  * budget enforcement (that's M8 Phase 4's responsibility).
+ *
+ * `createAgent` owns the lifecycle when `pricing` is configured: it records
+ * every model call's usage (including the cache buckets) from the
+ * `assistant_message` transcript event, calls `result()` on `turn_end` (so
+ * `cost_summary` precedes the closing event), and then `reset()`s the
+ * accumulator for the next turn.
  */
 
 import type { ModelEvent, EventSink, Telemetry, PricingEntry, PricingTable } from "@voltojs/core";
