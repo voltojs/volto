@@ -5,15 +5,15 @@
   "fixed": [
     [
       "@voltojs/core",
-      "@voltojs/gateway",
-      "@voltojs/runtime-node",
-      "@voltojs/sdk",
-      "@voltojs/store-postgres",
-      "@voltojs/store-sqlite",
       "@voltojs/tools",
-      "@voltojs/memories",
-      "@voltojs/providers",
-      "@voltojs/stores"
+      "@voltojs/sdk",
+      "@voltojs/runtime-node",
+      "@voltojs/gateway"
+    ],
+    [
+      "@voltojs/stores",
+      "@voltojs/store-sqlite",
+      "@voltojs/store-postgres"
     ]
   ],
   "linked": [],

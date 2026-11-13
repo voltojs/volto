@@ -16,7 +16,7 @@
     "package:linux": "electron-vite build && electron-builder --linux --publish never --config electron-builder.yml"
   },
   "dependencies": {
-    "@voltojs/sdk": "workspace:*",
+    "@voltojs/sdk": "workspace:^",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-store": "^11.0.2",
@@ -26,7 +26,7 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.14",
-    "@voltojs/providers": "workspace:*"
+    "@voltojs/providers": "workspace:^"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.2",

@@ -33,7 +33,7 @@
     "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
-    "@voltojs/core": "workspace:*",
+    "@voltojs/core": "workspace:^",
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {

@@ -33,8 +33,8 @@
     "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
-    "@voltojs/core": "workspace:*",
-    "@voltojs/tools": "workspace:*"
+    "@voltojs/core": "workspace:^",
+    "@voltojs/tools": "workspace:^"
   },
   "peerDependencies": {
     "better-sqlite3": ">=9.0.0",
@@ -62,7 +62,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@voltojs/eval": "workspace:*",
-    "@voltojs/tools": "workspace:*"
+    "@voltojs/eval": "workspace:^",
+    "@voltojs/tools": "workspace:^"
   }
 }

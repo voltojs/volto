@@ -47,9 +47,12 @@ jobs:
       - name: User docs check
         run: pnpm docs:check
 
+      # Publish only the versions the registry does not have yet: each fixed group
+      # bumps independently, and a rerun after a partial failure must skip what
+      # already shipped instead of failing on an existing version.
       # `publishConfig.access: public` is what makes the scoped packages installable
       # by anyone; npm rejects a scoped publish that does not opt in.
       - name: Publish to npm
-        run: pnpm -r publish --no-git-checks
+        run: node scripts/publish-missing.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -45,13 +45,13 @@
     "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
-    "@voltojs/core": "workspace:*",
-    "@voltojs/runtime-node": "workspace:*",
+    "@voltojs/core": "workspace:^",
+    "@voltojs/runtime-node": "workspace:^",
     "zod": "^4.4.3",
-    "@voltojs/tools": "workspace:*",
-    "@voltojs/stores": "workspace:*"
+    "@voltojs/tools": "workspace:^",
+    "@voltojs/stores": "workspace:^"
   },
   "devDependencies": {
-    "@voltojs/stores": "workspace:*"
+    "@voltojs/stores": "workspace:^"
   }
 }

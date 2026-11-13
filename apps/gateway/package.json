@@ -41,15 +41,15 @@
     "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
-    "@voltojs/core": "workspace:*",
-    "@voltojs/runtime-node": "workspace:*",
-    "@voltojs/sdk": "workspace:*",
-    "@voltojs/store-sqlite": "workspace:*",
+    "@voltojs/core": "workspace:^",
+    "@voltojs/runtime-node": "workspace:^",
+    "@voltojs/sdk": "workspace:^",
+    "@voltojs/store-sqlite": "workspace:^",
     "ws": "^8.16.0",
-    "@voltojs/tools": "workspace:*",
-    "@voltojs/memories": "workspace:*",
-    "@voltojs/providers": "workspace:*",
-    "@voltojs/stores": "workspace:*"
+    "@voltojs/tools": "workspace:^",
+    "@voltojs/memories": "workspace:^",
+    "@voltojs/providers": "workspace:^",
+    "@voltojs/stores": "workspace:^"
   },
   "optionalDependencies": {
     "playwright-core": "^1.60.0",
@@ -58,6 +58,6 @@
   "devDependencies": {
     "@types/ws": "^8.5.0",
     "tsx": "^4.23.13",
-    "@voltojs/sdk": "workspace:*"
+    "@voltojs/sdk": "workspace:^"
   }
 }

@@ -47,7 +47,7 @@ node scripts/publish-manifest.mjs --write
 
 ### 2. 改版本号
 
-版本用 changesets 管理，所有发布包锁定在同一版本（`.changeset/config.json` 的 `fixed` 列表）。
+版本用 changesets 管理。`.changeset/config.json` 定义两个 fixed 组——`core`/`tools`/`sdk`/`runtime-node`/`gateway`，以及 `stores`/`store-sqlite`/`store-postgres`——组内共用一个版本；`providers` 和 `memories` 独立版本。内部依赖写成 `workspace:^`，pnpm 打包时会改写成 caret 范围，跨组升级保持同一大版本兼容。
 
 平时只做第一步：为每次改动写一个 changeset，跟着改动一起提交。
 
@@ -67,7 +67,7 @@ git tag v0.2.0 && git push origin main --tags
 
 两条路，选一条。
 
-**由 GitHub Actions 发布（推荐）**：`.github/workflows/release.yml` 在推 `v*` 标签或手动触发（Actions → Release → Run workflow）时运行。它需要仓库 secret `NPM_TOKEN`——npm 账号的 **Automation** token（勾选 publish 权限；账号开了 2FA 时普通 token 发布会要求 OTP，automation token 不受影响）。工作流把它写入 `NODE_AUTH_TOKEN`，`setup-node` 负责把它放进 runner 的 `.npmrc`。步骤依次是 `pnpm install --frozen-lockfile` → `pnpm check:pack` → `pnpm docs:check` → `pnpm -r publish --no-git-checks`。
+**由 GitHub Actions 发布（推荐）**：`.github/workflows/release.yml` 在推 `v*` 标签或手动触发（Actions → Release → Run workflow）时运行。它需要仓库 secret `NPM_TOKEN`——一个对 `voltojs` 组织有 `Read and write` 权限、并勾选 **Bypass two-factor authentication** 的 **granular access token**（npm 已不再签发 classic automation token；账号开了 2FA 而不勾 bypass，发布会返回 `E403`）。工作流把它写入 `NODE_AUTH_TOKEN`，`setup-node` 负责把它放进 runner 的 `.npmrc`。步骤依次是 `pnpm install --frozen-lockfile` → `pnpm check:pack` → `pnpm docs:check` → `node scripts/publish-missing.mjs`；最后一步只发布 registry 上尚未存在的版本，部分失败后重跑是安全的。
 
 **本地发布**：先在这一步确认凭据：
 
@@ -83,9 +83,9 @@ npm login --registry=https://registry.npmjs.org
 pnpm release
 ```
 
-`pnpm release` 依次做：从源码全新构建 → 导出 Web 界面 → 校验每个包的清单（`access: public`、残留的 `workspace:` 版本号）→ 校验打包内容 → `pnpm -r publish --no-git-checks`。
+`pnpm release` 依次做：从源码全新构建 → 导出 Web 界面 → 校验每个包的清单（`access: public`、可发布的 `workspace:^` 范围）→ 校验打包内容 → 只发布 registry 上尚未存在的版本（`node scripts/publish-missing.mjs`）。
 
-你应看到：Actions 里每一步都是绿色，npm 上 36 个包出现新版本；本地发布看到的是 `pnpm release` 最后逐个包打印的上传结果。
+你应看到：Actions 里每一步都是绿色，npm 上只出现本次改动组的新版本（发布集共 10 个包）；本地发布看到的是 `pnpm release` 最后逐个包打印的上传结果。
 
 ### 4. 发布之后
 

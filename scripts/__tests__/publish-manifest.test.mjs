@@ -23,6 +23,12 @@ test("workspace:* 未替换时报告", () => {
   const bad = { ...BASE, dependencies: { "@voltojs/core": "workspace:*" } };
   assert.deepEqual(validateManifest(bad, "/tmp/x", { strictWorkspace: true }), ["dependencies.@voltojs/core: workspace protocol left"]);
 });
+test("workspace:^ / workspace:~ 允许（跨组 semver 范围）", () => {
+  for (const range of ["workspace:^", "workspace:~"]) {
+    const ok = { ...BASE, dependencies: { "@voltojs/core": range } };
+    assert.deepEqual(validateManifest(ok, "/tmp/x", { strictWorkspace: true }), []);
+  }
+});
 test("缺 files / engines / license 都报告", () => {
   const bad = { ...BASE, files: undefined, engines: undefined, license: undefined };
   assert.equal(validateManifest(bad, "/tmp/x").length, 3);

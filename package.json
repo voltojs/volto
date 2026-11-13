@@ -2,7 +2,7 @@
   "name": "volto",
   "version": "0.0.1",
   "private": true,
-  "description": "Pure agent core — zero I/O, zero env coupling, capability injection",
+  "description": "Pure agent core \u2014 zero I/O, zero env coupling, capability injection",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
@@ -19,7 +19,7 @@
     "check:pack": "pnpm build:fresh && pnpm web:export && node scripts/check-pack-contents.mjs",
     "smoke:install": "node scripts/smoke-install.mjs",
     "check:i18n": "node scripts/check-i18n-hardcoded.mjs",
-    "release": "pnpm build:fresh && pnpm web:export && node scripts/publish-manifest.mjs --strict-workspace && pnpm check:pack && pnpm -r publish --no-git-checks",
+    "release": "pnpm build:fresh && pnpm web:export && node scripts/publish-manifest.mjs --strict-workspace && pnpm check:pack && node scripts/publish-missing.mjs",
     "version:all": "pnpm changeset version && node scripts/publish-manifest.mjs",
     "release:version": "pnpm version:all",
     "docs:gen": "node scripts/docs/gen.mjs",

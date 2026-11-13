@@ -39,10 +39,10 @@ importers:
   apps/desktop-app:
     dependencies:
       '@voltojs/providers':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/providers
       '@voltojs/sdk':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/sdk
       class-variance-authority:
         specifier: ^0.7.1
@@ -118,28 +118,28 @@ importers:
   apps/gateway:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/core
       '@voltojs/memories':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/memories
       '@voltojs/providers':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/providers
       '@voltojs/runtime-node':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/runtimes/node
       '@voltojs/sdk':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/sdk
       '@voltojs/store-sqlite':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/stores/sqlite
       '@voltojs/stores':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/stores
       '@voltojs/tools':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/tools
       ws:
         specifier: ^8.16.0
@@ -204,7 +204,7 @@ importers:
         specifier: ^3.31.3
         version: 3.31.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
       '@voltojs/sdk':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/sdk
       class-variance-authority:
         specifier: ^0.7.1
@@ -309,13 +309,13 @@ importers:
   packages/eval:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
 
   packages/memories:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
 
   packages/providers:
@@ -324,16 +324,16 @@ importers:
         specifier: ^1.5.0
         version: 1.5.0(@aws-sdk/credential-provider-node@3.972.82)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.0)(zod@4.4.3)
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
 
   packages/runtimes/node:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../core
       '@voltojs/tools':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../tools
       better-sqlite3:
         specifier: '>=9.0.0'
@@ -355,28 +355,28 @@ importers:
         specifier: ^7.6.13
         version: 7.6.13
       '@voltojs/eval':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../eval
 
   packages/runtimes/web:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../core
 
   packages/sdk:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@voltojs/runtime-node':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../runtimes/node
       '@voltojs/stores':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../stores
       '@voltojs/tools':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../tools
       zod:
         specifier: ^4.4.3
@@ -385,13 +385,13 @@ importers:
   packages/stores:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
 
   packages/stores/postgres:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../core
       pg:
         specifier: ^8.12.0
@@ -404,7 +404,7 @@ importers:
   packages/stores/sqlite:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../core
       better-sqlite3:
         specifier: ^11.0.0
@@ -417,7 +417,7 @@ importers:
   packages/tools:
     dependencies:
       '@voltojs/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       zod:
         specifier: ^4.4.3

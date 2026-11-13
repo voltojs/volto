@@ -264,6 +264,11 @@ export function validateManifest(manifest, dir, opts, reportWith) {
     if (!isPlainObject(section)) continue;
     for (const [name, range] of Object.entries(section)) {
       if (typeof range === "string" && range.startsWith("workspace:")) {
+        // `workspace:^` / `workspace:~` become a semver range at pack time, which is
+        // what independent fixed groups need for cross-group major compatibility.
+        // Only the exact `workspace:*` form is rejected in strict mode.
+        const protocol = range.slice("workspace:".length);
+        if (protocol === "^" || protocol === "~") continue;
         report(`${field}.${name}: workspace protocol left`);
       }
     }

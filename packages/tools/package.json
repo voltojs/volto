@@ -94,7 +94,7 @@
     "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
-    "@voltojs/core": "workspace:*",
+    "@voltojs/core": "workspace:^",
     "zod": "^4.4.3"
   }
 }

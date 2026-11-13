@@ -45,7 +45,7 @@
     "url": "git+https://github.com/voltojs/volto.git"
   },
   "dependencies": {
-    "@voltojs/core": "workspace:*",
+    "@voltojs/core": "workspace:^",
     "@earendil-works/pi-ai": "^1.5.0"
   }
 }

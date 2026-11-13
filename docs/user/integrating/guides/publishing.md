@@ -47,7 +47,7 @@ It rewrites every package's `repository` to the new URL and fills in missing fie
 
 ### 2. Bump the version
 
-Versions are managed with changesets, and all published packages are locked to the same version (the `fixed` list in `.changeset/config.json`).
+Versions are managed with changesets. `.changeset/config.json` defines two fixed groups — `core`/`tools`/`sdk`/`runtime-node`/`gateway`, and `stores`/`store-sqlite`/`store-postgres` — so each group moves as one version, while `providers` and `memories` version independently. Internal dependencies use `workspace:^`, which pnpm rewrites to a caret range when packing, so cross-group upgrades stay within the same major.
 
 Day to day you only do the first step: write a changeset for each change and commit it together with the change.
 
@@ -67,7 +67,7 @@ git tag v0.2.0 && git push origin main --tags
 
 Two paths; pick one.
 
-**Publish from GitHub Actions (recommended)**: `.github/workflows/release.yml` runs when a `v*` tag is pushed or when triggered manually (Actions → Release → Run workflow). It needs the repository secret `NPM_TOKEN` — an **Automation** token from the npm account (with publish permission ticked; when the account has 2FA enabled, a regular token requires an OTP to publish, while an automation token is unaffected). The workflow writes it into `NODE_AUTH_TOKEN`, and `setup-node` places it in the runner's `.npmrc`. The steps are `pnpm install --frozen-lockfile` → `pnpm check:pack` → `pnpm docs:check` → `pnpm -r publish --no-git-checks`.
+**Publish from GitHub Actions (recommended)**: `.github/workflows/release.yml` runs when a `v*` tag is pushed or when triggered manually (Actions → Release → Run workflow). It needs the repository secret `NPM_TOKEN` — a **granular access token** with `Read and write` on the `voltojs` organization and **Bypass two-factor authentication** enabled (npm no longer issues classic automation tokens; without the bypass flag a 2FA-enabled account gets `E403` at publish time). The workflow writes it into `NODE_AUTH_TOKEN`, and `setup-node` places it in the runner's `.npmrc`. The steps are `pnpm install --frozen-lockfile` → `pnpm check:pack` → `pnpm docs:check` → `node scripts/publish-missing.mjs`; the last step publishes only versions the registry does not have yet, so a rerun after a partial failure is safe.
 
 **Publishing locally**: first confirm the credentials on this step:
 
@@ -85,7 +85,7 @@ pnpm release
 
 `pnpm release` does, in order: a clean build from source → export the Web UI → validate every package manifest (`access: public`, leftover `workspace:` version ranges) → validate the packed contents → `pnpm -r publish --no-git-checks`.
 
-You should see: every step green in Actions, and a new version of each of the 36 packages on npm; a local release shows the upload result that `pnpm release` prints per package at the end.
+You should see: every step green in Actions, and only the changed group's new versions on npm (10 packages are publishable in total); a local release shows the upload result that `pnpm release` prints per package at the end.
 
 ### 4. After publishing
 
