@@ -1,0 +1,14 @@
+{
+  "name": "@voltojs/docs",
+  "private": true,
+  "type": "module",
+  "description": "The user documentation site (VitePress), published to GitHub Pages.",
+  "scripts": {
+    "dev": "vitepress dev --port 5199",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

@@ -49,3 +49,6 @@ pnpm-debug.log*
 
 # Transient TypeScript snippets extracted by docs:check
 docs/user/.snippets/
+
+# VitePress build cache
+.vitepress/cache/

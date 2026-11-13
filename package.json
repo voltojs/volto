@@ -2,7 +2,7 @@
   "name": "volto",
   "version": "0.0.1",
   "private": true,
-  "description": "Pure agent core \u2014 zero I/O, zero env coupling, capability injection",
+  "description": "Pure agent core — zero I/O, zero env coupling, capability injection",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
@@ -25,6 +25,8 @@
     "docs:gen": "node scripts/docs/gen.mjs",
     "docs:sync": "node scripts/docs/sync.mjs",
     "docs:check": "node scripts/docs/check.mjs",
+    "docs:dev": "pnpm --filter @voltojs/docs dev",
+    "docs:site": "pnpm --filter @voltojs/docs build",
     "docs:ack": "node scripts/docs/ack.mjs"
   },
   "devDependencies": {
