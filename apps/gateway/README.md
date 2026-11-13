@@ -44,7 +44,7 @@ Requires **Node ≥ 22** on macOS or Linux. A platform without a sandbox backend
 script can parse:
 
 ```text
-volto gateway 0.1.0 listening on http://127.0.0.1:3100
+volto gateway 0.0.1 listening on http://127.0.0.1:3100
 Open: http://127.0.0.1:3100/?token=…
 ```
 

@@ -64,7 +64,7 @@ npx @voltojs/gateway
 你应看到**只有两行**：
 
 ```text
-volto gateway 0.1.0 listening on http://127.0.0.1:3100
+volto gateway 0.0.1 listening on http://127.0.0.1:3100
 Open: http://127.0.0.1:3100/?token=…
 ```
 

@@ -132,7 +132,7 @@ function siteFor(webRoot: string, apiRoots: readonly string[] = []): Site {
     apiRoots,
     // The production builder, not a hand-copied literal: what the handler
     // serves and what this fixture hands it are the same string.
-    configScript: buildConfigScript({ gatewayUrl: "", version: "0.1.0" }),
+    configScript: buildConfigScript({ gatewayUrl: "", version: "9.9.9" }),
   };
 }
 
@@ -314,7 +314,7 @@ describe("静态托管 · 读取", () => {
   it("动态生成 volto-config.js 且不缓存", async () => {
     const res = await serve(siteFor(await fixture()), "/volto-config.js");
     expect(res.status).toBe(200);
-    expect(res.body).toBe(buildConfigScript({ gatewayUrl: "", version: "0.1.0" }));
+    expect(res.body).toBe(buildConfigScript({ gatewayUrl: "", version: "9.9.9" }));
     expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.headers["content-type"]).toContain("javascript");
   });

@@ -25,7 +25,7 @@ npx @voltojs/gateway
 网关同时提供 API 和 Web 界面，启动（`volto` 或 `volto serve`）后只打印两行：
 
 ```text
-volto gateway 0.1.0 listening on http://127.0.0.1:3100
+volto gateway 0.0.1 listening on http://127.0.0.1:3100
 Open: http://127.0.0.1:3100/?token=…
 ```
 

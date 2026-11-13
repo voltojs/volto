@@ -195,7 +195,7 @@ npx @voltojs/gateway web --port 6100 --gateway http://127.0.0.1:3100
 `volto web` 打印三行——前两行和网关 `serve` 的两行形状相同，第三行 `Login:` 才是能直接登录的地址（已经带着持久 token）：
 
 ```text
-volto web 0.1.0 listening on http://127.0.0.1:6100 -> http://127.0.0.1:3100
+volto web 0.0.1 listening on http://127.0.0.1:6100 -> http://127.0.0.1:3100
 Open: http://127.0.0.1:6100/
 Login: http://127.0.0.1:6100/?token=…
 ```

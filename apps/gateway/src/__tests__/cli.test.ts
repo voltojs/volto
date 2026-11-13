@@ -656,7 +656,14 @@ it("volto web 用默认端口/网关/包内 web 目录启动并打印两行", as
     expect(seen[0]?.webRoot).toMatch(/apps\/gateway\/web$/);
 
     const lines = out.join("").split("\n").filter((line) => line !== "");
-    expect(lines[0]).toBe("volto web 0.1.0 listening on http://127.0.0.1:6100 -> http://127.0.0.1:3100");
+    // The prefix comes from `apps/gateway/package.json`, so read it rather than
+    // pin the release number here: a version bump must not break the CLI test.
+    const { version } = JSON.parse(
+      await readFile(path.resolve(__dirname, "../../package.json"), "utf-8"),
+    ) as { version: string };
+    expect(lines[0]).toBe(
+      `volto web ${version} listening on http://127.0.0.1:6100 -> http://127.0.0.1:3100`,
+    );
     expect(lines[1]).toBe("Open: http://127.0.0.1:6100/");
     // The persistent token is printed, but it is NOT an accepted credential
     // until Task 12 — the line is informational, not a working login yet.
