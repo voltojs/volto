@@ -7,16 +7,17 @@
  */
 
 import { step, createInitialState } from "@voltojs/core";
-import type { AgentInput, AgentState, Effect } from "@voltojs/core";
+import type { AgentInput, Effect } from "@voltojs/core";
 import type { StepContext, ReducerState } from "@voltojs/core";
-import type { Trajectory, ExpectedStep } from "./trajectory.js";
+import type { Trajectory, ExpectedStep, StateProjection } from "./trajectory.js";
+import { toExpectedStep } from "./trajectory.js";
 
 /** Result of a single step replay */
 export interface StepReplayResult {
   stepIndex: number;
   input: AgentInput;
   passed: boolean;
-  actualState: Partial<Pick<AgentState, "status" | "messages" | "pendingTools">>;
+  actualState: StateProjection;
   expectedState: ExpectedStep["state"];
   /** Effect type names produced by this step */
   actualEffects: string[];
@@ -32,6 +33,15 @@ export interface ReplayResult {
   passed: boolean;
   /** Index of first failed step (-1 if all passed) */
   firstFailureIndex: number;
+  /**
+   * Index of the first step that carried no `fullState` to compare against
+   * (-1 when every step was strictly decidable). Such a step can only be
+   * checked against the partial projection, which strict replay cannot tell
+   * apart from a full-state mismatch — callers that enforce strictness (the
+   * CI gate) treat it as a failure, since exactly that blind spot is how the
+   * fixtures drifted stale.
+   */
+  firstUndecidableIndex: number;
   /** All step results */
   steps: StepReplayResult[];
   /** Summary message */
@@ -52,6 +62,42 @@ export interface ReplayOptions {
 }
 
 /**
+ * Project one step() result into its recorded form: the partial `state`
+ * projection plus the full state snapshot and full effect objects.
+ */
+export function observedStep(
+  state: ReducerState,
+  effects: readonly Effect[],
+): ExpectedStep {
+  return toExpectedStep(
+    state,
+    effects.map((e) => e.type),
+    state as unknown as Record<string, unknown>,
+    effects as unknown as Array<Record<string, unknown>>,
+  );
+}
+
+/**
+ * Run a trajectory's inputs through the step() reducer without comparing
+ * anything, projecting each step into the recorded form (`expected` entry)
+ * via {@link toExpectedStep} — the same mapping the recorder uses. This is the
+ * shared record path behind `--record`; it never mutates the input trajectory.
+ */
+export function recordTrajectory(
+  trajectory: Trajectory,
+  ctx: StepContext,
+): ExpectedStep[] {
+  let state: ReducerState = createInitialState();
+  const expected: ExpectedStep[] = [];
+  for (const input of trajectory.inputs) {
+    const result = step(state, input, ctx);
+    state = result.state;
+    expected.push(observedStep(state, result.effects));
+  }
+  return expected;
+}
+
+/**
  * Replay a trajectory through the step() reducer and compare results.
  *
  * @param trajectory - the recorded trajectory to replay
@@ -66,6 +112,7 @@ export function replayTrajectory(
   let state: ReducerState = createInitialState();
   const stepResults: StepReplayResult[] = [];
   let firstFailureIndex = -1;
+  let firstUndecidableIndex = -1;
 
   for (let i = 0; i < trajectory.inputs.length; i++) {
     const input = trajectory.inputs[i]!;
@@ -75,13 +122,11 @@ export function replayTrajectory(
     const result = step(state, input, ctx);
     state = result.state;
 
-    // Extract actual outcomes
-    const actualState: Partial<Pick<AgentState, "status" | "messages" | "pendingTools">> = {
-      status: state.status,
-      messages: state.messages,
-      pendingTools: state.pendingTools,
-    };
-    const actualEffects = result.effects.map((e) => e.type);
+    // Extract actual outcomes through the shared record mapping, so what
+    // replay reports as "actual" is exactly what --record would write.
+    const actual = observedStep(state, result.effects);
+    const actualState = actual.state;
+    const actualEffects = actual.effects;
 
     // Compare
     const diff = opts?.strict
@@ -101,20 +146,29 @@ export function replayTrajectory(
     };
     stepResults.push(stepResult);
 
+    // fullState is strict replay's strongest assertion; without it the step
+    // only proves the partial projection, which is undecidable even when the
+    // recorded projection happens to match.
+    if (expected.fullState === undefined && firstUndecidableIndex === -1) {
+      firstUndecidableIndex = i;
+    }
     if (!passed && firstFailureIndex === -1) {
       firstFailureIndex = i;
     }
   }
 
-  const summary = firstFailureIndex === -1
-    ? `All ${trajectory.inputs.length} steps passed.`
-    : `Failed at step ${firstFailureIndex}: ${stepResults[firstFailureIndex]!.diff}`;
+  const summary = firstFailureIndex !== -1
+    ? `Failed at step ${firstFailureIndex}: ${stepResults[firstFailureIndex]!.diff}`
+    : firstUndecidableIndex !== -1
+      ? `Step ${firstUndecidableIndex} has no expected.fullState to deep-compare (recorded without the full state snapshot)`
+      : `All ${trajectory.inputs.length} steps passed.`;
 
   return {
     trajectoryName: trajectory.name,
     totalSteps: trajectory.inputs.length,
     passed: firstFailureIndex === -1,
     firstFailureIndex,
+    firstUndecidableIndex,
     steps: stepResults,
     summary,
   };
@@ -232,7 +286,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
  * Returns null if match, or a diff description string.
  */
 function compareStep(
-  actualState: Partial<Pick<AgentState, "status" | "messages" | "pendingTools">>,
+  actualState: StateProjection,
   actualEffects: string[],
   expected: ExpectedStep,
 ): string | null {

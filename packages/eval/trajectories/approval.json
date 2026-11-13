@@ -88,6 +88,7 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           }
@@ -95,14 +96,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 0,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 0,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -112,6 +115,7 @@
           "request": {
             "messages": [
               {
+                "id": "",
                 "role": "user",
                 "content": "把 hello 写入 output.txt"
               }
@@ -145,7 +149,8 @@
             "maxTokens": 100,
             "cacheBreakpoints": [
               0
-            ]
+            ],
+            "layerOrigins": []
           }
         },
         {
@@ -169,6 +174,7 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           }
@@ -176,14 +182,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 0,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 0,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [
           {
             "id": "call_1",
@@ -219,10 +227,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -235,7 +245,10 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [
@@ -250,14 +263,16 @@
         ],
         "status": "executing_tools",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 1,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -267,7 +282,26 @@
           "event": {
             "type": "model_done",
             "data": {
-              "stopReason": "tool_use"
+              "stopReason": "tool_use",
+              "message": {
+                "id": "",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "write_file",
+                    "input": {
+                      "path": "output.txt",
+                      "content": "hello"
+                    }
+                  }
+                ],
+                "stopReason": "tool_use",
+                "source": {
+                  "modelId": "fixture-model"
+                }
+              }
             }
           }
         },
@@ -298,10 +332,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -314,20 +350,25 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [],
         "status": "waiting_for_approval",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 1,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {},
         "pendingApprovalTool": {
@@ -357,10 +398,12 @@
           "state": {
             "messages": [
               {
+                "id": "",
                 "role": "user",
                 "content": "把 hello 写入 output.txt"
               },
               {
+                "id": "",
                 "role": "assistant",
                 "content": [
                   {
@@ -373,20 +416,25 @@
                     }
                   }
                 ],
-                "stopReason": "tool_use"
+                "stopReason": "tool_use",
+                "source": {
+                  "modelId": "fixture-model"
+                }
               }
             ],
             "pendingTools": [],
             "status": "waiting_for_approval",
             "tokensUsed": 0,
-            "maxIterations": 20,
             "iterationCount": 1,
             "readFiles": [],
             "queuedUserInputs": [],
             "toolCallCount": 1,
             "pinnedMessageIds": [],
             "selfCorrectionCount": 0,
+            "loopInterventionCount": 0,
+            "loopRemindedCount": 0,
             "_accumulatedText": "",
+            "_accumulatedReasoning": "",
             "_accumulatedToolCalls": [],
             "_toolResultBuffer": {},
             "pendingApprovalTool": {
@@ -409,10 +457,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -425,7 +475,10 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [
@@ -440,14 +493,16 @@
         ],
         "status": "executing_tools",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 1,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -464,10 +519,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -480,15 +537,24 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "wrote 5 bytes to output.txt"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "wrote 5 bytes to output.txt"
+                  }
+                ]
               }
             ]
           }
@@ -496,14 +562,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 1,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -515,7 +583,9 @@
             "data": {
               "toolCallId": "call_1",
               "toolName": "write_file",
-              "isError": false
+              "isError": false,
+              "content": "wrote 5 bytes to output.txt",
+              "orderInBatch": 0
             }
           }
         },
@@ -524,10 +594,12 @@
           "request": {
             "messages": [
               {
+                "id": "",
                 "role": "user",
                 "content": "把 hello 写入 output.txt"
               },
               {
+                "id": "",
                 "role": "assistant",
                 "content": [
                   {
@@ -540,15 +612,24 @@
                     }
                   }
                 ],
-                "stopReason": "tool_use"
+                "stopReason": "tool_use",
+                "source": {
+                  "modelId": "fixture-model"
+                }
               },
               {
+                "id": "",
                 "role": "tool",
                 "content": [
                   {
                     "type": "tool_result",
                     "toolUseId": "call_1",
-                    "content": "wrote 5 bytes to output.txt"
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "wrote 5 bytes to output.txt"
+                      }
+                    ]
                   }
                 ]
               }
@@ -582,7 +663,8 @@
             "maxTokens": 100,
             "cacheBreakpoints": [
               0
-            ]
+            ],
+            "layerOrigins": []
           }
         }
       ]
@@ -597,10 +679,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -613,15 +697,24 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "wrote 5 bytes to output.txt"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "wrote 5 bytes to output.txt"
+                  }
+                ]
               }
             ]
           }
@@ -629,14 +722,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 1,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "已写入 output.txt。",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -663,10 +758,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "把 hello 写入 output.txt"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -679,19 +776,29 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "wrote 5 bytes to output.txt"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "wrote 5 bytes to output.txt"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -699,20 +806,25 @@
                 "text": "已写入 output.txt。"
               }
             ],
-            "stopReason": "end_turn"
+            "stopReason": "end_turn",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [],
         "status": "done",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 2,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 1,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -722,7 +834,21 @@
           "event": {
             "type": "model_done",
             "data": {
-              "stopReason": "end_turn"
+              "stopReason": "end_turn",
+              "message": {
+                "id": "",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "已写入 output.txt。"
+                  }
+                ],
+                "stopReason": "end_turn",
+                "source": {
+                  "modelId": "fixture-model"
+                }
+              }
             }
           }
         },

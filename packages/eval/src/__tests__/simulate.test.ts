@@ -5,7 +5,9 @@ import {
   createSeededRandom,
   createScriptedModelPort,
   createSimulation,
+  simulateTrajectory,
 } from "../simulate.js";
+import { replayTrajectory } from "../replay.js";
 
 describe("createSeededClock", () => {
   it("returns deterministic timestamps", () => {
@@ -110,5 +112,25 @@ describe("createSimulation", () => {
     expect(s1.clock.now()).toBe(s2.clock.now());
     expect(s1.random.next()).toBe(s2.random.next());
     expect(s1.id.next()).toBe(s2.id.next());
+  });
+});
+
+describe("simulateTrajectory", () => {
+  const ctx = { model: "fixture-model", maxTokens: 100, tools: [] };
+  const inputs = [
+    { type: "user_message", content: "hello" },
+    { type: "model_done", stopReason: "end_turn" },
+  ] as const;
+
+  it("records the full (state, effects) pair and replays strictly", () => {
+    const traj = simulateTrajectory("sim", structuredClone(inputs) as never, ctx);
+    expect(traj.stepContext).toEqual(ctx);
+    expect(traj.expected).toHaveLength(inputs.length);
+    expect(traj.expected[0]!.fullState).toBeDefined();
+    expect(traj.expected[0]!.fullEffects).toBeDefined();
+
+    const result = replayTrajectory(traj, ctx, { strict: true });
+    expect(result.passed).toBe(true);
+    expect(result.firstUndecidableIndex).toBe(-1);
   });
 });

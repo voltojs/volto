@@ -6,6 +6,8 @@
  * simulation environment for eval harness.
  */
 
+import { recordTrajectory } from "./replay.js";
+import type { Trajectory } from "./trajectory.js";
 import type {
   Clock,
   Id,
@@ -13,6 +15,8 @@ import type {
   ModelPort,
   ModelRequest,
   ModelEvent,
+  AgentInput,
+  StepContext,
 } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
@@ -136,6 +140,37 @@ export function createTrajectoryModelPort(
   }
 
   return createScriptedModelPort(batches);
+}
+
+// ──────────────────────────────────────────────
+// Recording a fixed input sequence
+// ──────────────────────────────────────────────
+
+/**
+ * Record a fixed input sequence offline: feed `inputs` through the pure
+ * step() reducer and capture the full (state, effects) pair at every step.
+ *
+ * Shares the record path with replay (`recordTrajectory`), so a simulated
+ * trajectory and a `--record` refresh of an existing file produce identical
+ * `expected` arrays — the reducer is pure, so the output is byte-reproducible.
+ */
+export function simulateTrajectory(
+  name: string,
+  inputs: AgentInput[],
+  ctx: StepContext & { model: string },
+): Trajectory {
+  const trajectory: Trajectory = {
+    name,
+    stepContext: {
+      model: ctx.model,
+      ...(ctx.maxTokens !== undefined ? { maxTokens: ctx.maxTokens } : {}),
+      tools: ctx.tools,
+    },
+    inputs: structuredClone(inputs),
+    expected: [],
+  };
+  trajectory.expected = recordTrajectory(trajectory, ctx);
+  return trajectory;
 }
 
 // ──────────────────────────────────────────────

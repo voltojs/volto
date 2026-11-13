@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { replayTrajectory } from "../replay.js";
+import { replayTrajectory, recordTrajectory } from "../replay.js";
 import type { Trajectory } from "../trajectory.js";
 import type { StepContext } from "@voltojs/core";
 
@@ -240,5 +240,65 @@ describe("replayTrajectory (strict mode)", () => {
 
     const result = replayTrajectory(traj, ctx, { strict: true });
     expect(result.passed).toBe(true);
+    // ...but it only proves the partial projection, which strict replay must
+    // not report as a decidable pass.
+    expect(result.firstUndecidableIndex).toBe(0);
+    expect(result.summary).toContain("no expected.fullState");
+  });
+});
+
+describe("recordTrajectory", () => {
+  const inputs: Trajectory["inputs"] = [
+    { type: "user_message", content: "hello" },
+    { type: "model_done", stopReason: "end_turn" },
+  ];
+
+  it("records expected steps that strict replay accepts", () => {
+    const traj: Trajectory = {
+      name: "record-roundtrip",
+      stepContext: { model: "test", maxTokens: 100, tools: [] },
+      inputs: structuredClone(inputs),
+      expected: [],
+    };
+
+    const recorded: Trajectory = { ...traj, expected: recordTrajectory(traj, ctx) };
+    expect(recorded.expected).toHaveLength(inputs.length);
+    for (const step of recorded.expected) {
+      expect(step.fullState).toBeDefined();
+      expect(step.fullEffects).toBeDefined();
+      expect(step.effects).toEqual(step.fullEffects!.map((e) => e.type));
+    }
+
+    const result = replayTrajectory(recorded, ctx, { strict: true });
+    expect(result.passed).toBe(true);
+    expect(result.firstUndecidableIndex).toBe(-1);
+  });
+
+  it("is deterministic across runs", () => {
+    const traj: Trajectory = {
+      name: "record-deterministic",
+      stepContext: { model: "test", maxTokens: 100, tools: [] },
+      inputs: structuredClone(inputs),
+      expected: [],
+    };
+
+    expect(JSON.stringify(recordTrajectory(traj, ctx))).toBe(
+      JSON.stringify(recordTrajectory(traj, ctx)),
+    );
+  });
+
+  it("does not mutate the input trajectory and survives JSON round-trip", () => {
+    const traj: Trajectory = {
+      name: "record-pure",
+      stepContext: { model: "test", maxTokens: 100, tools: [] },
+      inputs: structuredClone(inputs),
+      expected: [],
+    };
+    const before = JSON.stringify(traj);
+
+    const expected = recordTrajectory(traj, ctx);
+    expect(JSON.stringify(traj)).toBe(before);
+
+    expect(JSON.parse(JSON.stringify(expected))).toEqual(expected);
   });
 });
