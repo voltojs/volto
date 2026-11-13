@@ -158,7 +158,7 @@ node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 | **安全立场**        | `SAFETY.md`                 | 威胁模型：防「模型犯错」，**不承诺**防「模型被诱导」；边界的实际强度与已知不保护项 | 长期有效 |
 | 特性设计（spec）    | `docs/superpowers/specs/`   | 每个特性的设计取舍，文件名带日期                          | 写作时点的决策记录 |
 | 特性实施方案（plan） | `docs/superpowers/plans/`   | 与 spec 一一对应的分任务实施方案与验收标准                | 写作时点的执行记录 |
-| 演进路线图          | `docs/roadmap.md`           | 内核平台化的方向与不变量                                  | 历史方向文档，里程碑表不再跟踪进度 |
+| 演进路线图          | `docs/archive/roadmaps/roadmap.md`           | 内核平台化的方向与不变量                                  | 历史方向文档，里程碑表不再跟踪进度 |
 
 **查特性来龙去脉的正确姿势**：按日期倒序看 `docs/superpowers/specs/`（先设计后实施，spec 比 plan 短得多），找到对应主题再读同名 plan。不要把某份 spec/plan 的内容当作现状——它记录的是**当时**的决定，之后可能被更晚的 spec 推翻。
 

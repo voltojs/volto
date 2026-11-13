@@ -4,19 +4,7 @@
 
 ## 快速开始
 
-要求 **Node ≥ 22**（macOS / Linux），以及一个能读 `@voltojs` 包的 GitHub 账号。包发在 GitHub Packages 上且**默认私有**，所以先配 registry 和一个勾了 `read:packages` 的 GitHub personal access token（classic）：
-
-```bash
-export GITHUB_NPM_AUTH_TOKEN=ghp_xxxxxxxx     # 放进 ~/.zshrc
-```
-
-```text
-# ~/.npmrc
-@voltojs:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_NPM_AUTH_TOKEN}
-```
-
-token 只写在这个用户级文件（及引用它的 shell 配置）里，不要写进仓库的 `.npmrc`（项目级配置优先，会把它覆盖成空值）。`npx` 同样读这份配置；`npm whoami --registry=https://npm.pkg.github.com` 可以确认是否生效。CI 环境用的是 `NODE_AUTH_TOKEN`，见 [发布与安装](docs/user/integrating/guides/publishing.md)。
+要求 **Node ≥ 22**（macOS / Linux）。
 
 ```bash
 npx @voltojs/gateway
@@ -67,3 +55,7 @@ pnpm docs:check             # 用户文档门（链接 / 生成页 / 表面漂�
 pnpm workspace + Turborepo：`packages/`（core · sdk · tools · providers · runtimes · stores · eval · embedders · memories）+ `apps/`（gateway · web · desktop-app）。
 
 两条贯穿性约定：`packages/core/` 内禁止任何 I/O 与副作用；依赖单向向下（`core ← tools/providers/runtimes/stores ← sdk ← apps`）。细节与架构文档索引见 [AGENTS.md](AGENTS.md)。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。
