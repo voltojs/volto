@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: User documentation
+    url: https://github.com/voltojs/volto/tree/main/docs/user
+    about: Installation, permissions, sandbox, tools and configuration.
+  - name: Security vulnerability
+    url: https://github.com/voltojs/volto/security/advisories/new
+    about: Report security issues privately; do not open a public issue.

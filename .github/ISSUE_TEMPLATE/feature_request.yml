@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a capability or a behavior change
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For anything larger than a small change, please describe the problem before the
+        solution. Design discussions that touch the core purity rules, the sandbox
+        boundaries or the permission model should reference SAFETY.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow that is missing or awkward today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should volto do? Alternatives you considered are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Effect on security or compatibility
+      description: Does it change a sandbox boundary, a permission decision, a public SDK export or an event?
+    validations:
+      required: false
