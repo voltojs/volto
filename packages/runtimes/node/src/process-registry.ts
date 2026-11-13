@@ -14,6 +14,7 @@ import {
   DEFAULT_PROCESS_BUFFER_BYTES,
   type ProcessOutputBuffer,
 } from "./process-buffer.js";
+import { DETACHED_ON_POSIX, killProcessTree } from "./process-kill.js";
 
 export interface ProcessRegistryOptions {
   maxBackground?: number;
@@ -57,18 +58,32 @@ export function createProcessRegistry(options?: ProcessRegistryOptions): Process
     return e;
   }
 
+  /**
+   * SIGTERM the entry's whole tree, SIGKILL it after the 2s grace period.
+   *
+   * The child is spawned `shell: true`, so the command itself is a
+   * grandchild of this process; signalling the shell alone leaves it holding
+   * the pipes and the entry's `close` never arrives. `killProcessTree` targets
+   * the group instead (see process-kill.ts).
+   */
   async function killEntry(e: Entry): Promise<void> {
     if (!e.running) return;
-    e.child.kill("SIGTERM");
+    killProcessTree(e.child, "SIGTERM");
     await new Promise<void>((resolve) => {
-      const t = setTimeout(() => {
-        if (e.running) e.child.kill("SIGKILL");
-        resolve();
-      }, 2000);
-      e.child.once("close", () => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
         clearTimeout(t);
+        e.child.removeListener("close", onClose);
         resolve();
-      });
+      };
+      const onClose = (): void => finish();
+      const t = setTimeout(() => {
+        if (e.running) killProcessTree(e.child, "SIGKILL");
+        finish();
+      }, 2000);
+      e.child.once("close", onClose);
     });
   }
 
@@ -85,6 +100,9 @@ export function createProcessRegistry(options?: ProcessRegistryOptions): Process
         cwd: resolveCwd(opts?.cwd),
         shell: true,
         stdio: ["ignore", "pipe", "pipe"],
+        // Own process group, so kill()/disposeAll() reach the command the
+        // shell forked rather than stopping at the shell (see process-kill.ts).
+        detached: DETACHED_ON_POSIX,
         // Omit `env` entirely when not supplied so the child inherits
         // process.env (spawn's default). Passing an explicit env replaces
         // the whole environment — same semantics as exec().

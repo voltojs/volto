@@ -1,0 +1,53 @@
+name: Debug Linux Sandbox
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [debug/linux-sandbox]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Environment
+        run: |
+          uname -a
+          (which bwrap && bwrap --version) || echo "no bwrap"
+          echo '--- mountinfo (tmp) ---'
+          grep -E ' /tmp | / ' /proc/self/mountinfo | head -5
+          echo '--- apparmor ---'
+          (sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 'sysctl unavailable')
+          (cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || true)
+      - name: Raw bwrap probe
+        run: |
+          mkdir -p /tmp/bw-test
+          set +e
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --die-with-parent --bind /tmp/bw-test /tmp/bw-test -- /bin/bash -c 'echo inside; echo hello > /tmp/bw-test/ok && cat /tmp/bw-test/ok'
+          echo "bwrap-exit=$?"
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --die-with-parent -- /bin/bash -c 'touch /tmp/outside-attempt && echo wrote-outside || echo denied'
+          echo "outside-exit=$?"
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @voltojs/runtime-node build
+      - name: Focused sandbox tests
+        # Exactly the files that fail on Linux: the bwrap denial dialect
+        # (missing default overlays abort bwrap) and termination of a
+        # shell-spawned grandchild (the shell outlives SIGTERM alone).
+        run: |
+          pnpm turbo run build --filter @voltojs/runtime-node... && \
+          pnpm --filter @voltojs/runtime-node exec vitest run \
+            src/__tests__/sandbox.test.ts \
+            src/__tests__/sandbox-session.test.ts \
+            src/__tests__/sandboxed-process.test.ts \
+            src/__tests__/shell-adapter.test.ts \
+            src/__tests__/process-registry.test.ts \
+            src/__tests__/tc-e1-shell-abort.test.ts \
+            --reporter=verbose 2>&1 | tail -300

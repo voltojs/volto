@@ -28,6 +28,7 @@ import { createSandboxProxy, type SandboxProxy } from "./sandbox-proxy.js";
 import { classifyRunnerFailure, type SandboxBackendName } from "./sandbox-enforcement.js";
 import type { SandboxEnforcement } from "./sandbox-enforcement.js";
 import type { SessionSpawnHandle } from "./persistent-session.js";
+import { DETACHED_ON_POSIX, killProcessTree } from "./process-kill.js";
 
 // ──────────────────────────────────────────────
 // SandboxConfig (Plan 009 §4.3)
@@ -1082,6 +1083,9 @@ export function createSandboxSessionSpawner(
           cwd,
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...buildStrippedEnv(strippedNamesR, strippedPatternsR), ...proxySession?.env },
+          // Own process group: the session kills this handle by pid, and the
+          // shell it wraps must die with it (see persistent-session.ts).
+          detached: DETACHED_ON_POSIX,
         });
       } catch (err) {
         try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
@@ -1123,6 +1127,8 @@ export function createSandboxSessionSpawner(
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...buildStrippedEnv(strippedNamesR, strippedPatternsR), ...proxySession?.env },
+      // Own process group, same reason as the seatbelt spawner above.
+      detached: DETACHED_ON_POSIX,
     });
     return { child, cleanup: proxySession?.cleanup };
   };
@@ -1365,8 +1371,10 @@ function spawnSandboxedProcess(
       stdio: ["pipe", "pipe", "pipe"],
       env: opts.env,
       // Own process group, so kill() can signal the whole group — the inner
-      // process of a seatbelt/bwrap wrapper is not the direct child.
-      detached: opts.enforce,
+      // process of a seatbelt/bwrap wrapper is not the direct child. A bare
+      // child (danger-full-access) leads its own group too, so kill() reaps
+      // whatever it started instead of only the process itself.
+      detached: opts.enforce || DETACHED_ON_POSIX,
     });
   } catch (err) {
     // A synchronous spawn throw is delivered through onError, never re-thrown
@@ -1826,6 +1834,11 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
         shell: backend === "none",
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, ...spec.env },
+        // Own process group: with `shell: true` the command runs in a forked
+        // grandchild, and with seatbelt it runs inside sandbox-exec. In both
+        // cases signalling only the direct child leaves the command running
+        // and holding the pipes (see process-kill.ts).
+        detached: DETACHED_ON_POSIX,
       });
 
       // Shared async queue for stdout/stderr
@@ -1839,20 +1852,33 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
         queue.push(event);
       }
 
-      // Timeout
+      // Timeout — SIGTERM its process group, SIGKILL after 2s. The escalation
+      // is keyed on `closed`, not `child.killed`: `killed` turns true after
+      // any signal attempt, so the SIGKILL below could never have fired.
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let escalation: ReturnType<typeof setTimeout> | undefined;
+      const escalateLater = (): void => {
+        if (escalation !== undefined || closed) return;
+        escalation = setTimeout(() => {
+          escalation = undefined;
+          if (!closed) killProcessTree(child, "SIGKILL");
+        }, 2000);
+      };
       if (timeout > 0) {
         timer = setTimeout(() => {
-          child.kill("SIGTERM");
-          setTimeout(() => { if (!child.killed) child.kill("SIGKILL"); }, 2000);
+          killProcessTree(child, "SIGTERM");
+          escalateLater();
         }, timeout);
       }
 
       // AbortSignal
-      const abortHandler = (): void => { child.kill("SIGTERM"); };
+      const abortHandler = (): void => {
+        killProcessTree(child, "SIGTERM");
+        escalateLater();
+      };
       if (spec.abortSignal) {
         if (spec.abortSignal.aborted) {
-          child.kill("SIGTERM");
+          abortHandler();
         } else {
           spec.abortSignal.addEventListener("abort", abortHandler, { once: true });
         }
@@ -1870,6 +1896,8 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
       }
       child.on("close", (code) => {
         closed = true;
+        if (escalation !== undefined) clearTimeout(escalation);
+        escalation = undefined;
         enqueue({ type: "exit", code: code ?? 1 });
       });
 
@@ -1888,6 +1916,7 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
         }
       } finally {
         if (timer !== undefined) clearTimeout(timer);
+        if (escalation !== undefined) clearTimeout(escalation);
         if (spec.abortSignal) {
           spec.abortSignal.removeEventListener("abort", abortHandler);
         }

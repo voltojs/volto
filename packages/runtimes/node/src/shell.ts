@@ -13,6 +13,7 @@
 import type { Shell, ShellExecOptions, ShellEvent } from "@voltojs/core";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createProcessRegistry, type ProcessRegistry } from "./process-registry.js";
+import { DETACHED_ON_POSIX, killProcessTree } from "./process-kill.js";
 
 export interface NodeShellOptions {
   /** Default working directory (can be overridden per-exec) */
@@ -41,6 +42,9 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
         cwd,
         shell: true,
         stdio: ["ignore", "pipe", "pipe"],
+        // Own process group so a timeout/abort can kill the command the shell
+        // forked, not only the shell itself (see process-kill.ts).
+        detached: DETACHED_ON_POSIX,
         // Omit `env` entirely when not supplied so the child inherits
         // process.env (spawn's default). Passing an explicit env replaces
         // the whole environment — that is what the sandbox relies on to
@@ -52,7 +56,7 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
       // concurrently, so the consumer never blocks one stream on the other.
       const queue: ShellEvent[] = [];
       let resolveWaiter: (() => void) | null = null;
-      let closed = false;
+      let drained = false;
       let exitYielded = false;
 
       function enqueue(event: ShellEvent): void {
@@ -64,24 +68,39 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
         queue.push(event);
       }
 
-      // Timeout — SIGTERM then SIGKILL after 2s grace period.
+      // True once the child's `close` fired: both output streams are drained
+      // and nothing is left to escalate to.
+      let closed = false;
+      // Timeout — SIGTERM, then SIGKILL after a 2s grace period. The
+      // escalation is keyed on `closed`, never on `child.killed`:
+      // `killed` flips to true after ANY signal attempt, which made the
+      // SIGKILL unreachable and a command that ignores SIGTERM unkillable.
       let timedOut = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let escalation: ReturnType<typeof setTimeout> | undefined;
+      const escalateLater = (): void => {
+        if (escalation !== undefined || closed) return;
+        escalation = setTimeout(() => {
+          escalation = undefined;
+          if (!closed) killProcessTree(child, "SIGKILL");
+        }, 2000);
+      };
       if (opts?.timeout && opts.timeout > 0) {
         timer = setTimeout(() => {
           timedOut = true;
-          child.kill("SIGTERM");
-          setTimeout(() => {
-            if (!child.killed) child.kill("SIGKILL");
-          }, 2000);
+          killProcessTree(child, "SIGTERM");
+          escalateLater();
         }, opts.timeout);
       }
 
       // AbortSignal — terminate on abort.
-      const abortHandler = (): void => { child.kill("SIGTERM"); };
+      const abortHandler = (): void => {
+        killProcessTree(child, "SIGTERM");
+        escalateLater();
+      };
       if (opts?.abortSignal) {
         if (opts.abortSignal.aborted) {
-          child.kill("SIGTERM");
+          abortHandler();
         } else {
           opts.abortSignal.addEventListener("abort", abortHandler, { once: true });
         }
@@ -105,6 +124,9 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
       // abortSignal kills and ordinary exits keep the original wire shape.
       child.on("close", (code) => {
         closed = true;
+        drained = true;
+        if (escalation !== undefined) clearTimeout(escalation);
+        escalation = undefined;
         enqueue({ type: "exit", code: code ?? 1, ...(timedOut ? { timedOut: true } : {}) });
       });
 
@@ -116,7 +138,7 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
             if (event.type === "exit") exitYielded = true;
             yield event;
             if (event.type === "exit") return;
-          } else if (closed && queue.length === 0) {
+          } else if (drained && queue.length === 0) {
             // Process exited and queue is drained.
             return;
           } else {
@@ -126,6 +148,7 @@ export function createNodeShell(options?: NodeShellOptions): Shell {
         }
       } finally {
         if (timer !== undefined) clearTimeout(timer);
+        if (escalation !== undefined) clearTimeout(escalation);
         if (opts?.abortSignal) {
           opts.abortSignal.removeEventListener("abort", abortHandler);
         }

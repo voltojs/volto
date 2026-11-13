@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import type { ChildProcess } from "node:child_process";
+import { killProcessTree } from "./process-kill.js";
 
 export interface SessionCommandResult {
   stdout: string;
@@ -108,13 +109,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Best-effort signal; a process that already exited must not throw. */
+/**
+ * Best-effort signal to the session's whole process group.
+ *
+ * The spawners give the shell its own group, and the direct child under
+ * seatbelt/bwrap is the WRAPPER (sandbox-exec, bwrap) — signalling only it
+ * leaves the bash session, and everything that session started, alive and
+ * holding the pipes. `killProcessTree` handles both (see process-kill.ts).
+ * A process that already exited must not throw.
+ */
 function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
-  try {
-    child.kill(signal);
-  } catch {
-    // Already gone.
-  }
+  killProcessTree(child, signal);
 }
 
 /**

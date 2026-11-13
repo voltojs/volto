@@ -79,6 +79,26 @@ describe("Node Shell adapter", () => {
     expect((exitEvent as Extract<ShellEvent, { type: "exit" }>).timedOut).toBe(true);
   });
 
+  it("timeout kills the command the shell forked, not just the shell", async () => {
+    // `shell: true` makes the command a grandchild: signalling only the shell
+    // leaves it holding the stdout pipe, so `close` — and this iteration —
+    // would wait out the command's own run time instead of the 500 ms timeout.
+    // The trailing `&& true` is what forces the fork: `/bin/sh` exec-optimizes
+    // a single simple command (the shell then IS the command, nothing to leak).
+    const shell = createNodeShell();
+    const script = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+    const start = Date.now();
+    const events: ShellEvent[] = [];
+    for await (const event of shell.exec(`node -e "${script}" && true`, { timeout: 500 })) {
+      events.push(event);
+    }
+    const elapsed = Date.now() - start;
+    const exitEvent = events.find((e) => e.type === "exit") as Extract<ShellEvent, { type: "exit" }> | undefined;
+    expect(exitEvent?.timedOut).toBe(true);
+    // SIGTERM (ignored) → SIGKILL after the 2 s grace, not the command's own run time.
+    expect(elapsed).toBeLessThan(5000);
+  });
+
   it("does not carry timedOut on an ordinary exit (wire shape unchanged)", async () => {
     const shell = createNodeShell();
     const events: ShellEvent[] = [];
