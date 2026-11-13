@@ -12,10 +12,25 @@
       "path": "../../core"
     },
     {
+      "path": "../../tools/browser"
+    },
+    {
+      "path": "../../tools/code"
+    },
+    {
+      "path": "../../tools/data"
+    },
+    {
+      "path": "../../tools/document"
+    },
+    {
       "path": "../../tools/fs"
     },
     {
       "path": "../../tools/shell"
+    },
+    {
+      "path": "../../tools/vcs"
     },
     {
       "path": "../../tools/web"

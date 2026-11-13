@@ -432,6 +432,9 @@ importers:
       '@voltojs/eval':
         specifier: workspace:*
         version: link:../../eval
+      '@voltojs/tools-vcs':
+        specifier: workspace:*
+        version: link:../../tools/vcs
 
   packages/sdk:
     dependencies:
