@@ -10,7 +10,7 @@
  * show/hide tools.
  */
 
-import type { ToolSource, ToolDefinition, ToolResult } from "@voltojs/core";
+import type { ToolSource, ToolDefinition, ToolResult, RiskTier } from "@voltojs/core";
 import { McpConnection } from "./connection.js";
 import type { McpTransport } from "./transport.js";
 
@@ -19,6 +19,12 @@ export interface McpServerConfig {
   serverId: string;
   /** Transport instance for this server */
   transport: McpTransport;
+  /**
+   * Risk tier for this server's tools; defaults to WRITE_HIGH so an unknown
+   * MCP call reaches the permission matrix (ask / prune) instead of being
+   * assumed read-only. A trusted server can be graded lower explicitly.
+   */
+  riskTier?: RiskTier;
 }
 
 export interface McpToolSourceOptions {
@@ -44,6 +50,7 @@ export class McpToolSource implements ToolSource {
       const connection = new McpConnection({
         serverId: server.serverId,
         transport: server.transport,
+        ...(server.riskTier !== undefined ? { riskTier: server.riskTier } : {}),
       });
       this.connections.set(server.serverId, connection);
     }

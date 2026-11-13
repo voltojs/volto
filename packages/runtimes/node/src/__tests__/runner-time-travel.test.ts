@@ -100,4 +100,45 @@ describe("time-travel resume", () => {
     // Turn 2 user message is present in the continued session.
     expect(final2.messages.some((m) => m.role === "user" && m.content === "继续读 b.ts")).toBe(true);
   });
+
+  it("keeps a distinct checkpoint-history entry per turn across Runner rebuilds", async () => {
+    // The SDK rebuilds the Runner every turn and passes the conversation's
+    // turn ordinal. A counter restarting at 0 would rewrite <sessionId>#1 on
+    // every turn (the last one wins), destroying the time-travel history.
+    const store = memoryStore();
+
+    const runner1 = createRunner({
+      modelPort: createMockModelPort([textScript("first reply")]),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      availableCapabilities: capabilities,
+      sessionStore: store,
+      sessionId: "tt-seq",
+      turn: 1,
+    });
+    const final1 = await runner1.run({ type: "user_message", content: "first turn" });
+    expect(final1.status).toBe("done");
+
+    const runner2 = createRunner({
+      modelPort: createMockModelPort([textScript("second reply")]),
+      stepContext: ctx,
+      toolExecutor: async () => ({ modelContent: "ok" }),
+      availableCapabilities: capabilities,
+      sessionStore: store,
+      sessionId: "tt-seq",
+      turn: 2,
+      initialState: resetTurnForNextInput(final1),
+    });
+    const final2 = await runner2.run({ type: "user_message", content: "second turn" });
+    expect(final2.status).toBe("done");
+
+    const history = store.snapshots.filter((s) => s.id.startsWith("tt-seq#"));
+    // Turn 1 owns seq 1001, turn 2 owns 2001 — neither overwrote the other.
+    expect(history.map((s) => s.id)).toEqual(["tt-seq#1001", "tt-seq#2001"]);
+    const first = history[0]!.state as ReducerState;
+    const second = history[1]!.state as ReducerState;
+    expect(first.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(second.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(second.messages[2]).toMatchObject({ role: "user", content: "second turn" });
+  });
 });

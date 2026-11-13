@@ -1,10 +1,12 @@
 /**
  * Browser settings — `config.json` → `browser`.
  *
- * Optional: an absent section keeps the agent browser enabled with a headed
- * Chromium (Linux without a display falls back to headless in the host).
- * Unknown keys and wrong types are rejected so a typo cannot silently change
- * the launch behavior.
+ * Optional: an absent section keeps the agent browser enabled and launches it
+ * headless (`headless: true` is the default here, so the gateway's
+ * display-less hosts work without extra config). Set `headless: false` to
+ * watch a debugging session; that needs a display, so it fails on a
+ * display-less Linux host. Unknown keys and wrong types are rejected so a
+ * typo cannot silently change the launch behavior.
  */
 
 import {

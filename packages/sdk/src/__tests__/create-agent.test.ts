@@ -1453,3 +1453,62 @@ describe("expandSkillInvocation", () => {
     expect((await expandSkillInvocation(invocableInput, registry)).input).toBe(invocableInput);
   });
 });
+
+describe("createAgent — pricing / CostMeter wiring", () => {
+  /** Streams one text turn with every usage bucket populated. */
+  function cachedUsagePort(): ModelPort {
+    return {
+      async *stream() {
+        yield { type: "text_delta", text: "ok" } as ModelEvent;
+        yield {
+          type: "usage",
+          inputTokens: 1000,
+          outputTokens: 100,
+          cacheReadTokens: 200,
+          cacheWriteTokens: 50,
+        } as ModelEvent;
+        yield { type: "done", stopReason: "end_turn" } as ModelEvent;
+      },
+    };
+  }
+
+  it("emits one cost_summary per turn before turn_end, including cache buckets, and resets", async () => {
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const agent = createAgent({
+      modelPort: cachedUsagePort(),
+      model: "priced-model",
+      pricing: {
+        "priced-model": {
+          inputPer1M: 1,
+          outputPer1M: 2,
+          cacheReadPer1M: 0.5,
+          cacheWritePer1M: 0.25,
+        },
+      },
+      eventSink: { emit: (event) => events.push(event) },
+    });
+
+    await agent.run("one");
+    await agent.run("two");
+
+    const summaries = events.filter((event) => event.type === "cost_summary");
+    // One per turn — reset() between turns keeps the second from doubling.
+    expect(summaries).toHaveLength(2);
+    for (const summary of summaries) {
+      expect(summary.data).toMatchObject({
+        inputTokens: 1000,
+        outputTokens: 100,
+        cacheReadTokens: 200,
+        cacheWriteTokens: 50,
+        model: "priced-model",
+      });
+      // 1000*1 + 100*2 + 200*0.5 + 50*0.25, all per 1M tokens.
+      expect(summary.data.totalCost).toBeCloseTo(0.0013125, 10);
+    }
+    // The summary must precede the event that closes the turn.
+    const firstSummary = events.findIndex((event) => event.type === "cost_summary");
+    const firstTurnEnd = events.findIndex((event) => event.type === "turn_end");
+    expect(firstSummary).toBeGreaterThanOrEqual(0);
+    expect(firstSummary).toBeLessThan(firstTurnEnd);
+  });
+});

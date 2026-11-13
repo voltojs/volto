@@ -210,6 +210,27 @@ export function ceilingOf(sandbox: SandboxMode): RiskTier {
 }
 
 /**
+ * The ceiling the VISIBLE-set filter should use.
+ *
+ * Above-ceiling tools are normally pruned so the model never sees a tool it
+ * would only be refused for using. An `ask` policy is the exception: `decide`
+ * escalates an above-ceiling call to a human, and a prompt needs the tool to
+ * stay visible. With `workspace-write` + `ask` (the default "ask" preset) that
+ * makes IRREVERSIBLE actions reachable through explicit approval, so they stay
+ * visible; `never` keeps pruning them exactly as before. read-only stays
+ * pruned even under ask: every write is above that ceiling, and exposing the
+ * whole write set just to reach IRREVERSIBLE would contradict the boundary
+ * reminder.
+ *
+ * Hosts derive the Runner's `riskCeiling` from this function, not from
+ * `ceilingOf`, or the ask branch above the ceiling stays unreachable.
+ */
+export function visibleRiskCeiling(config: PermissionConfig): RiskTier {
+  const ceiling = ceilingOf(config.sandbox);
+  return config.approval === "ask" && ceiling === "WRITE_HIGH" ? "IRREVERSIBLE" : ceiling;
+}
+
+/**
  * Decide one (ceiling, approval, tier) cell.
  *
  * Above the ceiling the sandbox says no; only a human can override, so an

@@ -8,7 +8,7 @@ import {
 import type { ToolScopeConfig } from "../tool-router.js";
 import type { ToolDefinition, JSONSchema } from "../tool.js";
 import type { PendingToolCall } from "../state.js";
-import { riskRank } from "../permission-policy.js";
+import { riskRank, visibleRiskCeiling } from "../permission-policy.js";
 
 const objectSchema: JSONSchema = {
   type: "object",
@@ -264,6 +264,32 @@ describe("filterVisibleTools — risk ceiling", () => {
     expect(riskRank("WRITE_LOW")).toBe(1);
     expect(riskRank("WRITE_HIGH")).toBe(2);
     expect(riskRank("IRREVERSIBLE")).toBe(3);
+  });
+});
+
+describe("filterVisibleTools — ask keeps an IRREVERSIBLE tool reachable", () => {
+  const read = toolNamed("read_file", "READ_ONLY");
+  const write = toolNamed("write_file", "WRITE_HIGH");
+  const irreversible = toolNamed("git_push", "IRREVERSIBLE");
+  const tools = [read, write, irreversible];
+
+  it("workspace-write + ask keeps git_push so the approval gate can ask", () => {
+    const ceiling = visibleRiskCeiling({ sandbox: "workspace-write", approval: "ask" });
+    const visible = filterVisibleTools(tools, new Set(), ceiling);
+    expect(visible.map((t) => t.name)).toEqual(["read_file", "write_file", "git_push"]);
+  });
+
+  it("workspace-write + never (auto) still prunes git_push", () => {
+    const ceiling = visibleRiskCeiling({ sandbox: "workspace-write", approval: "never" });
+    const visible = filterVisibleTools(tools, new Set(), ceiling);
+    expect(visible.map((t) => t.name)).not.toContain("git_push");
+    expect(visible.map((t) => t.name)).toEqual(["read_file", "write_file"]);
+  });
+
+  it("read-only + ask keeps every write tier pruned", () => {
+    const ceiling = visibleRiskCeiling({ sandbox: "read-only", approval: "ask" });
+    const visible = filterVisibleTools(tools, new Set(), ceiling);
+    expect(visible.map((t) => t.name)).toEqual(["read_file"]);
   });
 });
 

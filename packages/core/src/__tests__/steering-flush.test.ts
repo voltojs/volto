@@ -131,8 +131,11 @@ describe("idle user_message flushes the older queue first (D11b)", () => {
     expect(result.effects.filter((e) => e.type === "call_model")).toHaveLength(1);
     expect(result.state.status).toBe("calling_model");
 
-    // The opening message keeps its user_message emit, unchanged.
-    expect(emitData(result.effects, "user_message")).toEqual([{ content: "m2 opening" }]);
+    // The opening message keeps its user_message emit, now carrying the
+    // durable messageId the projection needs for compaction replay.
+    const openingEmit = emitData(result.effects, "user_message")[0]!;
+    expect(openingEmit).toMatchObject({ content: "m2 opening" });
+    expect(openingEmit["messageId"]).toBe(tail[1]!.id);
   });
 });
 

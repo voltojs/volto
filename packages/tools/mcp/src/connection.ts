@@ -3,7 +3,7 @@
  * Handles request/response correlation, tool discovery, and tool invocation.
  */
 
-import type { ToolDefinition, ToolResult, JSONSchema } from "@voltojs/core";
+import type { ToolDefinition, ToolResult, JSONSchema, RiskTier } from "@voltojs/core";
 import type { McpTool, McpToolCallResult, McpResource, McpPrompt, McpPromptResult } from "./protocol.js";
 import type { McpTransport } from "./transport.js";
 
@@ -12,6 +12,14 @@ export interface McpConnectionOptions {
   serverId: string;
   /** The transport to communicate over */
   transport: McpTransport;
+  /**
+   * Risk tier for every tool this server exposes. MCP tells us nothing about
+   * what a tool does, and the server can act outside the workspace, so the
+   * default is WRITE_HIGH: the permission matrix then asks before an unknown
+   * MCP call under the `ask` preset (and read-only/plan prune it). A host
+   * that trusts a particular server can grade it lower explicitly.
+   */
+  riskTier?: RiskTier;
 }
 
 export class McpConnection {
@@ -40,6 +48,11 @@ export class McpConnection {
 
   get prompts(): McpPrompt[] {
     return this._prompts;
+  }
+
+  /** Risk tier every definition from this server is declared with. */
+  private get riskTier(): RiskTier {
+    return this.options.riskTier ?? "WRITE_HIGH";
   }
 
   /** Connect the transport, perform MCP handshake, and discover tools/resources/prompts */
@@ -181,12 +194,12 @@ export class McpConnection {
       description: tool.description ?? `MCP tool: ${tool.name}`,
       inputSchema: tool.inputSchema as unknown as JSONSchema,
       requires: [capability],
-      riskTier: "READ_ONLY" as const,
+      riskTier: this.riskTier,
       trust: "untrusted" as const,
     }));
   }
 
-  /** Convert discovered resources into one read-only, index-addressed tool per resource. */
+  /** Convert discovered resources into one index-addressed tool per resource. */
   toResourceToolDefinitions(): ToolDefinition[] {
     const capability = `mcp:${this.serverId}`;
     return this._resources.map((resource, i) => ({
@@ -194,7 +207,7 @@ export class McpConnection {
       description: `Read MCP resource "${resource.name}"${resource.description ? `: ${resource.description}` : ""} (${resource.uri})`,
       inputSchema: { type: "object", properties: {} } as unknown as JSONSchema,
       requires: [capability],
-      riskTier: "READ_ONLY" as const,
+      riskTier: this.riskTier,
       trust: "untrusted" as const,
     }));
   }
@@ -214,7 +227,7 @@ export class McpConnection {
         description: `Get MCP prompt "${prompt.name}"${prompt.description ? `: ${prompt.description}` : ""}`,
         inputSchema: { type: "object", properties, ...(required.length > 0 ? { required } : {}) } as unknown as JSONSchema,
         requires: [capability],
-        riskTier: "READ_ONLY" as const,
+        riskTier: this.riskTier,
         trust: "untrusted" as const,
       };
     });

@@ -3,6 +3,7 @@ import {
   KIND_LABEL_KEYS,
   KIND_BADGE_CLASS,
   formatDuration,
+  formatList,
   drawerTabsFor,
   tabLabelKey,
   TAB_LABEL_KEYS,
@@ -46,6 +47,21 @@ describe('formatDuration', () => {
     expect(formatDuration(48)).toBe('48ms');
     expect(formatDuration(999)).toBe('999ms');
     expect(formatDuration(1500)).toBe('1.5s');
+  });
+});
+
+describe('formatList', () => {
+  it('uses the locale list conjunction instead of a hardcoded Chinese separator', () => {
+    expect(formatList(['read_file', 'write_file', 'web_search'], 'en')).toBe(
+      'read_file, write_file, web_search',
+    );
+    expect(formatList(['read_file', 'write_file', 'web_search'], 'zh')).toBe(
+      'read_file、write_file、web_search',
+    );
+  });
+
+  it('returns an empty string for no items', () => {
+    expect(formatList([], 'en')).toBe('');
   });
 });
 

@@ -93,13 +93,16 @@ describe("memory tool schema", () => {
 });
 
 describe("memory tool definition", () => {
-  it("declares name, both capabilities, WRITE_LOW and untrusted", () => {
+  it("declares name, both capabilities, READ_ONLY session scope and untrusted", () => {
     const { definition } = tool();
     expect(definition.name).toBe("memory");
     expect(definition.requires).toContain(CAP_MEMORY_READ);
     expect(definition.requires).toContain(CAP_MEMORY_WRITE);
     expect(definition.requires).toHaveLength(2);
-    expect(definition.riskTier).toBe("WRITE_LOW");
+    // remember writes the memory store, not the workspace: keeping the tool
+    // under read-only/plan is why the grade is READ_ONLY.
+    expect(definition.riskTier).toBe("READ_ONLY");
+    expect(definition.writesSessionState).toBe(true);
     expect(definition.trust).toBe("untrusted");
   });
 

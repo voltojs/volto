@@ -90,8 +90,8 @@
         "status": "calling_model"
       },
       "effects": [
-        "call_model",
-        "emit"
+        "emit",
+        "call_model"
       ],
       "fullState": {
         "messages": [
@@ -118,6 +118,15 @@
         "_toolResultBuffer": {}
       },
       "fullEffects": [
+        {
+          "type": "emit",
+          "event": {
+            "type": "user_message",
+            "data": {
+              "content": "读取 a.ts 和 b.ts"
+            }
+          }
+        },
         {
           "type": "call_model",
           "request": {
@@ -155,15 +164,6 @@
               0
             ],
             "layerOrigins": []
-          }
-        },
-        {
-          "type": "emit",
-          "event": {
-            "type": "user_message",
-            "data": {
-              "content": "读取 a.ts 和 b.ts"
-            }
           }
         }
       ]

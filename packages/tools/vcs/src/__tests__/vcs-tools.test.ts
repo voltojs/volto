@@ -91,7 +91,7 @@ describe("git_diff", () => {
     expect(result.modelContent).toContain("+new");
   });
 
-  it("passes extra args to git diff", async () => {
+  it("passes validated flags and revision ranges to git diff", async () => {
     let receivedCmd = "";
     const shell: Shell = {
       async *exec(cmd: string) {
@@ -101,7 +101,55 @@ describe("git_diff", () => {
     };
     const tool = createGitDiffTool(shell);
     await tool.handler({ args: "--cached HEAD~1" });
-    expect(receivedCmd).toContain("--cached HEAD~1");
+    // The read is pinned to git's own diff engine: repo config / attributes
+    // must not be able to attach an external command to a READ_ONLY tool.
+    expect(receivedCmd).toBe("git diff --no-ext-diff --no-textconv --cached HEAD~1");
+  });
+
+  it("rejects shell metacharacters instead of interpolating them", async () => {
+    let called = false;
+    const shell: Shell = {
+      async *exec() {
+        called = true;
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createGitDiffTool(shell);
+
+    const result = await tool.handler({ args: "--stat; touch /tmp/pwned" });
+
+    expect(result.isError).toBe(true);
+    expect(result.modelContent as string).toContain("unsupported argument");
+    expect(called).toBe(false);
+  });
+
+  it("rejects flags that write or execute (--output, --ext-diff, unknown tokens)", async () => {
+    const shell: Shell = {
+      async *exec() {
+        throw new Error("must not execute");
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createGitDiffTool(shell);
+
+    for (const args of ["--output=/tmp/diff", "--ext-diff", "--textconv", "HEAD:file"]) {
+      const result = await tool.handler({ args });
+      expect(result.isError).toBe(true);
+    }
+  });
+
+  it("accepts --unified=<n> and range tokens", async () => {
+    let receivedCmd = "";
+    const shell: Shell = {
+      async *exec(cmd: string) {
+        receivedCmd = cmd;
+        yield { type: "exit", code: 0 };
+      },
+    };
+    const tool = createGitDiffTool(shell);
+    const result = await tool.handler({ args: "--unified=3 main...HEAD" });
+    expect(result.isError).toBeFalsy();
+    expect(receivedCmd).toBe("git diff --no-ext-diff --no-textconv --unified=3 main...HEAD");
   });
 });
 

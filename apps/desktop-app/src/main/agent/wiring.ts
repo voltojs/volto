@@ -4,6 +4,7 @@
  */
 
 import * as os from "node:os";
+import * as path from "node:path";
 import { createAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "@voltojs/sdk";
 import type { ApprovalGate, EventSink, Message, PermissionConfig } from "@voltojs/core";
 import { createPiAiModelPort } from "@voltojs/provider-pi-ai";
@@ -93,39 +94,52 @@ export function createAgentInstance(options: AgentWiringOptions) {
   const scheduler = createNodeScheduler({ clock });
 
   // Permission is two orthogonal knobs: the sandbox boundary and the approval
-  // policy. The three desktop tiers each bundle a pair.
-  //   - "auto" → full access, never prompts (matches its "所有工具调用直接执行" copy)
+  // policy. The three desktop tiers mirror the gateway's presets
+  // (apps/gateway/src/permission-modes.ts), so a mode name means the same
+  // thing on both hosts:
+  //   - "auto" → workspace-write + never prompts (gateway "auto"). Approvals
+  //              never fire, but the sandbox still bounds writes: mapping it
+  //              to danger-full-access gave the desktop a wider boundary than
+  //              the gateway for the same preset name.
   //   - "ask"  → workspace-write + ask: WRITE_HIGH and IRREVERSIBLE both reach
   //              the ApprovalDialog, which is what this tier exists for
   //   - "deny" → read-only: reads pass, every write is refused (matches its
   //              "只读模式" copy). The old behaviour also denied reads, leaving
   //              an agent that could do nothing at all.
   const permissionConfig: PermissionConfig =
-    permissionMode === "auto"
-      ? { sandbox: "danger-full-access", approval: "never" }
-      : permissionMode === "deny"
-        ? { sandbox: "read-only", approval: "never" }
+    permissionMode === "deny"
+      ? { sandbox: "read-only", approval: "never" }
+      : permissionMode === "auto"
+        ? { sandbox: "workspace-write", approval: "never" }
         : { sandbox: "workspace-write", approval: "ask" };
 
   // One sandbox knob drives every sandboxed surface: the SDK wraps the shell
   // port AND builds the persistent-session spawner from this single config.
   // Without it the default (persistent-session) bash path ran unconfined
   // under the "ask" and "deny" tiers while permissionConfig claimed
-  // confinement — the same wiring gap the gateway had. "auto" keeps
-  // null: danger-full-access confines nothing by definition.
-  const sandboxConfig: SandboxConfig | null =
-    permissionMode === "auto"
-      ? null
-      : {
-          mode: permissionMode === "deny" ? "read-only" : "workspace-write",
-          writableRoots: [cwd, "/tmp", os.tmpdir()],
-          readOnlyOverlays: [],
-          network: { enabled: true },
-          strippedEnvPatterns: [...DEFAULT_SESSION_SECRET_ENV_PATTERNS],
-        };
-  const sandboxedFs = sandboxConfig
-    ? createSandboxedFileSystem(fs, sandboxConfig, { root: cwd })
-    : fs;
+  // confinement — the same wiring gap the gateway had. Every tier is now
+  // confined, including "auto": skipping approvals is not a reason to run
+  // unconfined, and the gateway's "auto" is workspace-write too.
+  //
+  // Credential directories are denied to the sandbox on both the shell and fs
+  // sides. The desktop keeps provider API keys in the electron-store file
+  // beside the app's userData, and a sandboxed command that can read that file
+  // (or a gateway install's ~/.volto) can authenticate as the control plane
+  // that is supposed to be governing it. The gateway denies ~/.volto for the
+  // same reason; denying both keeps either host's credentials out of reach.
+  const credentialDirs = [
+    path.dirname(store.path),
+    path.join(os.homedir(), ".volto"),
+  ];
+  const sandboxConfig: SandboxConfig = {
+    mode: permissionMode === "deny" ? "read-only" : "workspace-write",
+    writableRoots: [cwd, "/tmp", os.tmpdir()],
+    readOnlyOverlays: [],
+    network: { enabled: true },
+    deniedReadPaths: credentialDirs,
+    strippedEnvPatterns: [...DEFAULT_SESSION_SECRET_ENV_PATTERNS],
+  };
+  const sandboxedFs = createSandboxedFileSystem(fs, sandboxConfig, { root: cwd });
 
   // 创建 agent
   const agent = createAgent({
@@ -140,7 +154,7 @@ export function createAgentInstance(options: AgentWiringOptions) {
     eventSink,
     scheduler,
     permissionConfig,
-    sandboxConfig: sandboxConfig ?? undefined,
+    sandboxConfig,
     approvalGate,
     // ask_user reuses the same approvalGate: the renderer's ApprovalDialog
     // already displays any PendingToolCall's name/args/riskTier and writes

@@ -85,9 +85,34 @@ export async function* normalizeStream(
   /** Buffer argument deltas for tool call indices that haven't received id/name yet. */
   const pendingArgs = new Map<number, string>();
   let hasEmittedUsage = false;
+  /**
+   * Terminal event held back until a requested usage chunk lands. OpenAI
+   * sends usage in a final chunk AFTER the chunk carrying `finish_reason`
+   * (`stream_options.include_usage`), so emitting `done` immediately would
+   * strand that usage behind the terminal event — and consumers such as the
+   * Runner's `lastUsage` (reset on `done`) drop it, losing the turn's token
+   * record. Usage is therefore always emitted before `done`.
+   */
+  let pendingStopReason: "end_turn" | "tool_use" | "max_tokens" | undefined;
+  let bufferedUsage: Extract<ModelEvent, { type: "usage" }> | undefined;
+
+  /** Buffered usage first, then the terminal event — the order consumers rely on. */
+  const flushTerminal = (): ModelEvent[] => {
+    const out: ModelEvent[] = [];
+    if (bufferedUsage !== undefined) {
+      out.push(bufferedUsage);
+      bufferedUsage = undefined;
+    }
+    if (pendingStopReason !== undefined) {
+      out.push({ type: "done", stopReason: pendingStopReason });
+      pendingStopReason = undefined;
+    }
+    return out;
+  };
 
   for await (const chunk of rawChunks) {
-    // Usage may arrive in the final chunk (stream_options.include_usage)
+    // Usage may arrive in the final chunk — either together with
+    // finish_reason or, as OpenAI sends it, in a trailing choices-less chunk.
     if (chunk.usage && !hasEmittedUsage) {
       hasEmittedUsage = true;
       const promptTokens = chunk.usage.prompt_tokens ?? 0;
@@ -106,7 +131,7 @@ export async function* normalizeStream(
       const cachedTokens =
         hit ?? cachedDetail ?? (miss !== undefined ? Math.max(0, promptTokens - miss) : undefined);
       const uncached = Math.max(0, promptTokens - (cachedTokens ?? 0));
-      yield {
+      bufferedUsage = {
         type: "usage",
         // inputTokens is the UNCACHED prompt across all providers (Anthropic's
         // input_tokens already has this shape); cached tokens ride in
@@ -119,6 +144,11 @@ export async function* normalizeStream(
         totalTokens: chunk.usage.total_tokens ?? undefined,
         reasoningTokens: chunk.usage.completion_tokens_details?.reasoning_tokens ?? undefined,
       };
+      // A trailing usage chunk after finish_reason is the usual shape: the
+      // terminal event was waiting for it, so both can go out now.
+      if (pendingStopReason !== undefined) {
+        for (const event of flushTerminal()) yield event;
+      }
     }
 
     const choice = chunk.choices?.[0];
@@ -188,12 +218,20 @@ export async function* normalizeStream(
       }
     }
 
-    // finish_reason
+    // finish_reason: hold the terminal event when a usage chunk was requested
+    // but has not landed yet (see pendingStopReason above).
     if (finish_reason) {
-      const stopReason = mapFinishReason(finish_reason);
-      yield { type: "done", stopReason };
+      pendingStopReason = mapFinishReason(finish_reason);
+      if (bufferedUsage !== undefined || !options.includeUsageRequested) {
+        for (const event of flushTerminal()) yield event;
+      }
     }
   }
+
+  // Flush whatever is still buffered: a stream that ends right after
+  // finish_reason without a usage chunk, or usage that arrived on a stream
+  // that was cut before any terminal event.
+  for (const event of flushTerminal()) yield event;
 
   // The stream ended without ever yielding a usage chunk, despite the
   // request having asked for one — a silent provider degradation. Fire at

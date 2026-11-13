@@ -1,14 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   evaluatePermission,
+  resolvePermission,
   createDefaultPermissionConfig,
   ceilingOf,
+  visibleRiskCeiling,
   decide,
   isWriteTier,
   policyDenialMessage,
   narrowPermission,
   hasParameterRules,
-  resolvePermission,
   hasCommandRules,
 } from "../permission-policy.js";
 import type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision } from "../permission-policy.js";
@@ -37,6 +38,25 @@ describe("ceilingOf", () => {
     expect(ceilingOf("read-only")).toBe("READ_ONLY");
     expect(ceilingOf("workspace-write")).toBe("WRITE_HIGH");
     expect(ceilingOf("danger-full-access")).toBe("IRREVERSIBLE");
+  });
+});
+
+describe("visibleRiskCeiling — the visible set can be wider than the sandbox ceiling", () => {
+  it("keeps the sandbox ceiling for a never policy (read-only / auto / full)", () => {
+    expect(visibleRiskCeiling({ sandbox: "read-only", approval: "never" })).toBe("READ_ONLY");
+    expect(visibleRiskCeiling({ sandbox: "workspace-write", approval: "never" })).toBe("WRITE_HIGH");
+    expect(visibleRiskCeiling({ sandbox: "danger-full-access", approval: "never" })).toBe("IRREVERSIBLE");
+  });
+
+  it("widens workspace-write + ask to IRREVERSIBLE so the prompt can fire", () => {
+    // `decide` already answers "ask" for an above-ceiling IRREVERSIBLE call;
+    // the visible set has to keep the tool or that branch is dead.
+    expect(visibleRiskCeiling({ sandbox: "workspace-write", approval: "ask" })).toBe("IRREVERSIBLE");
+    expect(decide("WRITE_HIGH", "ask", "IRREVERSIBLE")).toBe("ask");
+  });
+
+  it("does not widen read-only + ask: every write stays above that boundary", () => {
+    expect(visibleRiskCeiling({ sandbox: "read-only", approval: "ask" })).toBe("READ_ONLY");
   });
 });
 

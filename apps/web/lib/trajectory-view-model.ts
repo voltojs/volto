@@ -61,6 +61,19 @@ export function formatDuration(ms: number | undefined): string | null {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * Join a row's variable-length values with the active locale's list
+ * conjunction. Hardcoding a separator would leak Chinese punctuation
+ * (`、`) into the English UI; `Intl.ListFormat` supplies both the separator
+ * and the conjunction for the locale (en: "a, b, c"; zh: "a、b、c").
+ */
+export function formatList(items: readonly string[], locale: string): string {
+  if (items.length === 0) return '';
+  return new Intl.ListFormat(locale, { style: 'narrow', type: 'conjunction' }).format(
+    items,
+  );
+}
+
 /** Row location as a catalog key plus its parameters; list and drawer share it. */
 export function locationTextRef(row: TrajectoryRow): {
   key: string;

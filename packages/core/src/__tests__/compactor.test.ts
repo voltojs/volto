@@ -9,6 +9,7 @@ import {
   isPermissionReminder,
   isEnvironmentReminder,
   buildSummaryPrompt,
+  DEFAULT_SUMMARY_MAX_TOKENS,
 } from "../compactor.js";
 import { buildPermissionReminder } from "../permission-prompt.js";
 import type { PermissionConfig } from "../permission-policy.js";
@@ -738,6 +739,49 @@ describe("structured summary prompt", () => {
     expect(prompt).toContain("## Primary Request and Intent");
     expect(prompt).toContain("/src/app.ts");
     expect(prompt).toContain("[user]:");
+  });
+});
+
+describe("CompactionDecision.estimatedTokensAfter", () => {
+  const messages: Message[] = [
+    sysMsg("S", "sys"),
+    userMsg("old 1", "u1"),
+    userMsg("old 2", "u2"),
+    userMsg("old 3", "u3"),
+    userMsg("recent", "u9"),
+  ];
+
+  it("reserves the configured summary budget, not a fixed placeholder", () => {
+    const tokenizer = createFixedTokenizer(100);
+    const decision = decideCompaction(messages, {
+      maxTokens: 200,
+      recentKeepCount: 1,
+      tokenizer,
+      summaryMaxTokens: 512,
+    });
+    expect(decision.shouldCompact).toBe(true);
+    expect(decision.estimatedTokensAfter).toBe(
+      estimateTokens(decision.preservedMessages, tokenizer) + 512,
+    );
+  });
+
+  it("defaults the reservation to DEFAULT_SUMMARY_MAX_TOKENS (4096)", () => {
+    const tokenizer = createFixedTokenizer(100);
+    const defaulted = decideCompaction(messages, {
+      maxTokens: 200,
+      recentKeepCount: 1,
+      tokenizer,
+    });
+    const explicit = decideCompaction(messages, {
+      maxTokens: 200,
+      recentKeepCount: 1,
+      tokenizer,
+      summaryMaxTokens: DEFAULT_SUMMARY_MAX_TOKENS,
+    });
+    expect(defaulted.estimatedTokensAfter).toBe(explicit.estimatedTokensAfter);
+    expect(defaulted.estimatedTokensAfter).toBe(
+      estimateTokens(defaulted.preservedMessages, tokenizer) + 4096,
+    );
   });
 });
 

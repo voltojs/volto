@@ -781,9 +781,10 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
     // message is the turn input — never queued, so it gets no delivered
     // event of its own.
     const flushed = appendQueuedAndClear(state, [...state.messages, ...announcements]);
+    const stampedUserMsg = stamp(userMsg, ctx);
     const newState: ReducerState = {
       ...flushed.state,
-      messages: [...flushed.state.messages, stamp(userMsg, ctx)],
+      messages: [...flushed.state.messages, stampedUserMsg],
       status: "calling_model",
       iterationCount: 0,
       _announcedPermission: announced,
@@ -791,14 +792,28 @@ function handleIdle(state: ReducerState, input: AgentInput, ctx: StepContext): S
       _announcedWorkflowMode: announcedWorkflow,
       _announcedWorkspace: announcedWorkspace,
     };
+    const userMessageEffect: Effect = {
+      type: "emit",
+      event: {
+        type: "user_message",
+        data: {
+          content: input.content,
+          ...(input.source !== undefined ? { source: input.source } : {}),
+          // Durable identity for cold rebuild: the projection adopts it so a
+          // later compaction's replacedIds can name this message.
+          ...(stampedUserMsg.id !== "" ? { messageId: stampedUserMsg.id } : {}),
+        },
+      },
+    };
+    // The opening user_message event comes FIRST, before the queue-drain and
+    // reminder emits: run() used to record it before feeding the input, and
+    // projections anchor a cross-turn steering delivery at the turn's opening
+    // only while the log puts the user_message ahead of that delivery.
     const effects: Effect[] = [
+      userMessageEffect,
       ...flushed.delivered,
       buildCallModelEffect(newState.messages, newState.pinnedMessageIds, ctx, newState.todos),
       ...emittedReminders,
-      {
-        type: "emit",
-        event: { type: "user_message", data: { content: input.content } },
-      },
     ];
     return { state: newState, effects };
   }
@@ -934,6 +949,9 @@ function handleCallingModel(state: ReducerState, input: AgentInput, ctx: StepCon
           // assistant_message event; handing it over here avoids a second,
           // possibly divergent reassembly on the imperative side.
           message: assistantMsg,
+          // Durable identity for cold rebuild (see the transcript event's
+          // `messageId`): a later compaction's replacedIds can name this one.
+          ...(assistantMsg.id !== "" ? { messageId: assistantMsg.id } : {}),
         },
       },
     };
@@ -1264,6 +1282,9 @@ function handleExecutingTools(state: ReducerState, input: AgentInput, ctx: StepC
         data: {
           toolCallId: input.toolCallId,
           toolName: matchingTool?.name,
+          // Durable identity of the buffered result message, so a cold
+          // projection can match a later compaction's replacedIds.
+          ...(toolResultMsg.id !== "" ? { messageId: toolResultMsg.id } : {}),
           isError: input.result.isError ?? false,
           durationMs: input.result.displayMetadata?.["durationMs"],
           // The result's own text and host annotations, so the transcript can

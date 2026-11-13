@@ -38,7 +38,9 @@ export function createTaskOutputTool(collect: SubAgentOutputCollector) {
       "with task(run_in_background=true).",
     schema: taskOutputSchema,
     requires: [CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE],
-    riskTier: "WRITE_LOW",
+    // Reads collected task records; never touches the workspace.
+    riskTier: "READ_ONLY",
+    writesSessionState: true,
     run: async (input): Promise<ToolResult> => {
       try {
         const result = await collect(input.task_id);

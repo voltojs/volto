@@ -14,6 +14,11 @@ export function defineTool<S extends z.ZodType>(spec: {
   schema: S;
   requires: Capability[];
   riskTier: RiskTier;
+  /**
+   * True when the tool only mutates volto's own session state; such a tool
+   * must be graded READ_ONLY (see ToolDefinition in @voltojs/core).
+   */
+  writesSessionState?: boolean;
   /** Output trust level — untrusted output is annotated for prompt-injection defense */
   trust?: "trusted" | "untrusted";
   pathInputs?: string[];
@@ -27,6 +32,7 @@ export function defineTool<S extends z.ZodType>(spec: {
     inputSchema: z.toJSONSchema(spec.schema) as unknown as JSONSchema,
     requires: spec.requires,
     riskTier: spec.riskTier,
+    writesSessionState: spec.writesSessionState,
     trust: spec.trust,
     pathInputs: spec.pathInputs,
     hostInputs: spec.hostInputs,

@@ -1,13 +1,32 @@
 import { describe, it, expect } from "vitest";
+import { filterVisibleTools, resolvePermission } from "@voltojs/core";
 import { createTodoWriteTool, CAP_PLAN_WRITE } from "../index.js";
 
 describe("todo_write tool", () => {
   const tool = createTodoWriteTool();
 
-  it("definition requires plan:write and WRITE_LOW", () => {
+  it("definition requires plan:write, is READ_ONLY and declared as session state", () => {
     expect(tool.definition.name).toBe("todo_write");
     expect(tool.definition.requires).toEqual([CAP_PLAN_WRITE]);
-    expect(tool.definition.riskTier).toBe("WRITE_LOW");
+    // The todo list is agent-owned state, not a workspace file: a read-only /
+    // plan session must keep it, so the sandbox ceiling may not grade it as a
+    // workspace write.
+    expect(tool.definition.riskTier).toBe("READ_ONLY");
+    expect(tool.definition.writesSessionState).toBe(true);
+  });
+
+  it("stays visible and allowed under a read-only/plan ceiling", () => {
+    const caps = new Set([CAP_PLAN_WRITE]);
+    const visible = filterVisibleTools([tool.definition], caps, "READ_ONLY");
+    expect(visible.map((t) => t.name)).toEqual(["todo_write"]);
+
+    const { decision } = resolvePermission(
+      { sandbox: "read-only", approval: "never" },
+      tool.definition.name,
+      tool.definition.riskTier,
+      new Set(tool.definition.requires),
+    );
+    expect(decision).toBe("allow");
   });
 
   it("success returns counts, statePatch, and no pendingEvents", async () => {

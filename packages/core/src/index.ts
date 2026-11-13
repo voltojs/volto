@@ -269,6 +269,7 @@ export {
   isPermissionReminder,
   isEnvironmentReminder,
   buildSummaryPrompt,
+  DEFAULT_SUMMARY_MAX_TOKENS,
 } from "./compactor.js";
 export type { CompactionOptions, CompactionDecision, CompactionConfig } from "./compactor.js";
 
@@ -296,7 +297,7 @@ export { planImageOffload, renderImagePreservedMarker } from "./compaction-image
 export type { OffloadCandidate, ImageOffloadPlan } from "./compaction-image-offload.js";
 
 // PermissionPolicy — pure permission decision logic
-export { evaluatePermission, resolvePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, riskRank, decide, policyDenialMessage, userDenialMessage, narrowPermission, hasParameterRules, hasCommandRules } from "./permission-policy.js";
+export { evaluatePermission, resolvePermission, createDefaultPermissionConfig, isWriteTier, ceilingOf, visibleRiskCeiling, riskRank, decide, policyDenialMessage, userDenialMessage, narrowPermission, hasParameterRules, hasCommandRules } from "./permission-policy.js";
 export type { PermissionConfig, SandboxMode, ApprovalPolicy, Decision, PermissionRule, ResolvedToolInput, PermissionResolution } from "./permission-policy.js";
 
 // PermissionPrompt — model-facing description of the permission boundary

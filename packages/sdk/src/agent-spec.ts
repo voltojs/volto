@@ -160,13 +160,21 @@ export interface LoadAgentSpecOptions {
  *
  * 1. Pure: resolveAgentSpec maps spec → assembly parameters
  * 2. Side-effect: createAgent instantiates the agent (I/O happens at run/stream time)
+ *
+ * `resolveAgentSpec` reports problems (today: unknown `tools` names) as
+ * `errors` instead of throwing, because one stale name must not take the
+ * whole agent down. The result is carried on the returned instance as
+ * `specErrors` so the host can surface it — otherwise the dropped tool is
+ * invisible at run time.
  */
-export function loadAgentSpec(options: LoadAgentSpecOptions): AgentInstance {
+export function loadAgentSpec(
+  options: LoadAgentSpecOptions,
+): AgentInstance & { specErrors: string[] } {
   const { spec, modelPort, toolRegistry, extraOpts } = options;
 
   const resolved = resolveAgentSpec(spec, toolRegistry);
 
-  return createAgent({
+  const agent = createAgent({
     modelPort,
     tools: resolved.tools,
     capabilities: resolved.capabilities.size > 0 ? resolved.capabilities : undefined,
@@ -182,4 +190,5 @@ export function loadAgentSpec(options: LoadAgentSpecOptions): AgentInstance {
     responseFormat: resolved.responseFormat,
     ...extraOpts,
   });
+  return Object.assign(agent, { specErrors: resolved.errors });
 }

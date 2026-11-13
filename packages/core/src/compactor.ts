@@ -23,6 +23,13 @@ import { extractMessageText, estimateContentTokens } from "./text-extract.js";
 // Types
 // ──────────────────────────────────────────────
 
+/**
+ * Default output cap for the summarization call. Mirrors the Runner's default
+ * (`CompactionConfig.summaryMaxTokens ?? 4096`) so the post-compaction
+ * estimate reserves the same budget the call is actually allowed to spend.
+ */
+export const DEFAULT_SUMMARY_MAX_TOKENS = 4_096;
+
 export interface CompactionOptions {
   /** Maximum tokens before compaction is triggered */
   maxTokens: number;
@@ -30,6 +37,13 @@ export interface CompactionOptions {
   recentKeepCount: number;
   /** Tokenizer for estimating message sizes */
   tokenizer: Tokenizer;
+  /**
+   * Output cap of the summarization call (the Runner's
+   * `CompactionConfig.summaryMaxTokens`, default 4096). Reserves that budget
+   * in `estimatedTokensAfter`; a fixed placeholder underestimated a large
+   * summary and overstated a small one.
+   */
+  summaryMaxTokens?: number;
   /**
    * Message ids that must never be compressed.
    * Entries address `Message.id` (stable identity), not array indices.
@@ -68,7 +82,7 @@ export interface CompactionDecision {
   summaryPrompt?: string;
   /** Estimated tokens before compaction */
   currentTokens: number;
-  /** Estimated tokens after compaction (system + recent + summary) */
+  /** Estimated tokens after compaction (preserved messages + summary budget) */
   estimatedTokensAfter: number;
 }
 
@@ -343,10 +357,12 @@ export function decideCompaction(
 
   const compressibleMessages = toCompress.map((c) => c.msg);
 
-  // Estimate tokens after compaction: system + preserved recent + ~200 tokens for summary
+  // Estimate tokens after compaction: system + preserved recent + the
+  // summarization call's own output budget (not a fixed placeholder — the
+  // budget is what the summary is allowed to cost).
   const preservedTokens = estimateTokens(preservedMessages, tokenizer);
-  const summaryOverhead = 200; // approximate tokens for the summary output
-  const estimatedTokensAfter = preservedTokens + summaryOverhead;
+  const summaryBudget = Math.max(0, opts.summaryMaxTokens ?? DEFAULT_SUMMARY_MAX_TOKENS);
+  const estimatedTokensAfter = preservedTokens + summaryBudget;
 
   // Build summary prompt
   const summaryPrompt = buildSummaryPrompt(compressibleMessages);

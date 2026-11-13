@@ -173,7 +173,7 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
         attachmentStore: store,
         // The budget now includes the static context layers (~2.6k tokens):
         // turn 1 must fit under it, and turn 2's telemetry dump must exceed it.
-        compaction: { maxTokens: 3_000, recentKeepCount: 2, summaryMaxTokens: 128 },
+        compaction: { maxTokens: 4_000, recentKeepCount: 2, summaryMaxTokens: 200 },
       });
 
       let finalStatus: string;
@@ -204,10 +204,13 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
         await agent.dispose();
       }
 
-      // The choreography: turn-1 main call, the compaction summarization
-      // call, then the post-compaction main call.
-      expect(requests.length).toBe(3);
-      const summaryReq = requests[1]!;
+      // The choreography: turn-1's pre-request compaction, its main call,
+      // then turn-2's compaction summarization and the post-compaction main
+      // call. (Session-state tools are now visible under read-only, so the
+      // tool schemas push turn 1 over this deliberately small budget; the
+      // compressed span is the context layer, not the image turn.)
+      expect(requests.length).toBe(4);
+      const summaryReq = requests[2]!;
       expect(summaryReq.messages[0]?.id).toBe("compaction-summary-prompt");
       expect(summaryReq.tools).toHaveLength(0);
 
@@ -218,7 +221,7 @@ describe("F-213 real session — images survive compaction (roadmap F-024)", () 
       // both marker lines verbatim. The reducer's insertAt+1 adjacency is
       // pinned in core's unit tests; here the ordering claim is
       // "carrier after summary".
-      const post = requests[2]!;
+      const post = requests[3]!;
       const summary = summaryMessage(post);
       expect(summary.content.startsWith("[Earlier conversation summary]\n")).toBe(true);
       const blocks = imagesCarrierBlocks(post);

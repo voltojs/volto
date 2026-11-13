@@ -59,8 +59,21 @@ export interface ToolDefinition {
   inputSchema: JSONSchema;
   /** Capabilities required for this tool to be available */
   requires: Capability[];
-  /** Risk tier for permission policy */
+  /**
+   * Risk tier for permission policy. Grades the WORKSPACE impact — files,
+   * shell commands, external systems — because that is what the sandbox
+   * ceiling bounds. A tool that only mutates volto's own session state must
+   * therefore be graded READ_ONLY and set `writesSessionState`; otherwise a
+   * read-only/plan session would hide it even though it cannot touch a file.
+   */
   riskTier: RiskTier;
+  /**
+   * True when the tool mutates volto's own session state (todo list, task
+   * records, remembered facts, scheduled wakes) rather than the workspace.
+   * It makes the READ_ONLY grade explicit for hosts, audits and UI; it does
+   * not relax the sandbox by itself.
+   */
+  writesSessionState?: boolean;
   /** Output trust level — untrusted output is annotated for prompt-injection defense */
   trust?: "trusted" | "untrusted";
   /**

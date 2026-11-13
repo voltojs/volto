@@ -52,6 +52,11 @@ export interface SandboxNetworkConfig {
    * non-empty list would be silently ignored. It refuses at construction
    * instead — use `createSandboxedShell` / `createSandboxSessionSpawner` for
    * filtered egress, or drop `allowedHosts` to allow egress explicitly.
+   *
+   * The shell/session paths need `socat` to bridge the proxy's unix socket to
+   * loopback TCP. When it is missing they refuse at construction (or at spawn
+   * for a session) rather than warn: a warning would leave the allowlist
+   * silently unenforced, which is the fail-open this field exists to prevent.
    */
   allowedHosts?: string[];
 }
@@ -146,6 +151,18 @@ export interface SandboxConfig {
    * Same rationale as `seatbeltBinary`.
    */
   bwrapBinary?: string;
+  /**
+   * Path or name of the socat binary used to bridge the egress proxy's unix
+   * socket to loopback TCP. Default: "socat".
+   *
+   * Required whenever `network.allowedHosts` is non-empty. The proxy listens
+   * only on a unix socket and the sandboxed child reaches it over loopback
+   * TCP, so without this bridge no request is filtered. A missing bridge is
+   * refused at construction instead of degrading to an unenforced allowlist.
+   * Overridable so tests can inject a missing binary and prove that refusal,
+   * same rationale as `seatbeltBinary`.
+   */
+  socatBinary?: string;
 }
 
 /**
@@ -258,6 +275,38 @@ function* missingRunnerEvents(runner: string): Iterable<ShellEvent> {
       `${INFRA_FAILURE_PREFIX} the sandbox runner "${runner}" was not found on this ` +
       `system, so NOTHING was executed. This is not a denial and not a failure ` +
       `of the command itself: the sandbox infrastructure is unavailable.\n`,
+  };
+  yield { type: "exit", code: 126 };
+}
+
+/**
+ * Why a configured host allowlist cannot be enforced without the TCP bridge.
+ * Shared by construction-time refusals and the runtime re-checks, so the two
+ * can never drift into one refusing and the other warning.
+ */
+function socatRequiredMessage(socatBinary: string, binaryMissing: boolean): string {
+  return (
+    (binaryMissing
+      ? `the TCP bridge binary "${socatBinary}" was not found on PATH`
+      : `the TCP bridge binary "${socatBinary}" is no longer available`) +
+    ", and the sandbox backend's network rule is on/off only — running now would " +
+    "leave network.allowedHosts SILENTLY UNENFORCED. Install socat, or drop " +
+    "allowedHosts to allow all egress explicitly."
+  );
+}
+
+/**
+ * Emit the infrastructure-failure pair for a missing egress bridge. Refusing
+ * here is the difference between a command that cannot reach the network and
+ * one that reaches it unfiltered: the proxy never sees the request, so the
+ * allowlist would be a lie.
+ */
+function* missingSocatEvents(socatBinary: string): Iterable<ShellEvent> {
+  yield {
+    type: "stderr",
+    data:
+      `[sandbox] INFRASTRUCTURE FAILURE: ${socatRequiredMessage(socatBinary, false)}, ` +
+      `so NOTHING was executed.\n`,
   };
   yield { type: "exit", code: 126 };
 }
@@ -441,6 +490,19 @@ export function createSandboxedShell(
   const needsProxy =
     resolvedConfig.network?.enabled === true &&
     (resolvedConfig.network.allowedHosts?.length ?? 0) > 0;
+  const socatBinary = resolvedConfig.socatBinary ?? "socat";
+  // Fail closed at construction: without the TCP bridge the proxy's unix
+  // socket is unreachable, so every request would go direct and the allowlist
+  // would be silently unenforced. A warning here is exactly the fail-open
+  // this check removes — the caller asked for filtering, so refuse instead of
+  // pretending. The per-exec/launch re-checks below only cover socat being
+  // removed after construction.
+  if (needsProxy && !runnerBinaryAvailable(socatBinary)) {
+    throw new Error(
+      `[sandbox] network.allowedHosts is configured but ` +
+      `${socatRequiredMessage(socatBinary, true)}`,
+    );
+  }
   let proxy: SandboxProxy | null = null;
   let proxyStarted = false;
 
@@ -502,33 +564,33 @@ export function createSandboxedShell(
             // Start egress proxy if needed (lazy, first call only)
             let proxyEnv: Record<string, string> = {};
             if (needsProxy) {
+              // Construction already refused a missing bridge; re-check in
+              // case socat disappeared since. Never fall through to a bare
+              // command here — that would bypass the allowlist silently.
+              if (!runnerBinaryAvailable(socatBinary)) {
+                yield* missingSocatEvents(socatBinary);
+                return;
+              }
               const p = await ensureProxy();
               // socat bridges TCP → unix socket (runs outside sandbox)
-              if (probeBinary("socat")) {
-                const socatPort = 18080 + (++socatPortCounter);
-                socatProc = spawn("socat", [
-                  `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
-                  `UNIX-CONNECT:${p.socketPath}`,
-                ], { stdio: "ignore", detached: false });
-                proxyEnv = {
-                  // curl ignores uppercase HTTP_PROXY for plain http:// URLs
-                  // (httpoxy CVE mitigation — it only trusts the lowercase
-                  // form, since HTTP_PROXY is attacker-settable via a
-                  // "Proxy:" header under old CGI setups). HTTPS_PROXY has
-                  // no such restriction and is read case-insensitively, but
-                  // without http_proxy an http:// command connects direct,
-                  // bypassing the allowlist entirely.
-                  http_proxy: `http://127.0.0.1:${socatPort}`,
-                  HTTP_PROXY: `http://127.0.0.1:${socatPort}`,
-                  HTTPS_PROXY: `http://127.0.0.1:${socatPort}`,
-                  NO_PROXY: "localhost,127.0.0.1",
-                };
-              } else {
-                console.warn(
-                  "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
-                  "Network requests inside sandbox may not be filtered. Install: apt install socat",
-                );
-              }
+              const socatPort = 18080 + (++socatPortCounter);
+              socatProc = spawn(socatBinary, [
+                `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+                `UNIX-CONNECT:${p.socketPath}`,
+              ], { stdio: "ignore", detached: false });
+              proxyEnv = {
+                // curl ignores uppercase HTTP_PROXY for plain http:// URLs
+                // (httpoxy CVE mitigation — it only trusts the lowercase
+                // form, since HTTP_PROXY is attacker-settable via a
+                // "Proxy:" header under old CGI setups). HTTPS_PROXY has
+                // no such restriction and is read case-insensitively, but
+                // without http_proxy an http:// command connects direct,
+                // bypassing the allowlist entirely.
+                http_proxy: `http://127.0.0.1:${socatPort}`,
+                HTTP_PROXY: `http://127.0.0.1:${socatPort}`,
+                HTTPS_PROXY: `http://127.0.0.1:${socatPort}`,
+                NO_PROXY: "localhost,127.0.0.1",
+              };
             }
 
             // Write profile to temp file (sandbox-exec requires a file path)
@@ -591,6 +653,14 @@ export function createSandboxedShell(
             `refusing to background-launch without isolation.`,
           );
         }
+        // Same fail-closed rule as exec(), checked before writing the profile
+        // so a refusal leaves nothing behind.
+        if (needsProxy && !runnerBinaryAvailable(socatBinary)) {
+          throw new Error(
+            `[sandbox] ${socatRequiredMessage(socatBinary, false)} ` +
+            `Refusing to background-launch.`,
+          );
+        }
 
         const profileId = `${process.pid}-${++profileCounter}`;
         const profilePath = join(tmpdir(), `volto-sandbox-${profileId}.sb`);
@@ -604,24 +674,17 @@ export function createSandboxedShell(
         let envPrefix = "";
         if (needsProxy) {
           const p = await ensureProxy();
-          if (probeBinary("socat")) {
-            const socatPort = 18080 + (++socatPortCounter);
-            socatProc = spawn("socat", [
-              `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
-              `UNIX-CONNECT:${p.socketPath}`,
-            ], { stdio: "ignore", detached: false });
-            envPrefix = [
-              `export http_proxy='http://127.0.0.1:${socatPort}'`,
-              `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
-              `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
-              "export NO_PROXY='localhost,127.0.0.1'",
-            ].join(" && ") + " && ";
-          } else {
-            console.warn(
-              "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
-              "Background launch network requests may not be filtered. Install: apt install socat",
-            );
-          }
+          const socatPort = 18080 + (++socatPortCounter);
+          socatProc = spawn(socatBinary, [
+            `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+            `UNIX-CONNECT:${p.socketPath}`,
+          ], { stdio: "ignore", detached: false });
+          envPrefix = [
+            `export http_proxy='http://127.0.0.1:${socatPort}'`,
+            `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
+            `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
+            "export NO_PROXY='localhost,127.0.0.1'",
+          ].join(" && ") + " && ";
         }
 
         const escapedCmd = cmd.replace(/'/g, "'\\''");
@@ -714,26 +777,25 @@ export function createSandboxedShell(
             // Start egress proxy if needed
             let envPrefix = "";
             if (needsProxy) {
-              const p = await ensureProxy();
-              if (probeBinary("socat")) {
-                const socatPort = 18080 + (++socatPortCounter);
-
-                socatProc = spawn("socat", [
-                  `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
-                  `UNIX-CONNECT:${p.socketPath}`,
-                ], { stdio: "ignore", detached: false });
-                envPrefix = [
-                  `export http_proxy='http://127.0.0.1:${socatPort}'`,
-                  `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
-                  `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
-                  "export NO_PROXY='localhost,127.0.0.1'",
-                ].join(" && ");
-              } else {
-                console.warn(
-                  "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
-                  "Network requests inside sandbox may not be filtered. Install: apt install socat",
-                );
+              // Construction already refused a missing bridge; re-check at
+              // exec in case socat disappeared. Never run unfiltered.
+              if (!runnerBinaryAvailable(socatBinary)) {
+                yield* missingSocatEvents(socatBinary);
+                return;
               }
+              const p = await ensureProxy();
+              const socatPort = 18080 + (++socatPortCounter);
+
+              socatProc = spawn(socatBinary, [
+                `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+                `UNIX-CONNECT:${p.socketPath}`,
+              ], { stdio: "ignore", detached: false });
+              envPrefix = [
+                `export http_proxy='http://127.0.0.1:${socatPort}'`,
+                `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
+                `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
+                "export NO_PROXY='localhost,127.0.0.1'",
+              ].join(" && ");
             }
 
             // Escape cmd for safe embedding in bash -c single-quoted string
@@ -776,6 +838,14 @@ export function createSandboxedShell(
             `refusing to background-launch without isolation.`,
           );
         }
+        // Same fail-closed rule as exec(): a missing bridge means the
+        // allowlist cannot be enforced, so refuse the launch.
+        if (needsProxy && !runnerBinaryAvailable(socatBinary)) {
+          throw new Error(
+            `[sandbox] ${socatRequiredMessage(socatBinary, false)} ` +
+            `Refusing to background-launch.`,
+          );
+        }
 
         // Same egress-proxy discipline as exec() above: without this a
         // background launch reaches any host directly, bypassing
@@ -785,24 +855,17 @@ export function createSandboxedShell(
         let envPrefix = "";
         if (needsProxy) {
           const p = await ensureProxy();
-          if (probeBinary("socat")) {
-            const socatPort = 18080 + (++socatPortCounter);
-            socatProc = spawn("socat", [
-              `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
-              `UNIX-CONNECT:${p.socketPath}`,
-            ], { stdio: "ignore", detached: false });
-            envPrefix = [
-              `export http_proxy='http://127.0.0.1:${socatPort}'`,
-              `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
-              `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
-              "export NO_PROXY='localhost,127.0.0.1'",
-            ].join(" && ") + " && ";
-          } else {
-            console.warn(
-              "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
-              "Background launch network requests may not be filtered. Install: apt install socat",
-            );
-          }
+          const socatPort = 18080 + (++socatPortCounter);
+          socatProc = spawn(socatBinary, [
+            `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
+            `UNIX-CONNECT:${p.socketPath}`,
+          ], { stdio: "ignore", detached: false });
+          envPrefix = [
+            `export http_proxy='http://127.0.0.1:${socatPort}'`,
+            `export HTTP_PROXY='http://127.0.0.1:${socatPort}'`,
+            `export HTTPS_PROXY='http://127.0.0.1:${socatPort}'`,
+            "export NO_PROXY='localhost,127.0.0.1'",
+          ].join(" && ") + " && ";
         }
 
         // Escape cmd for safe embedding in bash -c single-quoted string
@@ -964,6 +1027,17 @@ function createSessionEgressProxy(
     config.network?.enabled === true && (config.network.allowedHosts?.length ?? 0) > 0;
   if (!needsProxy) return undefined;
 
+  const socatBinary = config.socatBinary ?? "socat";
+  // Fail closed before the proxy is even created: without the bridge every
+  // session command's traffic bypasses the allowlist. This throws out of
+  // createSandboxSessionSpawner (called synchronously), so the session is
+  // refused rather than started unfiltered.
+  if (!runnerBinaryAvailable(socatBinary)) {
+    throw new Error(
+      `[sandbox] network.allowedHosts is configured but ` +
+      `${socatRequiredMessage(socatBinary, true)}`,
+    );
+  }
   const proxy = createSandboxProxy({ allowedHosts: config.network!.allowedHosts! });
   let started = false;
   return {
@@ -974,17 +1048,18 @@ function createSessionEgressProxy(
       process.once("exit", () => { try { proxy.stop(); } catch { /* best-effort */ } });
     },
     forSession(): { env: Record<string, string>; cleanup?: () => void } {
-      if (!probeBinary("socat")) {
-        console.warn(
-          "[sandbox] WARNING: socat not found. Egress proxy requires socat for TCP bridging. " +
-          "Session network requests may not be filtered. Install: apt install socat",
+      // Re-check per session: socat could have been removed since the
+      // spawner was built. Refuse the session instead of returning an empty
+      // env, which would let it run with the allowlist unenforced.
+      if (!runnerBinaryAvailable(socatBinary)) {
+        throw new Error(
+          `[sandbox] ${socatRequiredMessage(socatBinary, false)} Refusing to start the session.`,
         );
-        return { env: {} };
       }
       const socatPort = 18080 + (++socatPortCounter);
       // One socat bridge per session, killed by the caller's cleanup — a
       // session is long-lived, unlike exec()/launch()'s one-shot bridges.
-      const socatProc = spawn("socat", [
+      const socatProc = spawn(socatBinary, [
         `TCP-LISTEN:${socatPort},bind=127.0.0.1,fork,reuseaddr`,
         `UNIX-CONNECT:${proxy.socketPath}`,
       ], { stdio: "ignore", detached: false });
@@ -1755,8 +1830,15 @@ export interface SandboxPolicy {
   timeoutMs?: number;
   /** Max memory in bytes (0 = no limit) */
   memoryLimitBytes?: number;
-  /** Platform backend selection */
-  backend?: "seatbelt" | "landlock" | "none";
+  /**
+   * Platform backend selection, restricted to the backends THIS adapter
+   * implements. "landlock" was never implemented and used to fall through to
+   * an unisolated bare spawn — it is removed rather than left as a claim.
+   * `bubblewrap` is implemented by `createSandboxedShell` /
+   * `createSandboxSessionSpawner`, not here; auto-detection therefore never
+   * selects it (a Linux host is refused, not silently run bare).
+   */
+  backend?: "seatbelt" | "none";
 }
 
 export interface NodeSandboxOptions {
@@ -1789,14 +1871,41 @@ function buildSeatbeltProfileFromPolicy(policy: SandboxPolicy): string {
  */
 export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
   const policy: SandboxPolicy = opts?.policy ?? {};
-  const backend = policy.backend ?? detectBackend();
-
-  if (backend === "none" && policy.backend === undefined) {
-    console.warn(
-      "[sandbox] WARNING: No isolation backend available on this platform. " +
-      "Commands will run WITHOUT sandbox isolation. " +
-      "This is a security risk in production — configure a sandbox backend explicitly.",
+  // The declared union already excludes it, but a JS caller can still pass
+  // "landlock"; refuse it explicitly rather than let the wrapping branch
+  // below treat anything non-seatbelt as the unisolated "none" path.
+  const requested = policy.backend as string | undefined;
+  if (requested !== undefined && requested !== "seatbelt" && requested !== "none") {
+    throw new Error(
+      `[sandbox] createNodeSandbox does not implement the "${requested}" backend. ` +
+      `Supported backends: "seatbelt" and "none". Use createSandboxedShell / ` +
+      `createSandboxSessionSpawner (seatbelt and bubblewrap) for the confining paths.`,
     );
+  }
+
+  let backend: "seatbelt" | "none";
+  if (requested !== undefined) {
+    backend = requested === "seatbelt" ? "seatbelt" : "none";
+  } else {
+    const detected = detectBackend();
+    // This adapter only knows seatbelt. Auto-detecting bubblewrap and then
+    // falling through to a bare spawn would be a sandbox that claims
+    // isolation and has none — refuse instead of hiding the gap.
+    if (detected === "bubblewrap") {
+      throw new Error(
+        `[sandbox] createNodeSandbox has no bubblewrap implementation; refusing to run ` +
+        `unisolated. Pass backend: "none" to run unconfined deliberately, or use ` +
+        `createSandboxedShell / createSandboxSessionSpawner for a confined Linux sandbox.`,
+      );
+    }
+    backend = detected;
+    if (backend === "none") {
+      console.warn(
+        "[sandbox] WARNING: No isolation backend available on this platform. " +
+        "Commands will run WITHOUT sandbox isolation. " +
+        "This is a security risk in production — configure a sandbox backend explicitly.",
+      );
+    }
   }
 
   return {
@@ -1818,28 +1927,65 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
 
       let execCmd = cmd;
       const execArgs: string[] = [];
+      // `-f` takes a profile FILE path while `-p` takes an inline profile
+      // string. This adapter used to pass the profile text to `-p`; write it
+      // to a temp file and use `-f` instead, so every seatbelt invocation in
+      // this module follows the same file-based discipline (and the same
+      // cleanup) as createSandboxedShell.
+      let profilePath: string | undefined;
 
       // Platform-specific isolation wrapping
       if (backend === "seatbelt") {
         const profile = buildSeatbeltProfileFromPolicy(policy);
+        // Deliberately distinct prefix from the shell/session/profile-file
+        // spawner paths: tests count those prefixes in the shared tmpdir.
+        profilePath = join(
+          tmpdir(),
+          `volto-node-sandbox-${process.pid}-${++profileCounter}.sb`,
+        );
+        try {
+          writeFileSync(profilePath, profile, "utf-8");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          profilePath = undefined;
+          yield {
+            type: "stderr",
+            data: `[sandbox] failed to write the seatbelt profile: ${message}`,
+          };
+          yield { type: "exit", code: 126 };
+          return;
+        }
         execCmd = "sandbox-exec";
-        execArgs.push("-p", profile, cmd, ...args);
+        execArgs.push("-f", profilePath, cmd, ...args);
       } else {
         // "none" → run bare
         execArgs.push(...args);
       }
 
-      const child = spawn(execCmd, execArgs, {
-        cwd,
-        shell: backend === "none",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, ...spec.env },
-        // Own process group: with `shell: true` the command runs in a forked
-        // grandchild, and with seatbelt it runs inside sandbox-exec. In both
-        // cases signalling only the direct child leaves the command running
-        // and holding the pipes (see process-kill.ts).
-        detached: DETACHED_ON_POSIX,
-      });
+      let child: ChildProcess;
+      try {
+        child = spawn(execCmd, execArgs, {
+          cwd,
+          shell: backend === "none",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, ...spec.env },
+          // Own process group: with `shell: true` the command runs in a forked
+          // grandchild, and with seatbelt it runs inside sandbox-exec. In both
+          // cases signalling only the direct child leaves the command running
+          // and holding the pipes (see process-kill.ts).
+          detached: DETACHED_ON_POSIX,
+        });
+      } catch (err) {
+        // Synchronous spawn failure: no child exists, so drop the profile and
+        // report the failure as events (this adapter never throws mid-stream).
+        if (profilePath !== undefined) {
+          try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        yield { type: "stderr", data: `[sandbox] failed to start the sandbox: ${message}` };
+        yield { type: "exit", code: 1 };
+        return;
+      }
 
       // Shared async queue for stdout/stderr
       const queue: SandboxEvent[] = [];
@@ -1900,6 +2046,22 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
         escalation = undefined;
         enqueue({ type: "exit", code: code ?? 1 });
       });
+      // A spawn 'error' (ENOENT for a missing sandbox-exec, EACCES) is the
+      // RUNNER failing, not the command. Without a listener it is an uncaught
+      // exception in the host process; report it as infrastructure failure
+      // and close the stream instead.
+      child.on("error", (err: Error) => {
+        closed = true;
+        if (escalation !== undefined) clearTimeout(escalation);
+        escalation = undefined;
+        enqueue({
+          type: "stderr",
+          data:
+            `${INFRA_FAILURE_PREFIX} the command could not be started: ${err.message}. ` +
+            `NOTHING was executed.\n`,
+        });
+        enqueue({ type: "exit", code: 126 });
+      });
 
       try {
         while (true) {
@@ -1919,6 +2081,11 @@ export function createNodeSandbox(opts?: NodeSandboxOptions): Sandbox {
         if (escalation !== undefined) clearTimeout(escalation);
         if (spec.abortSignal) {
           spec.abortSignal.removeEventListener("abort", abortHandler);
+        }
+        // Drop the temp profile however this run ended (normal exit, early
+        // return, or an abandoning consumer) — the runner read it at spawn.
+        if (profilePath !== undefined) {
+          try { unlinkSync(profilePath); } catch { /* best-effort cleanup */ }
         }
         if (!exitYielded) {
           yield { type: "exit", code: -1 };

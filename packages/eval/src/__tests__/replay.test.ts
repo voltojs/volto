@@ -20,7 +20,7 @@ describe("replayTrajectory", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: ["call_model", "emit"], // user_message → call_model + emit
+          effects: ["emit", "call_model"], // user_message → call_model + emit
         },
       ],
     };
@@ -83,7 +83,7 @@ describe("replayTrajectory", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: ["call_model", "emit"],
+          effects: ["emit", "call_model"],
         },
         {
           state: { status: "done" },
@@ -153,14 +153,14 @@ describe("replayTrajectory (strict mode)", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: ["call_model", "emit"],
+          effects: ["emit", "call_model"],
           fullState: {
             status: "calling_model",
             messages: [{ id: "", role: "user", content: "hello" }],
             pendingTools: [],
             tokensUsed: 0,
           },
-          fullEffects: [callModelEffect, emitEffect],
+          fullEffects: [emitEffect, callModelEffect],
         },
       ],
     };
@@ -178,15 +178,15 @@ describe("replayTrajectory (strict mode)", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: ["call_model", "emit"],
+          effects: ["emit", "call_model"],
           fullState: {
             status: "calling_model",
             messages: [{ id: "", role: "user", content: "hello" }],
             pendingTools: [],
           },
           fullEffects: [
-            { ...callModelEffect, request: { ...callModelEffect.request, maxTokens: 200 } }, // wrong
             emitEffect,
+            { ...callModelEffect, request: { ...callModelEffect.request, maxTokens: 200 } }, // wrong
           ],
         },
       ],
@@ -195,7 +195,7 @@ describe("replayTrajectory (strict mode)", () => {
     const result = replayTrajectory(traj, ctx, { strict: true });
     expect(result.passed).toBe(false);
     expect(result.firstFailureIndex).toBe(0);
-    expect(result.steps[0]!.diff).toContain("effects[0]");
+    expect(result.steps[0]!.diff).toContain("effects[1]");
     expect(result.steps[0]!.diff).toContain("maxTokens");
   });
 
@@ -207,14 +207,14 @@ describe("replayTrajectory (strict mode)", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: ["call_model", "emit"],
+          effects: ["emit", "call_model"],
           fullState: {
             status: "calling_model",
             messages: [{ id: "", role: "user", content: "hello" }],
             pendingTools: [],
             tokensUsed: 42, // wrong — actual is 0
           },
-          fullEffects: [callModelEffect, emitEffect],
+          fullEffects: [emitEffect, callModelEffect],
         },
       ],
     };
@@ -233,7 +233,7 @@ describe("replayTrajectory (strict mode)", () => {
       expected: [
         {
           state: { status: "calling_model" },
-          effects: ["call_model", "emit"], // no fullState / fullEffects
+          effects: ["emit", "call_model"], // no fullState / fullEffects
         },
       ],
     };
