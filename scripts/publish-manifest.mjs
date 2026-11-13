@@ -26,7 +26,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKSPACE_GLOBS = ["packages/*", "packages/*/*", "apps/*"];
 
 /** Client bundles that are shipped inside other artifacts, never to a registry. */
-const PRIVATE_PACKAGES = new Set(["@volto/web", "@volto/desktop-app"]);
+const PRIVATE_PACKAGES = new Set(["@voltojs/web", "@voltojs/desktop-app"]);
 
 /**
  * Packages the release plan triaged for publishing, mirroring the plan's publish table.
@@ -36,50 +36,63 @@ const PRIVATE_PACKAGES = new Set(["@volto/web", "@volto/desktop-app"]);
  * instead of silently vanishing from the gate.
  */
 const TRIAGED_PACKAGES = new Set([
-  "@volto/core",
-  "@volto/eval",
-  "@volto/i18n",
-  "@volto/sdk",
-  "@volto/embedder-openai",
-  "@volto/memory-common",
-  "@volto/memory-file",
-  "@volto/memory-inmemory",
-  "@volto/provider-anthropic",
-  "@volto/provider-openai",
-  "@volto/provider-pi-ai",
-  "@volto/runtime-browser",
-  "@volto/runtime-edge",
-  "@volto/runtime-node",
-  "@volto/store-file",
-  "@volto/store-jsonl",
-  "@volto/store-memory",
-  "@volto/store-postgres",
-  "@volto/store-sqlite",
-  "@volto/tools-agent",
-  "@volto/tools-ask",
-  "@volto/tools-browser",
-  "@volto/tools-code",
-  "@volto/tools-common",
-  "@volto/tools-data",
-  "@volto/tools-document",
-  "@volto/tools-fs",
-  "@volto/tools-mcp",
-  "@volto/tools-memory",
-  "@volto/tools-plan",
-  "@volto/tools-schedule",
-  "@volto/tools-shell",
-  "@volto/tool-skill",
-  "@volto/tools-vcs",
-  "@volto/tools-web",
-  "@volto/gateway",
+  "@voltojs/core",
+  "@voltojs/eval",
+  "@voltojs/i18n",
+  "@voltojs/sdk",
+  "@voltojs/embedder-openai",
+  "@voltojs/memory-common",
+  "@voltojs/memory-file",
+  "@voltojs/memory-inmemory",
+  "@voltojs/provider-anthropic",
+  "@voltojs/provider-openai",
+  "@voltojs/provider-pi-ai",
+  "@voltojs/runtime-browser",
+  "@voltojs/runtime-edge",
+  "@voltojs/runtime-node",
+  "@voltojs/store-file",
+  "@voltojs/store-jsonl",
+  "@voltojs/store-memory",
+  "@voltojs/store-postgres",
+  "@voltojs/store-sqlite",
+  "@voltojs/tools-agent",
+  "@voltojs/tools-ask",
+  "@voltojs/tools-browser",
+  "@voltojs/tools-code",
+  "@voltojs/tools-common",
+  "@voltojs/tools-data",
+  "@voltojs/tools-document",
+  "@voltojs/tools-fs",
+  "@voltojs/tools-mcp",
+  "@voltojs/tools-memory",
+  "@voltojs/tools-plan",
+  "@voltojs/tools-schedule",
+  "@voltojs/tools-shell",
+  "@voltojs/tool-skill",
+  "@voltojs/tools-vcs",
+  "@voltojs/tools-web",
+  "@voltojs/gateway",
 ]);
 
 /** Dependency sections whose `workspace:` ranges must be rewritten before publishing. */
 const DEPENDENCY_FIELDS = ["dependencies", "peerDependencies", "optionalDependencies"];
 
-/** The metadata `applyManifest` adds when a package does not have it yet. */
+/**
+ * The registry every package publishes to. GitHub Packages only accepts a package
+ * whose scope matches the owning account, which is why the scope is `@voltojs`; the
+ * publish gate below enforces this exact value in `publishConfig.registry`.
+ */
+const REGISTRY = "https://npm.pkg.github.com";
+
+/**
+ * The metadata `applyManifest` adds when a package does not have it yet.
+ *
+ * `publishConfig` deliberately carries only `registry`: GitHub ignores `access`, and
+ * every package is private by default there (see the release runbook in
+ * `docs/user/integrating/guides/publishing.md`).
+ */
 const REQUIRED_METADATA = {
-  publishConfig: { access: "public" },
+  publishConfig: { registry: REGISTRY },
   engines: { node: ">=22" },
   license: "MIT",
   repository: { type: "git", url: "git+https://github.com/zlipeng/volto.git" },
@@ -185,8 +198,8 @@ export function validateManifest(manifest, dir, opts, reportWith) {
   if (!files.some((entry) => pointsIntoDist(entry))) {
     report("files: missing dist entry");
   }
-  if (!isPlainObject(manifest.publishConfig) || manifest.publishConfig.access !== "public") {
-    report("publishConfig.access: not public");
+  if (!isPlainObject(manifest.publishConfig) || manifest.publishConfig.registry !== REGISTRY) {
+    report(`publishConfig.registry: not ${REGISTRY}`);
   }
   if (!isPlainObject(manifest.engines) || typeof manifest.engines.node !== "string") {
     report("engines.node: missing");
@@ -456,13 +469,13 @@ export function loadPublishablePackages(root = ROOT) {
 
 /** A minimal manifest that is already complete; cases below mutate copies of it. */
 const COMPLETE_FIXTURE = {
-  name: "@volto/fixture",
+  name: "@voltojs/fixture",
   version: "0.1.0",
   type: "module",
   main: "./dist/index.js",
   types: "./dist/index.d.ts",
   files: ["dist"],
-  publishConfig: { access: "public" },
+  publishConfig: { registry: "https://npm.pkg.github.com" },
   engines: { node: ">=22" },
   license: "MIT",
   repository: { type: "git", url: "git+https://example.com/volto.git" },
@@ -470,14 +483,14 @@ const COMPLETE_FIXTURE = {
 
 function selfTest() {
   const dir = "/tmp/volto-self-test";
-  const applied = applyManifest({ name: "@volto/fixture", version: "0.1.0" }, dir);
-  const withWorkspaceRange = { ...COMPLETE_FIXTURE, dependencies: { "@volto/core": "workspace:*" } };
+  const applied = applyManifest({ name: "@voltojs/fixture", version: "0.1.0" }, dir);
+  const withWorkspaceRange = { ...COMPLETE_FIXTURE, dependencies: { "@voltojs/core": "workspace:*" } };
   const cases = [
     ["complete manifest passes", validateManifest(COMPLETE_FIXTURE, dir), []],
     [
       "workspace protocol is reported",
       validateManifest(withWorkspaceRange, dir, { strictWorkspace: true }),
-      ["dependencies.@volto/core: workspace protocol left"],
+      ["dependencies.@voltojs/core: workspace protocol left"],
     ],
     [
       "workspace protocol is ignored by default",
@@ -487,6 +500,7 @@ function selfTest() {
     ["applyManifest fills files", applied.files, ["dist", "!dist/**/__tests__"]],
     ["applyManifest fills license", applied.license, "MIT"],
     ["applyManifest output passes the check", validateManifest(applied, dir), []],
+    ["applyManifest points at the GitHub Packages registry", applied.publishConfig.registry, "https://npm.pkg.github.com"],
     [
       "applyManifest is a fixpoint",
       JSON.stringify(applyManifest(applied, dir)) === JSON.stringify(applied),
@@ -494,12 +508,12 @@ function selfTest() {
     ],
     [
       "private packages are left untouched",
-      applyManifest({ name: "@volto/web", private: true }, dir),
-      { name: "@volto/web", private: true },
+      applyManifest({ name: "@voltojs/web", private: true }, dir),
+      { name: "@voltojs/web", private: true },
     ],
     [
       "applyManifest drops private on triaged packages",
-      "private" in applyManifest({ name: "@volto/core", private: true }, dir),
+      "private" in applyManifest({ name: "@voltojs/core", private: true }, dir),
       false,
     ],
     [
@@ -509,7 +523,7 @@ function selfTest() {
     ],
     [
       "applyManifest corrects a stale repository URL",
-      applyManifest({ ...COMPLETE_FIXTURE, name: "@volto/fixture2" }, dir).repository.url,
+      applyManifest({ ...COMPLETE_FIXTURE, name: "@voltojs/fixture2" }, dir).repository.url,
       "git+https://github.com/zlipeng/volto.git",
     ],
     [
@@ -518,7 +532,7 @@ function selfTest() {
         const applied2 = applyManifest(
           {
             ...COMPLETE_FIXTURE,
-            name: "@volto/fixture3",
+            name: "@voltojs/fixture3",
             license: "Apache-2.0",
             engines: { node: ">=24" },
           },
