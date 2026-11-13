@@ -96,6 +96,7 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           }
@@ -103,14 +104,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 0,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 0,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -120,6 +123,7 @@
           "request": {
             "messages": [
               {
+                "id": "",
                 "role": "user",
                 "content": "读取 a.ts 和 b.ts"
               }
@@ -149,7 +153,8 @@
             "maxTokens": 100,
             "cacheBreakpoints": [
               0
-            ]
+            ],
+            "layerOrigins": []
           }
         },
         {
@@ -173,6 +178,7 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           }
@@ -180,14 +186,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 0,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 0,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [
           {
             "id": "call_1",
@@ -222,6 +230,7 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           }
@@ -229,14 +238,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 0,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 0,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [
           {
             "id": "call_1",
@@ -278,10 +289,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -301,7 +314,10 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [
@@ -322,14 +338,16 @@
         ],
         "status": "executing_tools",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 2,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -339,7 +357,33 @@
           "event": {
             "type": "model_done",
             "data": {
-              "stopReason": "tool_use"
+              "stopReason": "tool_use",
+              "message": {
+                "id": "",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "read_file",
+                    "input": {
+                      "path": "a.ts"
+                    }
+                  },
+                  {
+                    "type": "tool_use",
+                    "id": "call_2",
+                    "name": "read_file",
+                    "input": {
+                      "path": "b.ts"
+                    }
+                  }
+                ],
+                "stopReason": "tool_use",
+                "source": {
+                  "modelId": "fixture-model"
+                }
+              }
             }
           }
         },
@@ -381,10 +425,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -404,7 +450,10 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [
@@ -425,11 +474,11 @@
         ],
         "status": "executing_tools",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [
           {
+            "id": "",
             "role": "user",
             "content": "等等，只看 a.ts 就够了"
           }
@@ -437,7 +486,10 @@
         "toolCallCount": 2,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -447,6 +499,7 @@
           "event": {
             "type": "steering_queued",
             "data": {
+              "id": "",
               "content": "等等，只看 a.ts 就够了"
             }
           }
@@ -463,10 +516,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -486,7 +541,10 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [
@@ -507,11 +565,11 @@
         ],
         "status": "executing_tools",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [
           {
+            "id": "",
             "role": "user",
             "content": "等等，只看 a.ts 就够了"
           }
@@ -519,16 +577,25 @@
         "toolCallCount": 2,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {
           "call_1": {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "file a content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file a content"
+                  }
+                ]
               }
             ]
           }
@@ -542,7 +609,9 @@
             "data": {
               "toolCallId": "call_1",
               "toolName": "read_file",
-              "isError": false
+              "isError": false,
+              "content": "file a content",
+              "orderInBatch": 0
             }
           }
         }
@@ -554,15 +623,18 @@
       },
       "effects": [
         "emit",
+        "emit",
         "call_model"
       ],
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -582,29 +654,45 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "file a content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file a content"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_2",
-                "content": "file b content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file b content"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "user",
             "content": "等等，只看 a.ts 就够了"
           }
@@ -612,14 +700,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 2,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -631,7 +721,20 @@
             "data": {
               "toolCallId": "call_2",
               "toolName": "read_file",
-              "isError": false
+              "isError": false,
+              "content": "file b content",
+              "orderInBatch": 1
+            }
+          }
+        },
+        {
+          "type": "emit",
+          "event": {
+            "type": "steering_delivered",
+            "data": {
+              "ids": [
+                ""
+              ]
             }
           }
         },
@@ -640,10 +743,12 @@
           "request": {
             "messages": [
               {
+                "id": "",
                 "role": "user",
                 "content": "读取 a.ts 和 b.ts"
               },
               {
+                "id": "",
                 "role": "assistant",
                 "content": [
                   {
@@ -663,29 +768,45 @@
                     }
                   }
                 ],
-                "stopReason": "tool_use"
+                "stopReason": "tool_use",
+                "source": {
+                  "modelId": "fixture-model"
+                }
               },
               {
+                "id": "",
                 "role": "tool",
                 "content": [
                   {
                     "type": "tool_result",
                     "toolUseId": "call_1",
-                    "content": "file a content"
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "file a content"
+                      }
+                    ]
                   }
                 ]
               },
               {
+                "id": "",
                 "role": "tool",
                 "content": [
                   {
                     "type": "tool_result",
                     "toolUseId": "call_2",
-                    "content": "file b content"
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "file b content"
+                      }
+                    ]
                   }
                 ]
               },
               {
+                "id": "",
                 "role": "user",
                 "content": "等等，只看 a.ts 就够了"
               }
@@ -715,7 +836,8 @@
             "maxTokens": 100,
             "cacheBreakpoints": [
               0
-            ]
+            ],
+            "layerOrigins": []
           }
         }
       ]
@@ -730,10 +852,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -753,29 +877,45 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "file a content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file a content"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_2",
-                "content": "file b content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file b content"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "user",
             "content": "等等，只看 a.ts 就够了"
           }
@@ -783,14 +923,16 @@
         "pendingTools": [],
         "status": "calling_model",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 1,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 2,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "好的，只看 a.ts。",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -817,10 +959,12 @@
       "fullState": {
         "messages": [
           {
+            "id": "",
             "role": "user",
             "content": "读取 a.ts 和 b.ts"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -840,33 +984,50 @@
                 }
               }
             ],
-            "stopReason": "tool_use"
+            "stopReason": "tool_use",
+            "source": {
+              "modelId": "fixture-model"
+            }
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_1",
-                "content": "file a content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file a content"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "tool",
             "content": [
               {
                 "type": "tool_result",
                 "toolUseId": "call_2",
-                "content": "file b content"
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "file b content"
+                  }
+                ]
               }
             ]
           },
           {
+            "id": "",
             "role": "user",
             "content": "等等，只看 a.ts 就够了"
           },
           {
+            "id": "",
             "role": "assistant",
             "content": [
               {
@@ -874,20 +1035,25 @@
                 "text": "好的，只看 a.ts。"
               }
             ],
-            "stopReason": "end_turn"
+            "stopReason": "end_turn",
+            "source": {
+              "modelId": "fixture-model"
+            }
           }
         ],
         "pendingTools": [],
         "status": "done",
         "tokensUsed": 0,
-        "maxIterations": 20,
         "iterationCount": 2,
         "readFiles": [],
         "queuedUserInputs": [],
         "toolCallCount": 2,
         "pinnedMessageIds": [],
         "selfCorrectionCount": 0,
+        "loopInterventionCount": 0,
+        "loopRemindedCount": 0,
         "_accumulatedText": "",
+        "_accumulatedReasoning": "",
         "_accumulatedToolCalls": [],
         "_toolResultBuffer": {}
       },
@@ -897,7 +1063,21 @@
           "event": {
             "type": "model_done",
             "data": {
-              "stopReason": "end_turn"
+              "stopReason": "end_turn",
+              "message": {
+                "id": "",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "好的，只看 a.ts。"
+                  }
+                ],
+                "stopReason": "end_turn",
+                "source": {
+                  "modelId": "fixture-model"
+                }
+              }
             }
           }
         },
