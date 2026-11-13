@@ -15,7 +15,7 @@ import type {
   HookLifecycle,
   HookHandler,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 
 // ──────────────────────────────────────────────
 // Types

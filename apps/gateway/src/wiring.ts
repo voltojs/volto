@@ -13,7 +13,7 @@ import {
   type AgentSpec,
   type CreateAgentOptions,
 } from "@voltojs/sdk";
-import { createPiAiModelPort, type PiAiProviderConfig } from "@voltojs/provider-pi-ai";
+import { createPiAiModelPort, type PiAiProviderConfig } from "@voltojs/providers/pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
 import { loadHooksConfig } from "./config/hooks.js";
@@ -33,7 +33,7 @@ import {
 } from "@voltojs/runtime-node";
 import type { BrowserHost, SandboxConfig } from "@voltojs/runtime-node";
 import type { AttachmentParsePdf } from "./attachments/convert.js";
-import { createFileMemoryStore } from "@voltojs/memory-file";
+import { createFileMemoryStore } from "@voltojs/memories/file";
 import {
   dedupeInstructions,
   renderInstructionLayers,

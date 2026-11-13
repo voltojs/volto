@@ -1,0 +1,51 @@
+{
+  "name": "@voltojs/providers",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/pi-ai/index.js",
+  "types": "./dist/pi-ai/index.d.ts",
+  "exports": {
+    "./pi-ai": {
+      "types": "./dist/pi-ai/index.d.ts",
+      "import": "./dist/pi-ai/index.js"
+    },
+    "./openai": {
+      "types": "./dist/openai/index.d.ts",
+      "import": "./dist/openai/index.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic/index.d.ts",
+      "import": "./dist/anthropic/index.js"
+    },
+    "./embedder-openai": {
+      "types": "./dist/embedder-openai/index.d.ts",
+      "import": "./dist/embedder-openai/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltojs/volto.git"
+  },
+  "dependencies": {
+    "@voltojs/core": "workspace:*",
+    "@earendil-works/pi-ai": "^1.5.0"
+  }
+}

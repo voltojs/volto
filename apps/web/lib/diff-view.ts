@@ -1,7 +1,7 @@
 /**
  * Parses the unified hunk body a write tool captured (`fileChange.diff`).
  *
- * The producer is `@voltojs/tools-common`'s `computeUnifiedDiff`, so the format
+ * The producer is `@voltojs/tools/common`'s `computeUnifiedDiff`, so the format
  * is the small, self-consistent one it emits: `@@ -a,b +c,d @@` headers and
  * ` `/`+`/`-` prefixed lines. Every emitted line is rendered with both line
  * numbers, so a removed line still points at where it *was* and an added line

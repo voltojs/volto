@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ToolDefinition, StepContext } from "@voltojs/core";
 import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta } from "@voltojs/core";
-import { createBashTool, CAP_SHELL_EXEC } from "@voltojs/tools-shell";
+import { createBashTool, CAP_SHELL_EXEC } from "@voltojs/tools/shell";
 import { createRunner } from "../runner.js";
 import { createShellToolExecutor } from "../shell-tool-executor.js";
 import { createAutoAllowGate } from "../approval-gate.js";

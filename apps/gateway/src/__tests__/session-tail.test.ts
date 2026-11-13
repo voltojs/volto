@@ -10,7 +10,7 @@ import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { createStore as createJsonlStore } from '@voltojs/store-jsonl';
+import { createStore as createJsonlStore } from '@voltojs/stores/jsonl';
 import type { TranscriptEvent } from '@voltojs/core';
 import { createServer, type HeadlessServer } from '../server.js';
 import { unfinishedTurnTail } from '../session-tail.js';

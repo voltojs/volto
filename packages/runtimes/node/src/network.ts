@@ -15,7 +15,7 @@ export interface NodeNetworkOptions {
  *
  * This template is byte-identical to tools-common's renderTimeoutSignature —
  * pinned by a cross-package test (category dependency rules forbid importing
- * @voltojs/tools-common here).
+ * @voltojs/tools/common here).
  */
 export function renderNetworkTimeoutSignature(subject: string, timeoutMs: number): string {
   return `[timeout] ${subject} timed out after ${timeoutMs}ms`;

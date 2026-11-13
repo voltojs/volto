@@ -8,14 +8,23 @@
     "src"
   ],
   "references": [
-    { "path": "../../packages/i18n" },
-    { "path": "../../packages/sdk" },
-    { "path": "../../packages/providers/openai" },
-    { "path": "../../packages/runtimes/node" },
-    { "path": "../../packages/stores/sqlite" },
-    { "path": "../../packages/memories/file" },
-    { "path": "../../packages/tools/fs" },
-    { "path": "../../packages/tools/shell" },
-    { "path": "../../packages/tools/web" }
+    {
+      "path": "../../packages/sdk"
+    },
+    {
+      "path": "../../packages/providers"
+    },
+    {
+      "path": "../../packages/runtimes/node"
+    },
+    {
+      "path": "../../packages/stores/sqlite"
+    },
+    {
+      "path": "../../packages/memories"
+    },
+    {
+      "path": "../../packages/tools"
+    }
   ]
 }

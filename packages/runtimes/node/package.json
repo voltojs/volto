@@ -34,13 +34,7 @@
   },
   "dependencies": {
     "@voltojs/core": "workspace:*",
-    "@voltojs/tools-browser": "workspace:*",
-    "@voltojs/tools-code": "workspace:*",
-    "@voltojs/tools-data": "workspace:*",
-    "@voltojs/tools-document": "workspace:*",
-    "@voltojs/tools-fs": "workspace:*",
-    "@voltojs/tools-shell": "workspace:*",
-    "@voltojs/tools-web": "workspace:*"
+    "@voltojs/tools": "workspace:*"
   },
   "peerDependencies": {
     "better-sqlite3": ">=9.0.0",
@@ -69,6 +63,6 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@voltojs/eval": "workspace:*",
-    "@voltojs/tools-vcs": "workspace:*"
+    "@voltojs/tools": "workspace:*"
   }
 }

@@ -4,7 +4,7 @@ type: tutorial
 source:
   - packages/sdk/src/create-agent.ts
   - packages/sdk/src/defaults.ts
-  - packages/providers/pi-ai/src/model-port.ts
+  - packages/providers/src/pi-ai/model-port.ts
 generated: false
 verified: 2026-11-13
 ---
@@ -31,7 +31,7 @@ verified: 2026-11-13
 
   Node 20.19 / 22.12 起 `require()` 也能加载 ESM，但 SDK 的实际支持基准是 Node 22，别依赖更早的行为。
 
-- 可选包按需单独装，不全在 `@voltojs/sdk` 里：`@voltojs/provider-pi-ai`、`@voltojs/provider-openai`、`@voltojs/provider-anthropic`、`@voltojs/store-sqlite` 等。下面第一步只用 `@voltojs/sdk` 自带的默认值，可以先不装。
+- 可选包按需单独装，不全在 `@voltojs/sdk` 里：`@voltojs/providers/pi-ai`、`@voltojs/providers/openai`、`@voltojs/providers/anthropic`、`@voltojs/store-sqlite` 等。下面第一步只用 `@voltojs/sdk` 自带的默认值，可以先不装。
 
 ## 第一步：用假模型验证接线
 
@@ -66,12 +66,12 @@ for await (const event of agent.stream("介绍一下你自己")) {
 用 pi-ai 适配器接一个 OpenAI 兼容端点（自定义供应商）。换成任何厂商只是换 `providers` 里的配置。先装这个适配器：
 
 ```bash
-npm i @voltojs/provider-pi-ai
+npm i @voltojs/providers/pi-ai
 ```
 
 ```ts
 import { createAgent } from "@voltojs/sdk";
-import { createPiAiModelPort } from "@voltojs/provider-pi-ai";
+import { createPiAiModelPort } from "@voltojs/providers/pi-ai";
 
 const modelPort = createPiAiModelPort({
   providers: [

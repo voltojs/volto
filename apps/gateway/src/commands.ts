@@ -10,7 +10,7 @@
  * switch).
  */
 import type { SlashCommand } from "@voltojs/sdk";
-import { t, type Locale } from "@voltojs/i18n";
+import { t, type Locale } from "@voltojs/sdk/i18n";
 
 const REVIEW_TEMPLATE =
   "Review the changes to {{0}} and list issues and fixes by severity; when no scope is given, review the current project's uncommitted changes.";

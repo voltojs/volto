@@ -18,7 +18,7 @@ import {
   isLocale,
   localeFromAcceptLanguage,
   type Locale,
-} from "@voltojs/i18n";
+} from "@voltojs/sdk/i18n";
 
 export { isLocale };
 export type { Locale };

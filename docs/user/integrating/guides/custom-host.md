@@ -4,7 +4,7 @@ type: guide
 source:
   - packages/sdk/src/create-agent.ts
   - apps/gateway/src/wiring.ts
-  - packages/tools/mcp/src
+  - packages/tools/src/mcp
 generated: false
 verified: 2026-11-11
 ---
@@ -56,7 +56,7 @@ Each step can be verified on its own, so when something breaks the search space 
 The official gateway does not wire MCP yet; a custom host can wire it directly:
 
 ```ts
-import { McpToolSource, StdioTransport } from "@voltojs/tools-mcp";
+import { McpToolSource, StdioTransport } from "@voltojs/tools/mcp";
 
 const mcp = new McpToolSource({
   servers: [

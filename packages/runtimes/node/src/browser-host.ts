@@ -22,8 +22,8 @@ import type {
   SnapshotNode,
   SnapshotOutcome,
   StorageStateOutcome,
-} from "@voltojs/tools-browser";
-import { formatSnapshot, SNAPSHOT_SCRIPT } from "@voltojs/tools-browser";
+} from "@voltojs/tools/browser";
+import { formatSnapshot, SNAPSHOT_SCRIPT } from "@voltojs/tools/browser";
 import { createDiagnosticsBuffer, type DiagnosticsBuffer } from "./browser-diagnostics.js";
 import { expandHome, resolveBrowserExecutable } from "./browser-executable.js";
 export { expandHome } from "./browser-executable.js";

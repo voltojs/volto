@@ -3,9 +3,9 @@ title: Model connection (ModelPort)
 type: guide
 source:
   - packages/core/src/ports.ts
-  - packages/providers/openai/src/model-port.ts
-  - packages/providers/anthropic/src/model-port.ts
-  - packages/providers/pi-ai/src/model-port.ts
+  - packages/providers/src/openai/model-port.ts
+  - packages/providers/src/anthropic/model-port.ts
+  - packages/providers/src/pi-ai/model-port.ts
 generated: false
 verified: 2026-11-11
 ---
@@ -64,9 +64,9 @@ When `stream` hits an error internally, the correct move is to **emit an `error`
 
 | Package | Purpose |
 | --- | --- |
-| `@voltojs/provider-pi-ai` | The default. Wires the built-in provider catalog, or declares a custom OpenAI-compatible endpoint |
-| `@voltojs/provider-openai` | Talks directly to an OpenAI-compatible API |
-| `@voltojs/provider-anthropic` | Talks directly to the Anthropic Messages API |
+| `@voltojs/providers/pi-ai` | The default. Wires the built-in provider catalog, or declares a custom OpenAI-compatible endpoint |
+| `@voltojs/providers/openai` | Talks directly to an OpenAI-compatible API |
+| `@voltojs/providers/anthropic` | Talks directly to the Anthropic Messages API |
 
 All three implement streaming parsing, incremental tool-call accumulation and usage normalization. **The two things most easily gotten wrong when writing your own adapter**: tool-call arguments arrive as incremental chunks (accumulate them by id), and the vendor's finish reason must be mapped onto the three values above.
 

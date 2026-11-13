@@ -4,23 +4,21 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../core" },
-    { "path": "../tools/common" },
-    { "path": "../tools/agent" },
-    { "path": "../tools/skill" },
-    { "path": "../tools/ask" },
-    { "path": "../tools/browser" },
-    { "path": "../tools/code" },
-    { "path": "../tools/data" },
-    { "path": "../tools/fs" },
-    { "path": "../tools/memory" },
-    { "path": "../tools/plan" },
-    { "path": "../tools/shell" },
-    { "path": "../tools/vcs" },
-    { "path": "../tools/web" },
-    { "path": "../runtimes/node" },
-    { "path": "../stores/memory" }
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../runtimes/node"
+    },
+    {
+      "path": "../stores"
+    },
+    {
+      "path": "../tools"
+    }
   ]
 }

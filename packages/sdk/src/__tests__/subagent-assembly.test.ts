@@ -12,9 +12,9 @@ import type {
   EventSink,
   RiskTier,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
-import { CAP_LSP_QUERY } from "@voltojs/tools-code";
-import { CAP_DB_READ, CAP_DB_WRITE } from "@voltojs/tools-data";
+import type { Tool } from "@voltojs/tools/common";
+import { CAP_LSP_QUERY } from "@voltojs/tools/code";
+import { CAP_DB_READ, CAP_DB_WRITE } from "@voltojs/tools/data";
 import {
   createMockModelPort,
   toolCallScript,

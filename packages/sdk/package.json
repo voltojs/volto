@@ -17,7 +17,11 @@
       "types": "./dist/file-refs/index.d.ts",
       "import": "./dist/file-refs/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./i18n": {
+      "types": "./dist/i18n/index.d.ts",
+      "import": "./dist/i18n/index.js"
+    }
   },
   "files": [
     "dist",
@@ -42,26 +46,12 @@
   },
   "dependencies": {
     "@voltojs/core": "workspace:*",
-    "@voltojs/tools-common": "workspace:*",
-    "@voltojs/tool-skill": "workspace:*",
-    "@voltojs/tools-agent": "workspace:*",
-    "@voltojs/tools-ask": "workspace:*",
-    "@voltojs/tools-browser": "workspace:*",
-    "@voltojs/tools-code": "workspace:*",
-    "@voltojs/tools-data": "workspace:*",
-    "@voltojs/tools-document": "workspace:*",
-    "@voltojs/tools-fs": "workspace:*",
-    "@voltojs/tools-plan": "workspace:*",
-    "@voltojs/tools-schedule": "workspace:*",
-    "@voltojs/tools-shell": "workspace:*",
-    "@voltojs/tools-vcs": "workspace:*",
-    "@voltojs/tools-web": "workspace:*",
     "@voltojs/runtime-node": "workspace:*",
-    "@voltojs/store-memory": "workspace:*",
-    "@voltojs/tools-memory": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@voltojs/tools": "workspace:*",
+    "@voltojs/stores": "workspace:*"
   },
   "devDependencies": {
-    "@voltojs/store-jsonl": "workspace:*"
+    "@voltojs/stores": "workspace:*"
   }
 }

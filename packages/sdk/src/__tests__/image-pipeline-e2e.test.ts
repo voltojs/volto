@@ -19,7 +19,7 @@ import {
   CAP_MODEL_VISION,
 } from "@voltojs/core";
 import type { ModelPort, ModelRequest } from "@voltojs/core";
-import { createMemoryStore } from "@voltojs/store-memory";
+import { createMemoryStore } from "@voltojs/stores/memory";
 import { createNodeFileSystem, createNodeAttachmentStore } from "@voltojs/runtime-node";
 
 /** 1×1 red PNG. Exact base64 asserted on the request surface. */

@@ -1,0 +1,40 @@
+{
+  "name": "@voltojs/runtimes-web",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/browser/index.js",
+  "types": "./dist/browser/index.d.ts",
+  "exports": {
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js"
+    },
+    "./edge": {
+      "types": "./dist/edge/index.d.ts",
+      "import": "./dist/edge/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltojs/volto.git"
+  },
+  "dependencies": {
+    "@voltojs/core": "workspace:*"
+  },
+  "private": true
+}

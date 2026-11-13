@@ -15,7 +15,7 @@ import * as path from "node:path";
 import type { ModelPort, ModelRequest, ToolDefinition } from "@voltojs/core";
 import type { AgentSpec } from "@voltojs/sdk";
 import type { BrowserHost } from "@voltojs/runtime-node";
-import { createStore, type JsonlSessionStore } from "@voltojs/store-jsonl";
+import { createStore, type JsonlSessionStore } from "@voltojs/stores/jsonl";
 import { createServer, type HeadlessServer, type ServerOptions } from "../server.js";
 import type { SessionRegistryOptions } from "../sessions.js";
 

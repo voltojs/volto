@@ -20,7 +20,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ModelPort } from "@voltojs/core";
-import { createStore as createJsonlStore, type JsonlSessionStore } from "@voltojs/store-jsonl";
+import { createStore as createJsonlStore, type JsonlSessionStore } from "@voltojs/stores/jsonl";
 import { createServer, type HeadlessServer } from "../server.js";
 
 /** Minimal model port for the legacy shared agent — no turn runs in these tests. */

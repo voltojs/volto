@@ -113,17 +113,17 @@ flag is the truth, a bare tail can be a crash.
 
 | Package | Role | Durability notes |
 | --- | --- | --- |
-| `@voltojs/store-memory` | `SessionStore` | `Map`; returns the same object reference |
-| `@voltojs/store-file` | `SessionStore` | one JSON file per id, tmp + `rename` |
+| `@voltojs/stores/memory` | `SessionStore` | `Map`; returns the same object reference |
+| `@voltojs/stores/file` | `SessionStore` | one JSON file per id, tmp + `rename` |
 | `@voltojs/store-sqlite` | `SessionStore` | `sessions` table, JSON state, WAL, upsert |
 | `@voltojs/store-postgres` | `SessionStore` | `JSONB`, lazily created table, pool |
-| `@voltojs/store-jsonl` | transcript | append-only JSONL, per-file queue, delete tombstones |
+| `@voltojs/stores/jsonl` | transcript | append-only JSONL, per-file queue, delete tombstones |
 
 The first four share `runStoreContractTests`
 (`packages/core/src/testing/store-contract.ts`): save/load round-trip, unknown id →
 `undefined`, `list` returns all, same-id save overwrites, and `AgentState` structure
 (messages, `pendingTools`, `pendingApprovalTool`, `readFiles`, counters) survives
-serialization. `store-jsonl` has its own event-log, search, concurrency, scope and
+serialization. `@voltojs/stores/jsonl` has its own event-log, search, concurrency, scope and
 tombstone tests.
 
 `session-store-factory.ts` picks SQLite at `~/.volto/db/sessions.db` when
@@ -359,10 +359,10 @@ Affected gates (never the whole repo by default):
 
 ```bash
 pnpm turbo run typecheck lint test --filter @voltojs/core --filter @voltojs/runtime-node \
-  --filter @voltojs/sdk --filter @voltojs/store-jsonl --filter @voltojs/gateway
+  --filter @voltojs/sdk --filter @voltojs/stores/jsonl --filter @voltojs/gateway
 ```
 
-Add `@voltojs/store-memory`, `-file`, `-sqlite`, `-postgres` when the contract changes.
+Add `@voltojs/stores/memory`, `-file`, `-sqlite`, `-postgres` when the contract changes.
 
 Targeted suites: `packages/core/src/__tests__/{transcript-projection,transcript-types,compaction-writeback,steering-rebuild,view-projection-*}`,
 `packages/runtimes/node/src/__tests__/{transcript-recorder,transcript-events,transcript-image,transcript-structured,runner-time-travel,runner-hitl}`,

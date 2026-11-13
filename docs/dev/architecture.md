@@ -274,12 +274,15 @@ the other pure functions. Importing pure functions does not couple the kernel to
 implementation.
 
 Naming follows the package's role: category directories are plural (`tools/`,
-`providers/`, `runtimes/`, `stores/`), tool packages use the plural `tools-*` prefix
-because one package holds many tools, and single-instance adapters use singular prefixes
-(`provider-openai`, `runtime-node`, `store-memory`). The one exception is
-`packages/tools/skill` → `@voltojs/tool-skill`.
+`providers/`, `runtimes/`, `stores/`, `memories/`). Each category is one package with a
+subpath per group — `@voltojs/tools/fs`, `@voltojs/providers/openai`,
+`@voltojs/stores/jsonl` — except the runtime adapters and the native/driver-backed
+stores, which stay separate (`runtime-node`, `store-sqlite`, `store-postgres`). The merged
+`runtimes-web` package is private until the browser and edge runtimes are complete.
 
-The workspace globs are `packages/*` (core, sdk, eval, i18n), `packages/*/*` and `apps/*`.
+The workspace globs are `packages/*` (core, sdk, tools, providers, stores, memories,
+eval) and `packages/*/*` (runtimes/node, runtimes/web, stores/sqlite, stores/postgres),
+plus `apps/*`.
 
 ## Invariants (purity, determinism, replay)
 

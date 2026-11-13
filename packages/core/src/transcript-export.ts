@@ -127,7 +127,7 @@ export function renderSessionMarkdown(
 /**
  * Render a session as JSONL: one object per line, with `version` pinned to
  * the store's schema line (currently 3 — keep in sync with
- * @voltojs/store-jsonl SCHEMA_VERSION). The caller guarantees events[0] is
+ * @voltojs/stores/jsonl SCHEMA_VERSION). The caller guarantees events[0] is
  * the session_meta; this renderer does not reorder.
  */
 export function renderSessionJsonl(

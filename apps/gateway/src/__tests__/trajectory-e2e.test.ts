@@ -1,6 +1,6 @@
 /**
  * End-to-end regression guard: real createAgent() + real createStore()
- * (@voltojs/store-jsonl) through a turn that both calls a tool and has
+ * (@voltojs/stores/jsonl) through a turn that both calls a tool and has
  * context layers configured, reading the actual JSONL file back off disk.
  *
  * Every other test for this feature stubs out one half of the pipeline
@@ -24,7 +24,7 @@ import {
   projectMessages,
 } from "@voltojs/core";
 import type { ToolDefinition, ToolResult } from "@voltojs/core";
-import { createStore, scopeToWorkspace } from "@voltojs/store-jsonl";
+import { createStore, scopeToWorkspace } from "@voltojs/stores/jsonl";
 
 let tempDir: string;
 

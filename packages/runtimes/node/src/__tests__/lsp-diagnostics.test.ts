@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { LspClient, LspDiagnosticReport } from "@voltojs/tools-code";
+import type { LspClient, LspDiagnosticReport } from "@voltojs/tools/code";
 import { createNodeFileSystem } from "../filesystem.js";
 import { createNodeLspManager } from "../lsp.js";
 import type { LspManager, LspManagerOptions } from "../lsp.js";

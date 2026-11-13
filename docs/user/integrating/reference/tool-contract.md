@@ -4,7 +4,7 @@ type: reference
 source:
   - packages/core/src/tool.ts
   - packages/sdk/src/tool-scope-default.ts
-  - packages/tools/common/src
+  - packages/tools/src/common
 generated: false
 verified: 2026-11-11
 ---

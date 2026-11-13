@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createStore } from "@voltojs/store-jsonl";
+import { createStore } from "@voltojs/stores/jsonl";
 import type { TranscriptEventInput } from "@voltojs/core";
 import { readContextUsageSnapshot } from "../context-usage.js";
 

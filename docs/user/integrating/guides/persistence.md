@@ -3,7 +3,7 @@ title: Persistence and recovery
 type: guide
 source:
   - packages/core/src/ports.ts
-  - packages/stores/jsonl/src
+  - packages/stores/src/jsonl
   - packages/sdk/src/transcript-reader.ts
   - apps/gateway/src/sessions.ts
 generated: false

@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "@voltojs/sdk";
 import type { ApprovalGate, EventSink, Message, PermissionConfig } from "@voltojs/core";
-import { createPiAiModelPort } from "@voltojs/provider-pi-ai";
+import { createPiAiModelPort } from "@voltojs/providers/pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,

@@ -3,7 +3,7 @@ title: 持久化与恢复
 type: guide
 source:
   - packages/core/src/ports.ts
-  - packages/stores/jsonl/src
+  - packages/stores/src/jsonl
   - packages/sdk/src/transcript-reader.ts
   - apps/gateway/src/sessions.ts
 generated: false

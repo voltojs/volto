@@ -3,9 +3,9 @@ title: 模型连接（ModelPort）
 type: guide
 source:
   - packages/core/src/ports.ts
-  - packages/providers/openai/src/model-port.ts
-  - packages/providers/anthropic/src/model-port.ts
-  - packages/providers/pi-ai/src/model-port.ts
+  - packages/providers/src/openai/model-port.ts
+  - packages/providers/src/anthropic/model-port.ts
+  - packages/providers/src/pi-ai/model-port.ts
 generated: false
 verified: 2026-11-11
 ---
@@ -64,9 +64,9 @@ interface ModelPort {
 
 | 包 | 用途 |
 | --- | --- |
-| `@voltojs/provider-pi-ai` | 默认。接内置供应商目录，或声明一个自定义 OpenAI 兼容端点 |
-| `@voltojs/provider-openai` | 直接对 OpenAI 兼容接口 |
-| `@voltojs/provider-anthropic` | 直接对 Anthropic Messages 接口 |
+| `@voltojs/providers/pi-ai` | 默认。接内置供应商目录，或声明一个自定义 OpenAI 兼容端点 |
+| `@voltojs/providers/openai` | 直接对 OpenAI 兼容接口 |
+| `@voltojs/providers/anthropic` | 直接对 Anthropic Messages 接口 |
 
 三个都实现了流式解析、工具调用增量累积与用量归一化。**自己写适配器时最容易错的两处**：工具调用参数是按增量分片到达的（要按 id 累积），以及厂商的结束原因要映射到上面三个值。
 

@@ -2,7 +2,7 @@
  * Thin wrapper over the SDK's re-exported projections.
  *
  * Imports from `@voltojs/sdk/sse` rather than the package root: the root pulls
- * in Node-only packages (@voltojs/runtime-node, @voltojs/tools-shell) that must
+ * in Node-only packages (@voltojs/runtime-node, @voltojs/tools/shell) that must
  * never reach the browser bundle.
  */
 

@@ -17,10 +17,10 @@
  * `./theme-preference` (deliberately free of React and store imports, so
  * this module cannot drag the transport layer's cycle back into the layout),
  * the language tags from `./i18n/locale`, and the default language from
- * `@voltojs/i18n`. The rules themselves (`resolveInitialLocale`,
+ * `@voltojs/sdk/i18n`. The rules themselves (`resolveInitialLocale`,
  * `THEME_VALUES`) are what both the script and the providers implement.
  */
-import { DEFAULT_LOCALE, type Locale } from '@voltojs/i18n';
+import { DEFAULT_LOCALE, type Locale } from '@voltojs/sdk/i18n';
 import { LOCALE_COOKIE, LOCALE_TAG } from '@/i18n/locale';
 import { resolveInitialLocale } from '@/i18n/messages';
 import {

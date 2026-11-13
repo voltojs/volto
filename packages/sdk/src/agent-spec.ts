@@ -11,7 +11,7 @@ import type {
   PermissionConfig,
   JSONSchema,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 import type { ModelPort } from "@voltojs/core";
 import { createAgent, type AgentInstance, type CreateAgentOptions } from "./create-agent.js";
 

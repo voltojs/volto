@@ -53,8 +53,8 @@ import {
   asTranscriptReader,
   type ChatSessionMeta,
   type JsonlSessionStore,
-} from "@voltojs/store-jsonl";
-import { t } from "@voltojs/i18n";
+} from "@voltojs/stores/jsonl";
+import { t } from "@voltojs/sdk/i18n";
 import {
   createWiredAgent,
   createAttachmentParsePdf,
@@ -95,8 +95,8 @@ import {
   unknownProjectMessage,
 } from "./config/projects.js";
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
-import { isProviderProtocol, type ProviderProtocol } from "@voltojs/provider-pi-ai";
-import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@voltojs/provider-pi-ai";
+import { isProviderProtocol, type ProviderProtocol } from "@voltojs/providers/pi-ai";
+import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@voltojs/providers/pi-ai";
 import { getConfigDir } from "./config/paths.js";
 import { ensureConfigMigrated } from "./config/store.js";
 import { activeLocale, patchPreferences, readPreferences } from "./config/preferences.js";

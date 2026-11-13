@@ -1,0 +1,46 @@
+{
+  "name": "@voltojs/stores",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/memory/index.js",
+  "types": "./dist/memory/index.d.ts",
+  "exports": {
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js"
+    },
+    "./file": {
+      "types": "./dist/file/index.d.ts",
+      "import": "./dist/file/index.js"
+    },
+    "./jsonl": {
+      "types": "./dist/jsonl/index.d.ts",
+      "import": "./dist/jsonl/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltojs/volto.git"
+  },
+  "dependencies": {
+    "@voltojs/core": "workspace:*"
+  }
+}

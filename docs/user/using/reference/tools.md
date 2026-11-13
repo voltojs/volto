@@ -3,7 +3,7 @@ title: Tool reference
 type: reference
 generated: true
 source:
-  - packages/tools/*/src
+  - packages/tools/src
 verified: 2026-11-11
 ---
 <!-- GENERATED FILE — do not edit by hand. Run `pnpm docs:gen`; hand edits are reported as drift by `pnpm docs:check`. -->
