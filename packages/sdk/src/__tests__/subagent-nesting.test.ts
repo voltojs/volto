@@ -18,7 +18,7 @@ import type {
   ToolResult,
 } from "@voltojs/core";
 import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 import type { AgentEntry } from "../agent-registry/index.js";
 
 function recordingModelPort(script: ModelEvent[][]) {

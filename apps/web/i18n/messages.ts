@@ -8,7 +8,7 @@
  * resolves the initial locale through it.
  */
 import type { AbstractIntlMessages } from 'next-intl';
-import { DEFAULT_LOCALE, isLocale, type Locale } from '@voltojs/i18n';
+import { DEFAULT_LOCALE, isLocale, type Locale } from '@voltojs/sdk/i18n';
 import zhCommon from '@/messages/zh/common.json';
 import zhChat from '@/messages/zh/chat.json';
 import zhSidebar from '@/messages/zh/sidebar.json';
@@ -23,7 +23,7 @@ import enSettings from '@/messages/en/settings.json';
 import enTrajectory from '@/messages/en/trajectory.json';
 
 /** A shipped language tag. The catalog map is exactly this wide. */
-export type { Locale } from '@voltojs/i18n';
+export type { Locale } from '@voltojs/sdk/i18n';
 
 /** The namespaces both locales must carry, with identical keys. */
 export const NAMESPACES = [

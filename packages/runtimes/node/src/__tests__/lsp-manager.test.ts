@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { uriToFile } from "@voltojs/tools-code";
+import { uriToFile } from "@voltojs/tools/code";
 import { createNodeFileSystem } from "../filesystem.js";
 import { createNodeLspManager } from "../lsp.js";
 import type { LspManager, LspManagerOptions } from "../lsp.js";

@@ -2,7 +2,7 @@
 title: 子代理与后台任务
 type: guide
 source:
-  - packages/tools/agent/src/task.ts
+  - packages/tools/src/agent/task.ts
   - packages/sdk/src/create-agent.ts
   - packages/sdk/src/agent-registry/scan.ts
   - apps/gateway/src/agents/routes.ts

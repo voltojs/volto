@@ -7,7 +7,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 import { createMockModelPort, textScript, toolCallScript, CAP_AGENT_DEPTH_AVAILABLE } from "@voltojs/core";
 
 /** Wrap a mock model port so each request's visible tool names are recorded. */

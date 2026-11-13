@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { ModelPort, TranscriptEventInput } from "@voltojs/core";
-import { createStore } from "@voltojs/store-jsonl";
+import { createStore } from "@voltojs/stores/jsonl";
 import { createServer } from "../server.js";
 
 const MODEL_PORT: ModelPort = {

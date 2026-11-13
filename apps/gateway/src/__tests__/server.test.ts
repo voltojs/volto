@@ -15,7 +15,7 @@ import { buildConfigScript } from "../static/serve.js";
 import { getConfigDir } from "../config/paths.js";
 import { loadPermissionRules } from "../config/permissions.js";
 import { rotateAccessToken } from "../auth/access-token.js";
-import { encodeWorkspaceName } from "@voltojs/store-jsonl";
+import { encodeWorkspaceName } from "@voltojs/stores/jsonl";
 import type { BrowserHost } from "@voltojs/runtime-node";
 import {
   applyPartial,

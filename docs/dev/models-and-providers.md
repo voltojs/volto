@@ -37,9 +37,9 @@ Three adapters exist:
 
 | Adapter | Factory | Wire | Used by |
 | --- | --- | --- | --- |
-| `@voltojs/provider-pi-ai` | `createPiAiModelPort` | pi-ai `Models` (three protocols) | `apps/gateway/src/wiring.ts`, `apps/desktop-app/src/main/agent/wiring.ts` |
-| `@voltojs/provider-openai` | `createOpenAIModelPort` | `POST /v1/chat/completions` | no host; tests only |
-| `@voltojs/provider-anthropic` | `createAnthropicModelPort` | `POST /v1/messages` | no host; tests only |
+| `@voltojs/providers/pi-ai` | `createPiAiModelPort` | pi-ai `Models` (three protocols) | `apps/gateway/src/wiring.ts`, `apps/desktop-app/src/main/agent/wiring.ts` |
+| `@voltojs/providers/openai` | `createOpenAIModelPort` | `POST /v1/chat/completions` | no host; tests only |
+| `@voltojs/providers/anthropic` | `createAnthropicModelPort` | `POST /v1/messages` | no host; tests only |
 
 Provider selection is a construction-time decision, not a request field:
 `ModelRequest` has no provider id, and `StepContext.providerId` is provenance
@@ -360,9 +360,9 @@ Static gate per affected package (never the whole repo by default, never
 `@voltojs/desktop-app`):
 
 ```bash
-pnpm turbo run typecheck lint test --filter @voltojs/provider-pi-ai
-pnpm turbo run typecheck lint test --filter @voltojs/provider-openai
-pnpm turbo run typecheck lint test --filter @voltojs/provider-anthropic
+pnpm turbo run typecheck lint test --filter @voltojs/providers/pi-ai
+pnpm turbo run typecheck lint test --filter @voltojs/providers/openai
+pnpm turbo run typecheck lint test --filter @voltojs/providers/anthropic
 pnpm turbo run typecheck lint test --filter @voltojs/sdk
 pnpm turbo run typecheck lint test --filter @voltojs/gateway
 node scripts/check-core-zero-deps.mjs

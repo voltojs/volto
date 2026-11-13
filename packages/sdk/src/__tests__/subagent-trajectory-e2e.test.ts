@@ -5,8 +5,8 @@ import path from "node:path";
 import { createAgent } from "../create-agent.js";
 import { buildTurnRecords, toTrajectoryView } from "@voltojs/core";
 import type { EventSink, ModelEvent, ModelPort, ModelRequest, TrajectoryRow } from "@voltojs/core";
-import { createStore, scopeToWorkspace } from "@voltojs/store-jsonl";
-import type { ChatSessionRecord } from "@voltojs/store-jsonl";
+import { createStore, scopeToWorkspace } from "@voltojs/stores/jsonl";
+import type { ChatSessionRecord } from "@voltojs/stores/jsonl";
 import type { AgentEntry } from "../agent-registry/scan.js";
 import { modelDone, textScript, toolUseDelta, toolUseStart } from "@voltojs/core";
 

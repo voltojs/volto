@@ -72,7 +72,7 @@ function fileStoreForced(env: NodeJS.ProcessEnv): boolean {
 }
 
 async function loadFileStore(directory: string): Promise<SessionStore> {
-  const { createStore } = await import("@voltojs/store-file");
+  const { createStore } = await import("@voltojs/stores/file");
   return createStore({ directory });
 }
 

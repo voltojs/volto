@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "../sessions.js";
 import type { ReducerState, Message, TranscriptStore, TranscriptEvent, TranscriptEventInput } from "@voltojs/core";
-import type { ChatSessionRecord, JsonlSessionStore } from "@voltojs/store-jsonl";
+import type { ChatSessionRecord, JsonlSessionStore } from "@voltojs/stores/jsonl";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
 const created: Array<{ closeAll: () => Promise<void> }> = [];

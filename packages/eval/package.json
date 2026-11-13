@@ -42,5 +42,6 @@
   },
   "dependencies": {
     "@voltojs/core": "workspace:*"
-  }
+  },
+  "private": true
 }

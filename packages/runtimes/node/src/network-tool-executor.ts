@@ -1,6 +1,6 @@
 import type { PendingToolCall, ToolResult, Network } from "@voltojs/core";
-import type { WebTool } from "@voltojs/tools-web";
-import { createWebFetchTool, createWebSearchTool } from "@voltojs/tools-web";
+import type { WebTool } from "@voltojs/tools/web";
+import { createWebFetchTool, createWebSearchTool } from "@voltojs/tools/web";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateNetworkToolExecutorOptions {

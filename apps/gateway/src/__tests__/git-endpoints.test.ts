@@ -5,7 +5,7 @@ import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { ModelPort } from "@voltojs/core";
-import { createStore } from "@voltojs/store-jsonl";
+import { createStore } from "@voltojs/stores/jsonl";
 import { createServer, type HeadlessServer } from "../server.js";
 
 const execFileAsync = promisify(execFile);

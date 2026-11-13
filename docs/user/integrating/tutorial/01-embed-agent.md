@@ -4,7 +4,7 @@ type: tutorial
 source:
   - packages/sdk/src/create-agent.ts
   - packages/sdk/src/defaults.ts
-  - packages/providers/pi-ai/src/model-port.ts
+  - packages/providers/src/pi-ai/model-port.ts
 generated: false
 verified: 2026-11-13
 ---
@@ -31,7 +31,7 @@ verified: 2026-11-13
 
   Since Node 20.19 / 22.12, `require()` can load ESM too, but the SDK's actual support baseline is Node 22; do not rely on earlier behavior.
 
-- Optional packages are installed separately as needed and are not all bundled in `@voltojs/sdk`: `@voltojs/provider-pi-ai`, `@voltojs/provider-openai`, `@voltojs/provider-anthropic`, `@voltojs/store-sqlite` and so on. Step one below uses only the defaults shipped with `@voltojs/sdk`, so you can skip installing them for now.
+- Optional packages are installed separately as needed and are not all bundled in `@voltojs/sdk`: `@voltojs/providers/pi-ai`, `@voltojs/providers/openai`, `@voltojs/providers/anthropic`, `@voltojs/store-sqlite` and so on. Step one below uses only the defaults shipped with `@voltojs/sdk`, so you can skip installing them for now.
 
 ## Step one: verify the wiring with a fake model
 
@@ -66,12 +66,12 @@ This one call already walks the full real path — the core state machine, the t
 Use the pi-ai adapter to connect an OpenAI-compatible endpoint (a custom provider). Switching to any other vendor only means changing the configuration under `providers`. Install this adapter first:
 
 ```bash
-npm i @voltojs/provider-pi-ai
+npm i @voltojs/providers/pi-ai
 ```
 
 ```ts
 import { createAgent } from "@voltojs/sdk";
-import { createPiAiModelPort } from "@voltojs/provider-pi-ai";
+import { createPiAiModelPort } from "@voltojs/providers/pi-ai";
 
 const modelPort = createPiAiModelPort({
   providers: [

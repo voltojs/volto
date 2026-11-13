@@ -173,16 +173,17 @@ export function codeFences(markdown, language) {
 /** Tool packages declare one `defineTool({ name: "..." })` per tool; imports may alias the helper. */
 export function extractTools() {
   const tools = [];
-  const packages = fs.existsSync(path.join(ROOT, "packages/tools"))
-    ? fs.readdirSync(path.join(ROOT, "packages/tools"))
+  const toolsRoot = path.join(ROOT, "packages/tools/src");
+  const packages = fs.existsSync(toolsRoot)
+    ? fs.readdirSync(toolsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
     : [];
   for (const pkg of packages) {
-    const srcDir = path.join(ROOT, "packages/tools", pkg, "src");
+    const srcDir = path.join(toolsRoot, pkg);
     const files = walk(srcDir, (file) => file.endsWith(".ts") && !file.includes("__tests__"));
     for (const file of files) {
       const source = readText(file);
       const aliases = new Set(["defineTool"]);
-      for (const im of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"[^"]*tools-common"/g)) {
+      for (const im of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"[^"]*(?:tools-common|\/common\/index\.js)"/g)) {
         for (const part of im[1].split(",")) {
           const alias = /^defineTool\s+as\s+(\w+)$/.exec(part.trim());
           if (alias) aliases.add(alias[1]);
@@ -557,7 +558,7 @@ export function buildToolsPage(surfaces, notes, locale = "en") {
       title: t.title,
       type: "reference",
       generated: true,
-      source: ["packages/tools/*/src"],
+      source: ["packages/tools/src"],
       verified: VERIFIED,
     }),
     GENERATED_HEADER,

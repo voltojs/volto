@@ -14,8 +14,8 @@ import type {
   TranscriptEvent,
   TranscriptEventInput,
 } from "@voltojs/core";
-import type { ChatSessionRecord, JsonlSessionStore } from "@voltojs/store-jsonl";
-import { DEFAULT_LOCALE, isLocale, t, type Locale } from "@voltojs/i18n";
+import type { ChatSessionRecord, JsonlSessionStore } from "@voltojs/stores/jsonl";
+import { DEFAULT_LOCALE, isLocale, t, type Locale } from "@voltojs/sdk/i18n";
 
 export interface ForkOptions {
   /** Copy through the last completed turn at or before this event seq. */

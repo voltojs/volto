@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMemoryStore } from "@voltojs/store-memory";
+import { createMemoryStore } from "@voltojs/stores/memory";
 import {
   createMockModelPort,
   toolCallScript,
@@ -12,7 +12,7 @@ import type {
   ApprovalGate,
   TranscriptEventInput,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 
 const dangerousTool: ToolDefinition = {
   name: "dangerous_op",

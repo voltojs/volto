@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Shell } from "@voltojs/core";
-import type { BashSessionLike } from "@voltojs/tools-shell";
+import type { BashSessionLike } from "@voltojs/tools/shell";
 import { createShellToolExecutor } from "../shell-tool-executor.js";
 
 /**

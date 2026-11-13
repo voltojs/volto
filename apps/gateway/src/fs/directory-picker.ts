@@ -17,7 +17,7 @@
  * that branch below.
  */
 
-import { DEFAULT_LOCALE, t, type Locale } from "@voltojs/i18n";
+import { DEFAULT_LOCALE, t, type Locale } from "@voltojs/sdk/i18n";
 import {
   CommandFailedError,
   CommandNotFoundError,

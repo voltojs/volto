@@ -28,7 +28,6 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/suggestion": "^3.31.3",
-    "@voltojs/i18n": "workspace:*",
     "@voltojs/sdk": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -63,6 +62,7 @@
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "@voltojs/sdk": "workspace:*"
   }
 }

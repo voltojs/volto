@@ -22,7 +22,7 @@ import type {
   ToolDefinition,
   TranscriptEventInput,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 
 const ECHO_DEF: ToolDefinition = {
   name: "echo",

@@ -19,7 +19,7 @@ import type {
   ModelEvent,
   EventSink,
 } from "@voltojs/core";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 import {
   createMockModelPort,
   toolCallScript,

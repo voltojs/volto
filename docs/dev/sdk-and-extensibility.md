@@ -176,7 +176,7 @@ tool. There is no plugin discovery/install surface in the SDK.
 ### Other extension points
 
 - **Custom tools and dynamic sources** — `opts.tools: Tool[]` (`{ definition, handler }` from
-  `@voltojs/tools-common`); `requires` must be granted or the tool is gated out, and `riskTier`
+  `@voltojs/tools/common`); `requires` must be granted or the tool is gated out, and `riskTier`
   must be at or below the policy ceiling. `opts.toolSources: ToolSource[]` are listed on the
   first turn and refreshed on `onChange`; a source tool with `callTool` is executable, others
   answer a normalized error. `agent.tools` is a construction-time snapshot and does not reflect
@@ -400,7 +400,7 @@ Run the affected package gates; never the whole repo by default and never
 ```bash
 pnpm turbo run typecheck lint test --filter @voltojs/sdk
 # when the task/todo contract changes:
-pnpm turbo run typecheck lint test --filter @voltojs/tools-agent --filter @voltojs/tools-plan
+pnpm turbo run typecheck lint test --filter @voltojs/tools/agent --filter @voltojs/tools/plan
 ```
 
 The SDK consumes built `dist` from core, runtime-node and the tool packages, so build or
@@ -432,7 +432,7 @@ Contract impact to check before merging:
   executor's `SyncSubAgentRequest`; the start bracket, tool result and envelope must stay in
   sync (one `taskId`, optional keys omitted rather than null).
 - Permission behavior is a multi-package contract: presets and `narrowPermission` in
-  `@voltojs/core`, the schema in `@voltojs/tools-agent`, wiring in the SDK, the badge in
+  `@voltojs/core`, the schema in `@voltojs/tools/agent`, wiring in the SDK, the badge in
   `apps/web`. A new preset goes into `PERMISSION_PRESETS`, `permissionConfigOf`,
   `allowedPresetsFor`, the task schema and the web picker together.
 - A new plugin product is not wired by extending `PluginRegistry`: `createAgent` must consume

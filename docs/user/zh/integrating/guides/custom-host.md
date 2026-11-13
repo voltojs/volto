@@ -4,7 +4,7 @@ type: guide
 source:
   - packages/sdk/src/create-agent.ts
   - apps/gateway/src/wiring.ts
-  - packages/tools/mcp/src
+  - packages/tools/src/mcp
 generated: false
 verified: 2026-11-11
 ---
@@ -56,7 +56,7 @@ verified: 2026-11-11
 官方网关还没接 MCP，自建宿主可以直接接：
 
 ```ts
-import { McpToolSource, StdioTransport } from "@voltojs/tools-mcp";
+import { McpToolSource, StdioTransport } from "@voltojs/tools/mcp";
 
 const mcp = new McpToolSource({
   servers: [

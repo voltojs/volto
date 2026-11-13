@@ -1,6 +1,6 @@
 import type { PendingToolCall, ToolResult, FileSystem, AttachmentStore } from "@voltojs/core";
 import { evaluateEditGate, evaluateOverwriteGate } from "@voltojs/core";
-import type { FileTool, PdfLikeParser } from "@voltojs/tools-fs";
+import type { FileTool, PdfLikeParser } from "@voltojs/tools/fs";
 import {
   createReadFileTool,
   createEditFileTool,
@@ -10,7 +10,7 @@ import {
   createLsTool,
   createGlobTool,
   createGrepTool,
-} from "@voltojs/tools-fs";
+} from "@voltojs/tools/fs";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateFsToolExecutorOptions {

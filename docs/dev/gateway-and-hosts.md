@@ -330,7 +330,7 @@ The Electron main process embeds the SDK; there is no gateway in the loop.
 | --- | --- | --- |
 | Transport | HTTP + SSE, `EventSource` with credentials | `ipcRenderer.invoke` + `agent:event` broadcasts |
 | Agent construction | `createWiredAgent` (config-store driven, per turn rebuild) | `createAgentInstance` (electron-store driven, explicit `create`) |
-| Transcript | `@voltojs/store-jsonl` + sqlite session store under the config dir | `electron-store` (`sessions`, `sessionMessages`), replayed into `initialMessages` |
+| Transcript | `@voltojs/stores/jsonl` + sqlite session store under the config dir | `electron-store` (`sessions`, `sessionMessages`), replayed into `initialMessages` |
 | Providers | provider store, per-session `providerId`/`modelId`, protocol probe | one `custom` provider per session binding, no probe |
 | Permission presets | `permission-modes.ts` over `@voltojs/core`'s `PERMISSION_PRESETS` | local `auto`/`ask`/`deny` triple in `wiring.ts` |
 | Approvals | SSE channel + `POST /approvals` with a per-connection token | IPC broadcast + `requestId`, 5-minute deny timeout |

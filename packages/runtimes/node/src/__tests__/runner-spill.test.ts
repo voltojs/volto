@@ -31,9 +31,9 @@ import {
   renderSpillReference,
   UNTRUSTED_PREFIX,
 } from "@voltojs/core";
-import { createBashTool, CAP_SHELL_EXEC } from "@voltojs/tools-shell";
-import { createGitDiffTool } from "@voltojs/tools-vcs";
-import { createWebFetchTool, CAP_NETWORK_FETCH } from "@voltojs/tools-web";
+import { createBashTool, CAP_SHELL_EXEC } from "@voltojs/tools/shell";
+import { createGitDiffTool } from "@voltojs/tools/vcs";
+import { createWebFetchTool, CAP_NETWORK_FETCH } from "@voltojs/tools/web";
 import { createRunner } from "../runner.js";
 import { createShellToolExecutor } from "../shell-tool-executor.js";
 import { createNetworkToolExecutor } from "../network-tool-executor.js";

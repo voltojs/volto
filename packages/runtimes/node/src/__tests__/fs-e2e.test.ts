@@ -17,7 +17,7 @@ import {
   toolUseDelta,
   toolUseStart,
 } from "@voltojs/core";
-import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@voltojs/tools-fs";
+import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@voltojs/tools/fs";
 import { createRunner } from "../runner.js";
 import { createFsToolExecutor } from "../tool-executor.js";
 

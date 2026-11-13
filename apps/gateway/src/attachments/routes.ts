@@ -11,7 +11,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { MAX_IMAGE_BASE64 } from "@voltojs/tools-common";
+import { MAX_IMAGE_BASE64 } from "@voltojs/tools/common";
 import type { StoreFor } from "./store.js";
 
 /** Image MIME types accepted on upload. */

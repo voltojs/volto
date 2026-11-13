@@ -306,7 +306,7 @@ child-scoped SSE channel for continued turns with its own per-child `isGeneratin
 
 ## Internationalization
 
-Two shipped languages, `zh` and `en`, defined once in `@voltojs/i18n`
+Two shipped languages, `zh` and `en`, defined once in `@voltojs/sdk/i18n`
 (`packages/i18n/src/index.ts`) with `DEFAULT_LOCALE = 'zh'`. That package holds copy the
 *server* produces (`server.*` keys, rendered through `t(locale, key, params)` or shipped as
 a `TextRef { key, params?, fallback? }`), so one phrase has one translation across gateway

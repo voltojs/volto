@@ -4,7 +4,7 @@ type: guide
 source:
   - apps/gateway/src/skills/registry.ts
   - apps/gateway/src/skills/frontmatter.ts
-  - packages/tools/mcp/src
+  - packages/tools/src/mcp
 generated: false
 verified: 2026-11-11
 ---
@@ -55,7 +55,7 @@ So "it never got used" is usually not a breakage, but a `description` that does 
 
 ## MCP: the current state
 
-The MCP (Model Context Protocol) client is implemented (`@voltojs/tools-mcp`: stdio transport, tool discovery, resources and prompts), but **the official gateway and Web UI do not connect to it yet** — you will not find an entry point for adding an MCP server in the UI, and `config.json` has no corresponding section.
+The MCP (Model Context Protocol) client is implemented (`@voltojs/tools/mcp`: stdio transport, tool discovery, resources and prompts), but **the official gateway and Web UI do not connect to it yet** — you will not find an entry point for adding an MCP server in the UI, and `config.json` has no corresponding section.
 
 To use MCP today, mount `McpToolSource` into `createAgent({ toolSources })` in a self-built host; see [Custom host](../../integrating/guides/custom-host.md). This is host wiring work, not a configuration option.
 

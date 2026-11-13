@@ -42,16 +42,14 @@
   },
   "dependencies": {
     "@voltojs/core": "workspace:*",
-    "@voltojs/i18n": "workspace:*",
-    "@voltojs/memory-file": "workspace:*",
-    "@voltojs/provider-pi-ai": "workspace:*",
     "@voltojs/runtime-node": "workspace:*",
     "@voltojs/sdk": "workspace:*",
-    "@voltojs/store-file": "workspace:*",
-    "@voltojs/store-jsonl": "workspace:*",
     "@voltojs/store-sqlite": "workspace:*",
-    "@voltojs/tools-common": "workspace:*",
-    "ws": "^8.16.0"
+    "ws": "^8.16.0",
+    "@voltojs/tools": "workspace:*",
+    "@voltojs/memories": "workspace:*",
+    "@voltojs/providers": "workspace:*",
+    "@voltojs/stores": "workspace:*"
   },
   "optionalDependencies": {
     "playwright-core": "^1.60.0",
@@ -59,6 +57,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.5.0",
-    "tsx": "^4.23.13"
+    "tsx": "^4.23.13",
+    "@voltojs/sdk": "workspace:*"
   }
 }

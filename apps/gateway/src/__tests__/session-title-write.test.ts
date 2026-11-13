@@ -24,7 +24,7 @@ interface FakeStore {
 
 /**
  * A transcript store that folds `session_meta` field-by-field exactly like
- * `@voltojs/store-jsonl` does — the property every title write relies on.
+ * `@voltojs/stores/jsonl` does — the property every title write relies on.
  */
 function fakeStore(initial?: ChatSessionMeta): FakeStore {
   const store: FakeStore = {

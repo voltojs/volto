@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createSessionRegistry } from "../sessions.js";
 import { createServer, type HeadlessServer } from "../server.js";
-import { createStore as createJsonlStore } from "@voltojs/store-jsonl";
+import { createStore as createJsonlStore } from "@voltojs/stores/jsonl";
 import type { ReducerState, Message, ModelPort } from "@voltojs/core";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */

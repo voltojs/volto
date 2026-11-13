@@ -100,9 +100,9 @@ import {
 import { createNodeAttachmentStore, createNodeDocumentParser, wrapNetworkWithEgress } from "@voltojs/runtime-node";
 import { createNodeSpillStore } from "@voltojs/runtime-node";
 import type { EgressPolicy } from "@voltojs/runtime-node";
-import type { Tool } from "@voltojs/tools-common";
-import type { SubAgentDispatch, AgentTypeSummary, AgentTierSummary } from "@voltojs/tools-agent";
-import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@voltojs/tools-agent";
+import type { Tool } from "@voltojs/tools/common";
+import type { SubAgentDispatch, AgentTypeSummary, AgentTierSummary } from "@voltojs/tools/agent";
+import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@voltojs/tools/agent";
 import type { AgentEntry } from "./agent-registry/index.js";
 import type { AgentSpec } from "./agent-spec.js";
 import {
@@ -173,15 +173,15 @@ import {
   createListWatchesTool,
   CAP_FS_WATCH,
   FS_EXECUTOR_TOOL_NAMES,
-} from "@voltojs/tools-fs";
+} from "@voltojs/tools/fs";
 import {
   createBashTool,
   createBashOutputTool,
   createKillShellTool,
   SHELL_TOOL_NAMES,
   type BashSessionLike,
-} from "@voltojs/tools-shell";
-import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@voltojs/tools-web";
+} from "@voltojs/tools/shell";
+import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@voltojs/tools/web";
 import {
   createLspDefinitionTool,
   createLspReferencesTool,
@@ -189,8 +189,8 @@ import {
   createLspDiagnosticsTool,
   createLspHoverTool,
   CAP_LSP_QUERY,
-} from "@voltojs/tools-code";
-import type { LspClientProvider } from "@voltojs/tools-code";
+} from "@voltojs/tools/code";
+import type { LspClientProvider } from "@voltojs/tools/code";
 import {
   createGitStatusTool,
   createGitDiffTool,
@@ -198,16 +198,16 @@ import {
   createGitPushTool,
   createRunTestsTool,
   createBuildTool,
-} from "@voltojs/tools-vcs";
-import { createAskUserTool } from "@voltojs/tools-ask";
-import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "@voltojs/tools-memory";
-import { createTodoWriteTool, CAP_PLAN_WRITE } from "@voltojs/tools-plan";
-import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@voltojs/tools-data";
-import type { DatabaseOpener } from "@voltojs/tools-data";
-import { createReadDocumentTool } from "@voltojs/tools-document";
-import type { DocumentParserAdapter, DocumentParseOptions } from "@voltojs/tools-document";
-import { createScheduleTool, createCancelScheduleTool } from "@voltojs/tools-schedule";
-import { createSkillTool } from "@voltojs/tool-skill";
+} from "@voltojs/tools/vcs";
+import { createAskUserTool } from "@voltojs/tools/ask";
+import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "@voltojs/tools/memory";
+import { createTodoWriteTool, CAP_PLAN_WRITE } from "@voltojs/tools/plan";
+import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@voltojs/tools/data";
+import type { DatabaseOpener } from "@voltojs/tools/data";
+import { createReadDocumentTool } from "@voltojs/tools/document";
+import type { DocumentParserAdapter, DocumentParseOptions } from "@voltojs/tools/document";
+import { createScheduleTool, createCancelScheduleTool } from "@voltojs/tools/schedule";
+import { createSkillTool } from "@voltojs/tools/skill";
 import {
   BROWSER_TOOL_NAMES,
   createBrowserNavigateTool,
@@ -219,8 +219,8 @@ import {
   createBrowserScreenshotTool,
   createBrowserDiagnosticsTool,
   createBrowserStorageStateTool,
-} from "@voltojs/tools-browser";
-import type { BrowserAdapter } from "@voltojs/tools-browser";
+} from "@voltojs/tools/browser";
+import type { BrowserAdapter } from "@voltojs/tools/browser";
 import {
   defaultEventSink,
   defaultTokenizer,

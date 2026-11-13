@@ -34,7 +34,7 @@ import type {
   PolicyEngine,
 } from "@voltojs/core";
 import { createHeuristicTokenizer } from "@voltojs/core";
-import { createMemoryStore } from "@voltojs/store-memory";
+import { createMemoryStore } from "@voltojs/stores/memory";
 
 let idCounter = 0;
 

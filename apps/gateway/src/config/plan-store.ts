@@ -3,14 +3,14 @@
  * storage the gateway manages on the agent's behalf.
  *
  * Layout mirrors the session transcript store's workspace scoping
- * (`@voltojs/store-jsonl`): `<rootDir>/sessions/<encodeWorkspaceName(projectPath)>/
+ * (`@voltojs/stores/jsonl`): `<rootDir>/sessions/<encodeWorkspaceName(projectPath)>/
  * <sessionId>.plan.md`. One plan document per session; `save` overwrites.
  */
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { PlanStore } from "@voltojs/core";
-import { encodeWorkspaceName } from "@voltojs/store-jsonl";
+import { encodeWorkspaceName } from "@voltojs/stores/jsonl";
 import { getConfigDir } from "./paths.js";
 
 export function createPlanStore(rootDir: string = getConfigDir()): PlanStore {

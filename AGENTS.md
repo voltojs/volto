@@ -123,10 +123,10 @@ assertions never touched the real boundary.
     `createInitialState`, ...). This is the point of functional-core / imperative-shell:
     importing pure functions does not break portability.
 - **Directory and package naming** — category directories are **plural** (a collection):
-  `tools/`, `providers/`, `runtimes/`, `stores/`. Package prefixes follow what the
-  package **is**, singular or plural: `@voltojs/tools-fs` (one package, many tools,
-  plural), `@voltojs/provider-openai` / `runtime-node` / `store-memory` (one instance
-  each, singular).
+  `tools/`, `providers/`, `runtimes/`, `stores/`, `memories/`. Each category is one
+  package with a subpath per group (`@voltojs/tools/fs`, `@voltojs/providers/openai`,
+  `@voltojs/stores/jsonl`); runtime adapters and native/driver-backed stores stay
+  separate (`runtime-node`, `runtimes-web`, `store-sqlite`, `store-postgres`).
 - **Check the official documentation for third-party constructor parameters**; do not
   guess from memory (especially OpenAI-compatible streaming `tool_calls` chunk
   accumulation and Zod schema syntax).
@@ -204,15 +204,11 @@ volto/
 │   ├── core/                 # @voltojs/core   pure kernel + port interfaces  ← zero deps
 │   ├── sdk/                  # @voltojs/sdk    facade: run / stream / resume
 │   ├── eval/                 # @voltojs/eval   evaluation
-│   ├── tools/                # one package per tool group
-│   │   ├── fs shell web plan agent ask browser code data document mcp schedule vcs
-│   │   ├── common/           # @voltojs/tools-common  defineTool and shared helpers
-│   │   └── skill/            # @voltojs/tool-skill (singular prefix, unlike the rest)
-│   ├── providers/            # openai / anthropic / pi-ai   → @voltojs/provider-*
-│   ├── runtimes/             # node / browser / edge        → @voltojs/runtime-*
-│   ├── stores/               # memory / file / jsonl / sqlite / postgres → @voltojs/store-*
-│   ├── embedders/            # openai                       → @voltojs/embedder-*
-│   └── memories/             # inmemory                     → @voltojs/memory-*
+│   ├── tools/                # @voltojs/tools — all built-in tools, one subpath per group
+│   ├── providers/            # @voltojs/providers — pi-ai / openai / anthropic / embedder-openai
+│   ├── runtimes/             # @voltojs/runtime-node, @voltojs/runtimes-web (browser + edge)
+│   ├── stores/               # @voltojs/stores (memory/file/jsonl) + store-sqlite/store-postgres
+│   └── memories/             # @voltojs/memories — common / inmemory / file
 ├── apps/
 │   ├── gateway/      # HTTP + SSE host: wiring and event subscriptions only, core untouched
 │   ├── web/                  # Next.js chat frontend consuming the gateway's SSE protocol
@@ -224,8 +220,9 @@ volto/
 └── scripts/                  # repository-wide checks and analysis
 ```
 
-> The pnpm workspace glob uses mixed depth: `packages/*` (core/sdk/eval) +
-> `packages/*/*` (tools/providers/runtimes/stores/embedders/memories) + `apps/*`.
+> The pnpm workspace glob uses mixed depth: `packages/*` (core, sdk, tools, providers,
+> stores, memories, eval) + `packages/*/*` (runtimes/node, runtimes/web, stores/sqlite,
+> stores/postgres) + `apps/*`.
 
 ## Commands
 

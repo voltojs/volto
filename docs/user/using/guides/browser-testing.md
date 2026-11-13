@@ -2,7 +2,7 @@
 title: Testing web pages with a browser
 type: guide
 source:
-  - packages/tools/browser/src
+  - packages/tools/src/browser
   - packages/runtimes/node/src/browser-host.ts
   - apps/gateway/src/config/browser.ts
 verified: 2026-11-12

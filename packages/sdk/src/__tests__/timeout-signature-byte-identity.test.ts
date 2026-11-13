@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { renderTimeoutSignature } from "@voltojs/tools-common";
+import { renderTimeoutSignature } from "@voltojs/tools/common";
 import { renderNetworkTimeoutSignature } from "@voltojs/runtime-node";
 
 // Cross-package byte-identity pin (spec D3):
-// runtime-node cannot depend on @voltojs/tools-common (category dependency
+// runtime-node cannot depend on @voltojs/tools/common (category dependency
 // rules are one-way downward), so the network adapter renders the timeout
 // signature from a byte-identical local template. This test — in a package
 // that can see BOTH templates — fails if either one drifts.

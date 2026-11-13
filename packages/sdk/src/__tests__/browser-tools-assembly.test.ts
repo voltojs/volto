@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultPermissionConfig, textScript } from "@voltojs/core";
 import type { ModelPort, ModelRequest, Network, ToolDefinition } from "@voltojs/core";
-import type { BrowserAdapter } from "@voltojs/tools-browser";
-import { BROWSER_TOOL_NAMES } from "@voltojs/tools-browser";
+import type { BrowserAdapter } from "@voltojs/tools/browser";
+import { BROWSER_TOOL_NAMES } from "@voltojs/tools/browser";
 import { assembleSubAgent, createAgent } from "../create-agent.js";
-import type { Tool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools/common";
 
 const BROWSER_NAMES = [
   "browser_navigate",
