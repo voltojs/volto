@@ -1,7 +1,7 @@
 /**
  * Headless server — HTTP + SSE + WebSocket gateway for volto.
  *
- * Protocol routes (consumed by apps/web via `@volto/sdk/sse`):
+ * Protocol routes (consumed by apps/web via `@voltojs/sdk/sse`):
  *   GET  /events?sessionId=   — long-lived SSE channel for one chat session
  *   POST /messages            — { sessionId, message } triggers a turn on that channel
  *   POST /messages/queue      — { sessionId, id, action } edits/withdraws a queued message
@@ -39,13 +39,13 @@ import * as path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
-import { projectMessageEntries, foldStandingTodos, pendingSteeringEntries } from "@volto/core";
-import type { ContentBlock, ModelInputLimits, ModelInputValue } from "@volto/core";
+import { projectMessageEntries, foldStandingTodos, pendingSteeringEntries } from "@voltojs/core";
+import type { ContentBlock, ModelInputLimits, ModelInputValue } from "@voltojs/core";
 import {
   readConversation,
   readTrajectory,
   CompactionBusyError,
-} from "@volto/sdk";
+} from "@voltojs/sdk";
 import {
   createStore as createJsonlStore,
   encodeWorkspaceName,
@@ -53,8 +53,8 @@ import {
   asTranscriptReader,
   type ChatSessionMeta,
   type JsonlSessionStore,
-} from "@volto/store-jsonl";
-import { t } from "@volto/i18n";
+} from "@voltojs/store-jsonl";
+import { t } from "@voltojs/i18n";
 import {
   createWiredAgent,
   createAttachmentParsePdf,
@@ -62,7 +62,7 @@ import {
   type WiringOptions,
 } from "./wiring.js";
 import type { SessionStoreSelection } from "./session-store-factory.js";
-import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@volto/runtime-node";
+import { createNodeBrowserHost, resolveBrowserExecutable, type BrowserHost } from "@voltojs/runtime-node";
 import {
   BrowserPathError,
   loadBrowserConfig,
@@ -87,7 +87,7 @@ import {
 } from "./sessions.js";
 import { unfinishedTurnTail } from "./session-tail.js";
 import { forkSession, ForkError } from "./session-fork.js";
-import { renderSessionJsonl, renderSessionMarkdown } from "@volto/core";
+import { renderSessionJsonl, renderSessionMarkdown } from "@voltojs/core";
 import {
   createProjectStore,
   InvalidPathError,
@@ -95,8 +95,8 @@ import {
   unknownProjectMessage,
 } from "./config/projects.js";
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
-import { isProviderProtocol, type ProviderProtocol } from "@volto/provider-pi-ai";
-import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@volto/provider-pi-ai";
+import { isProviderProtocol, type ProviderProtocol } from "@voltojs/provider-pi-ai";
+import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@voltojs/provider-pi-ai";
 import { getConfigDir } from "./config/paths.js";
 import { ensureConfigMigrated } from "./config/store.js";
 import { activeLocale, patchPreferences, readPreferences } from "./config/preferences.js";
@@ -857,7 +857,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
    * wiring.ts's `chatMeta` option) — it is not part of core's `ChatSessionMeta`
    * and is persisted as untyped JSON at rest, so it is read back here via the
    * same local widening wiring.ts uses to write it, rather than by touching
-   * `@volto/core`.
+   * `@voltojs/core`.
    */
   function bindingsOf(
     meta: ChatSessionMeta & { reasoningEffort?: string },
@@ -893,7 +893,7 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
     // A warning, not a refusal: the API is fully usable without the UI.
     console.warn(
       `Web app not found at ${webRootDir}: GET / will answer 503 (every API route still works). ` +
-        "Build it with `VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build` and copy `apps/web/out` there, or pass `webRoot`.",
+        "Build it with `VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web build` and copy `apps/web/out` there, or pass `webRoot`.",
     );
   }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createStore } from "@volto/store-jsonl";
+import { createStore } from "@voltojs/store-jsonl";
 import { startTestServer } from "./helpers.js";
 
 const auth = (token: string) => ({

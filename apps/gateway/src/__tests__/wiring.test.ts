@@ -9,14 +9,14 @@ import {
   buildSandboxConfigs,
   SECRET_ENV_PATTERNS,
 } from "../wiring.js";
-import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { Hook, ModelPort, ModelRequest } from "@volto/core";
+import { createMockModelPort, toolCallScript, textScript } from "@voltojs/core";
+import type { Hook, ModelPort, ModelRequest } from "@voltojs/core";
 import {
   createNodeFileSystem,
   createNodeShell,
   createSandboxedFileSystem,
   createSandboxedShell,
-} from "@volto/runtime-node";
+} from "@voltojs/runtime-node";
 
 let tempConfigDir: string;
 let tempProjectDir: string;

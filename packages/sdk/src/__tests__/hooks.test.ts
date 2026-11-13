@@ -10,8 +10,8 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { ToolDefinition, ToolResult } from "@volto/core";
+} from "@voltojs/core";
+import type { ToolDefinition, ToolResult } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

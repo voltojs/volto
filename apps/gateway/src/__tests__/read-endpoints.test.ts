@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createStore } from "@volto/store-jsonl";
-import type { ModelPort } from "@volto/core";
+import { createStore } from "@voltojs/store-jsonl";
+import type { ModelPort } from "@voltojs/core";
 import { createServer } from "../server.js";
 
 let tempDir: string;
@@ -39,8 +39,8 @@ async function seed(sessionId: string): Promise<ReturnType<typeof createStore>> 
 describe("GET /sessions/:id", () => {
   it("returns a ConversationView built from the event log", async () => {
     const store = await seed("s1");
-    const { readConversation } = await import("@volto/sdk");
-    const { asTranscriptReader } = await import("@volto/store-jsonl");
+    const { readConversation } = await import("@voltojs/sdk");
+    const { asTranscriptReader } = await import("@voltojs/store-jsonl");
 
     const view = await readConversation(asTranscriptReader(store), "s1");
     expect(view.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
@@ -51,8 +51,8 @@ describe("GET /sessions/:id", () => {
 describe("GET /sessions/:id/trajectory", () => {
   it("returns numbered rows with assistant timing", async () => {
     const store = await seed("s1");
-    const { readTrajectory } = await import("@volto/sdk");
-    const { asTranscriptReader } = await import("@volto/store-jsonl");
+    const { readTrajectory } = await import("@voltojs/sdk");
+    const { asTranscriptReader } = await import("@voltojs/store-jsonl");
 
     const view = await readTrajectory(asTranscriptReader(store), "s1");
     const assistant = view.rows.find((r) => r.kind === "assistant")!;

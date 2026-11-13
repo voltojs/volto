@@ -21,7 +21,7 @@ import {
   findBuiltInAgent,
   type AgentSpec,
   type AgentEntry,
-} from "@volto/sdk";
+} from "@voltojs/sdk";
 
 const BUILTIN_AGENT_NAMES: ReadonlySet<string> = new Set(
   BUILTIN_AGENTS.map((spec) => spec.name),

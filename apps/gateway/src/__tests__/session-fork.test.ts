@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createStore } from "@volto/store-jsonl";
-import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
-import { createNodeAttachmentStore } from "@volto/runtime-node";
-import type { AttachmentStore, PlanStore, TranscriptEventInput } from "@volto/core";
+import { createStore } from "@voltojs/store-jsonl";
+import type { ChatSessionRecord, JsonlSessionStore } from "@voltojs/store-jsonl";
+import { createNodeAttachmentStore } from "@voltojs/runtime-node";
+import type { AttachmentStore, PlanStore, TranscriptEventInput } from "@voltojs/core";
 import { forkSession, ForkError } from "../session-fork.js";
 
 let dir: string;

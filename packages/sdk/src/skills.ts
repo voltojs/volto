@@ -2,7 +2,7 @@
  * Skills — legacy skill metadata types (M13 Phase 5).
  *
  * Discovery and loading now flow through the host-owned `SkillRegistry`
- * port (@volto/core) and the progressive disclosure pipeline in
+ * port (@voltojs/core) and the progressive disclosure pipeline in
  * create-agent (the `skill-catalog` context layer plus the model-facing
  * `skill` tool). The former trigger auto-injection API (the two pure
  * trigger/resource helpers and `Skill.trigger`) was removed by plan-016 —

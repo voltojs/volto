@@ -7,8 +7,8 @@
  * upload route could never have written.
  */
 
-import { createNodeAttachmentStore } from "@volto/runtime-node";
-import type { AttachmentStore } from "@volto/core";
+import { createNodeAttachmentStore } from "@voltojs/runtime-node";
+import type { AttachmentStore } from "@voltojs/core";
 
 export type StoreFor = (sessionId: string) => AttachmentStore;
 

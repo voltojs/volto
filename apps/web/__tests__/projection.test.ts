@@ -8,7 +8,7 @@ import type {
   ConversationMessage,
   TranscriptDelta,
   TranscriptEventInput,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 
 const EVENTS: TranscriptEventInput[] = [
   { time: 100, type: 'turn_start', data: { turn: 1 }, turn: 1 },
@@ -567,7 +567,7 @@ import {
   projectTrajectory,
   mergeStoredAndLiveRows,
 } from '@/lib/projection';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 function ev(
   time: number,

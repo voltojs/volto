@@ -7,15 +7,15 @@
  * is copied: the new session is a fresh conversation seeded from the prefix.
  */
 
-import { collectAttachmentIds } from "@volto/core";
+import { collectAttachmentIds } from "@voltojs/core";
 import type {
   AttachmentStore,
   PlanStore,
   TranscriptEvent,
   TranscriptEventInput,
-} from "@volto/core";
-import type { ChatSessionRecord, JsonlSessionStore } from "@volto/store-jsonl";
-import { DEFAULT_LOCALE, isLocale, t, type Locale } from "@volto/i18n";
+} from "@voltojs/core";
+import type { ChatSessionRecord, JsonlSessionStore } from "@voltojs/store-jsonl";
+import { DEFAULT_LOCALE, isLocale, t, type Locale } from "@voltojs/i18n";
 
 export interface ForkOptions {
   /** Copy through the last completed turn at or before this event seq. */

@@ -8,8 +8,8 @@
 
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript } from "@volto/core";
-import type { Id } from "@volto/core";
+import { createMockModelPort, textScript } from "@voltojs/core";
+import type { Id } from "@voltojs/core";
 
 /** Counter-based deterministic Id port for tests. */
 function createSeededId(): Id & { calls: number } {

@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { SessionSnapshot, SessionStore } from "@volto/core";
+import type { SessionSnapshot, SessionStore } from "@voltojs/core";
 import {
   classifyStoreFailure,
   createSessionStore,

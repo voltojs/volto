@@ -20,8 +20,8 @@ import * as http from "node:http";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { ModelPort } from "@volto/core";
+import { createMockModelPort, toolCallScript, textScript } from "@voltojs/core";
+import type { ModelPort } from "@voltojs/core";
 import { createServer, type HeadlessServer } from "../server.js";
 
 // 环境隔离（同 ask-user-e2e / wiring.test.ts）：规则文件、审计文件、agent

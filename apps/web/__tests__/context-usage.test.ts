@@ -3,7 +3,7 @@ import {
   emptyContextUsageSnapshot,
   type ContextUsageSnapshot,
   type TranscriptEventInput,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 import { projectContextUsage } from '@/lib/context-usage';
 
 const HEADER = {

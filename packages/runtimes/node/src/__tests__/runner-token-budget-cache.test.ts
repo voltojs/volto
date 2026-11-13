@@ -8,8 +8,8 @@
 
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
-import { createMockModelPort, createInitialState, textDelta, modelDone } from "@volto/core";
-import type { StepContext, ToolDefinition, EventSink, ModelEvent } from "@volto/core";
+import { createMockModelPort, createInitialState, textDelta, modelDone } from "@voltojs/core";
+import type { StepContext, ToolDefinition, EventSink, ModelEvent } from "@voltojs/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

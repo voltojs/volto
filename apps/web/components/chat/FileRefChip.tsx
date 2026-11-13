@@ -3,7 +3,7 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
-import type { FileRef } from '@volto/sdk/file-refs';
+import type { FileRef } from '@voltojs/sdk/file-refs';
 import { openFileRef } from '@/lib/open-file-ref';
 
 /**

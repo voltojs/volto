@@ -8,14 +8,14 @@
  * is byte-for-byte reproducible — the fixtures are checked into git and serve
  * as the initial regression set for `volto-eval-replay` (CI gate).
  *
- * Usage: node scripts/generate-fixtures.mjs   (after `pnpm --filter @volto/eval build`)
+ * Usage: node scripts/generate-fixtures.mjs   (after `pnpm --filter @voltojs/eval build`)
  */
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createTrajectoryRecorder } from "@volto/eval";
-import { step, createInitialState } from "@volto/core";
+import { createTrajectoryRecorder } from "@voltojs/eval";
+import { step, createInitialState } from "@voltojs/core";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(HERE, "../trajectories");

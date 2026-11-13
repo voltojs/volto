@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createScheduleTool, createCancelScheduleTool, SCHEDULE_TOOL_NAMES } from "../index.js";
-import type { Scheduler } from "@volto/core";
+import type { Scheduler } from "@voltojs/core";
 
 function createMockScheduler(): Scheduler {
   let counter = 0;

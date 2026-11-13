@@ -3,7 +3,7 @@
  * Handles request/response correlation, tool discovery, and tool invocation.
  */
 
-import type { ToolDefinition, ToolResult, JSONSchema } from "@volto/core";
+import type { ToolDefinition, ToolResult, JSONSchema } from "@voltojs/core";
 import type { McpTool, McpToolCallResult, McpResource, McpPrompt, McpPromptResult } from "./protocol.js";
 import type { McpTransport } from "./transport.js";
 

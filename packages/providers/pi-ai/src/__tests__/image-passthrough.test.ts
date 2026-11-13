@@ -5,7 +5,7 @@ import type {
   UserMessage as PiUserMessage,
 } from "@earendil-works/pi-ai";
 
-import type { Message, ModelRequest } from "@volto/core";
+import type { Message, ModelRequest } from "@voltojs/core";
 import { toPiContext } from "../context.js";
 
 const modelId = "test-model";

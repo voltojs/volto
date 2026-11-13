@@ -44,7 +44,7 @@ import type {
   PricingEntry,
   RiskTier,
   SpillStore,
-} from "@volto/core";
+} from "@voltojs/core";
 import {
   step,
   createInitialState,
@@ -74,12 +74,12 @@ import {
   detectLoop,
   renderLoopReminder,
   renderLoopIntervention,
-} from "@volto/core";
-import type { PromptAnchorState, StepContext, ReducerState, TurnEndReason } from "@volto/core";
-import type { OffloadCandidate } from "@volto/core";
-import type { Hook, HookContext } from "@volto/core";
-import { runHookPipeline } from "@volto/core";
-import { computeRAGInjectionIndex, buildRAGMessage } from "@volto/core";
+} from "@voltojs/core";
+import type { PromptAnchorState, StepContext, ReducerState, TurnEndReason } from "@voltojs/core";
+import type { OffloadCandidate } from "@voltojs/core";
+import type { Hook, HookContext } from "@voltojs/core";
+import { runHookPipeline } from "@voltojs/core";
+import { computeRAGInjectionIndex, buildRAGMessage } from "@voltojs/core";
 import { createTranscriptRecorder } from "./transcript-recorder.js";
 import { createToolInputFactResolver } from "./tool-input-facts.js";
 import * as crypto from "node:crypto";
@@ -574,7 +574,7 @@ export const defaultAuditSink: AuditSink = {
 
 /**
  * Structural view of the SDK's BackgroundRegistry that the turn-boundary
- * drain needs. runtime-node must not depend on @volto/sdk (dependency
+ * drain needs. runtime-node must not depend on @voltojs/sdk (dependency
  * direction: core ← runtimes ← sdk), so the shape is restated here; the
  * SDK registry satisfies it structurally.
  */

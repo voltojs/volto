@@ -32,10 +32,10 @@ import type {
   ToolDefinition,
   ToolResult,
   TranscriptEventInput,
-} from "@volto/core";
-import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
-import { createNodeFileSystem, createNodeAttachmentStore } from "@volto/runtime-node";
-import type { Tool } from "@volto/tools-common";
+} from "@voltojs/core";
+import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
+import { createNodeFileSystem, createNodeAttachmentStore } from "@voltojs/runtime-node";
+import type { Tool } from "@voltojs/tools-common";
 
 /** Wrap a scripted mock port so every ModelRequest it serves is captured. */
 function recordingModelPort(script: ModelEvent[][]) {

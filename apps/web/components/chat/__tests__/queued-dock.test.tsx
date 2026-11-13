@@ -25,7 +25,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 import { MessageList } from '../MessageList';
 import { QueuedDock } from '../QueuedDock';
 import { TooltipProvider } from '@/components/ui/tooltip';

@@ -7,7 +7,7 @@ import {
   normalizeContext,
 } from "@earendil-works/pi-ai";
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
-import type { ModelEvent } from "@volto/core";
+import type { ModelEvent } from "@voltojs/core";
 import { normalizeStream } from "../stream-normalize.js";
 import { readReplayEnvelope } from "../replay.js";
 

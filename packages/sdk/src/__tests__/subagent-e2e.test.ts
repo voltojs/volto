@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../index.js";
-import type { ModelPort, ModelRequest } from "@volto/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
 import {
   toolUseStart,
   toolUseDelta,
   modelDone,
   textScript,
-} from "@volto/core";
+} from "@voltojs/core";
 
 describe("sub-agent end to end", () => {
   it("exposes configured definitions in the task tool description", () => {

@@ -6,7 +6,7 @@ import {
   type Model,
   type Provider,
 } from "@earendil-works/pi-ai";
-import type { ModelEvent, ModelRequest } from "@volto/core";
+import type { ModelEvent, ModelRequest } from "@voltojs/core";
 import { buildModels } from "../collection.js";
 import { createPiAiModelPort, createPiAiModelPortFromModels } from "../model-port.js";
 

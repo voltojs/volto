@@ -1,8 +1,8 @@
-// @volto/tools-fs — re-exports from tools-common for backward compatibility
+// @voltojs/tools-fs — re-exports from tools-common for backward compatibility
 // + fs-specific tool definitions
 
-export { defineTool as defineFileTool } from "@volto/tools-common";
-export type { Tool as FileTool, ToolHandler } from "@volto/tools-common";
+export { defineTool as defineFileTool } from "@voltojs/tools-common";
+export type { Tool as FileTool, ToolHandler } from "@voltojs/tools-common";
 export { createReadFileTool } from "./read-file.js";
 export type { PdfLikeParser, ReadFileToolOptions } from "./read-file.js";
 export { createEditFileTool, computeFuzzyMatchRegex, findFuzzyMatch, preserveIndentation } from "./edit-file.js";

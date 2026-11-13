@@ -6,7 +6,7 @@
  * hand, and (c) expands a title an older build clipped.
  */
 
-import type { ConversationMessage, TranscriptEventInput } from '@volto/sdk/sse';
+import type { ConversationMessage, TranscriptEventInput } from '@voltojs/sdk/sse';
 
 /**
  * Cap an older build applied to derived titles. Only `expandStoredTitle`

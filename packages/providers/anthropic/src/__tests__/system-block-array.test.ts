@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createAnthropicModelPort } from "../model-port.js";
-import type { Message, ModelRequest } from "@volto/core";
+import type { Message, ModelRequest } from "@voltojs/core";
 
 /**
  * System-role messages are text-only on Anthropic's wire: `system` takes a

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
 import type { CreateAgentOptions, AgentInstance } from "../create-agent.js";
-import { textScript, toolCallScript, modelError } from "@volto/core";
+import { textScript, toolCallScript, modelError } from "@voltojs/core";
 import type {
   ModelPort,
   ModelRequest,
@@ -9,7 +9,7 @@ import type {
   TranscriptEventInput,
   ToolResultMessage,
   DispatchVerification,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Helpers

@@ -8,7 +8,7 @@
  */
 
 import { SSEFrameType, type SSEMessage, type ErrorData, type ConnectedData, type TaggedTranscriptDelta } from "./types.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 export interface EventMapperOptions {
   /** Starting value for the event id counter. @default 0 */

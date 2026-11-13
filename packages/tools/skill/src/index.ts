@@ -1,13 +1,13 @@
-import type { LoadedSkill, ToolResult } from "@volto/core";
+import type { LoadedSkill, ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
 import { CAP_SKILL } from "./capabilities.js";
 
 export { CAP_SKILL } from "./capabilities.js";
 
 /**
  * Loader seam injected by the host — the signature is SkillRegistry["load"]
- * from @volto/core. Returns the skill body plus its base directory, or
+ * from @voltojs/core. Returns the skill body plus its base directory, or
  * undefined when the skill is unknown or not model-invocable.
  */
 export type SkillBodyLoader = (name: string) => Promise<LoadedSkill | undefined>;
@@ -40,9 +40,9 @@ function renderSkillResult(name: string, loaded: LoadedSkill): string {
 
 /**
  * Cuts a UTF-8 byte prefix without splitting a code point, then decodes
- * losslessly. Mirrors @volto/core's workspace-instructions.ts `cutUtf8` —
+ * losslessly. Mirrors @voltojs/core's workspace-instructions.ts `cutUtf8` —
  * duplicated here rather than imported because packages/tools/skill may only
- * `import type` from @volto/core, never a value.
+ * `import type` from @voltojs/core, never a value.
  */
 function cutUtf8(bytes: Uint8Array, maxBytes: number): Uint8Array {
   let end = Math.min(maxBytes, bytes.length);

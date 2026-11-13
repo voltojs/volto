@@ -16,8 +16,8 @@
  * a message split across rows still shows exactly one footer.
  */
 
-import { groupConversationBlocks } from '@volto/sdk/sse';
-import type { ConversationBlock, ConversationMessage } from '@volto/sdk/sse';
+import { groupConversationBlocks } from '@voltojs/sdk/sse';
+import type { ConversationBlock, ConversationMessage } from '@voltojs/sdk/sse';
 import type { ChatEntry } from './projection';
 
 type AnswerBlock = Extract<ConversationBlock, { type: 'text' | 'image' }>;

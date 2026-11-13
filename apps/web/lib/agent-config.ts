@@ -8,13 +8,13 @@
  * credentials: `fetch` gets `credentials: 'include'`, and the SSE
  * `EventSource` gets `withCredentials: true`.
  *
- * Importing from `@volto/sdk/sse` rather than the package root keeps Node-only
+ * Importing from `@voltojs/sdk/sse` rather than the package root keeps Node-only
  * dependencies (runtime-node, tools-shell, sqlite store) out of the browser
  * bundle — the SSE subtree only depends on protocol types.
  */
 
-import { createSSEClient } from '@volto/sdk/sse';
-import type { ConnectionState, EventSourceLike } from '@volto/sdk/sse';
+import { createSSEClient } from '@voltojs/sdk/sse';
+import type { ConnectionState, EventSourceLike } from '@voltojs/sdk/sse';
 import type { ApprovalOutcome } from '@/lib/approvals';
 import { gatewayUrl } from '@/lib/gateway-base';
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createMockModelPort, textScript } from "@volto/core";
-import type { MemoryEntry, MemoryQueryFilter, MemoryStore, ModelPort, ModelRequest } from "@volto/core";
+import { createMockModelPort, textScript } from "@voltojs/core";
+import type { MemoryEntry, MemoryQueryFilter, MemoryStore, ModelPort, ModelRequest } from "@voltojs/core";
 import { createAgent } from "../create-agent.js";
 
 function memoryStore(entries: MemoryEntry[], queries: Array<{ text: string; k?: number; filter?: MemoryQueryFilter }> = []): MemoryStore {

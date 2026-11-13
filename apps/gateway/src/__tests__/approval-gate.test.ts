@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ApprovalResult, PendingToolCall } from "@volto/core";
+import type { ApprovalResult, PendingToolCall } from "@voltojs/core";
 import { createApprovalRegistry } from "../approval-gate.js";
 
 const call = (id: string, name = "bash") => ({ id, name, input: {} });

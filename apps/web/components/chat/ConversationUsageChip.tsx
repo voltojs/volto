@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import type { TurnUsage } from '@volto/sdk/sse';
+import type { TurnUsage } from '@voltojs/sdk/sse';
 import { formatCompactTokens } from '@/lib/context-meter-model';
 import {
   cacheHitLabel,

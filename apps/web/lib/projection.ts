@@ -1,8 +1,8 @@
 /**
  * Thin wrapper over the SDK's re-exported projections.
  *
- * Imports from `@volto/sdk/sse` rather than the package root: the root pulls
- * in Node-only packages (@volto/runtime-node, @volto/tools-shell) that must
+ * Imports from `@voltojs/sdk/sse` rather than the package root: the root pulls
+ * in Node-only packages (@voltojs/runtime-node, @voltojs/tools-shell) that must
  * never reach the browser bundle.
  */
 
@@ -11,7 +11,7 @@ import {
   applyPartial,
   toConversationView,
   toTrajectoryView,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 import type {
   ConversationBlock,
   ConversationMessage,
@@ -21,7 +21,7 @@ import type {
   TranscriptEventInput,
   TrajectoryRow,
   TurnRecord,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 
 /** Events arriving over SSE carry no seq; the projection never reads one. */
 function asStored(events: readonly TranscriptEventInput[]): TranscriptEvent[] {

@@ -17,8 +17,8 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Decision, PermissionConfig, PermissionRule } from "@volto/core";
-import { isMatchableCommandToken } from "@volto/core";
+import type { Decision, PermissionConfig, PermissionRule } from "@voltojs/core";
+import { isMatchableCommandToken } from "@voltojs/core";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
 

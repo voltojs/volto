@@ -5,8 +5,8 @@ import {
   textScript,
   toolUseDelta,
   toolUseStart,
-} from "@volto/core";
-import type { ModelEvent, ModelPort, ModelRequest, TranscriptEventInput } from "@volto/core";
+} from "@voltojs/core";
+import type { ModelEvent, ModelPort, ModelRequest, TranscriptEventInput } from "@voltojs/core";
 
 function fakeChatStore() {
   const bySession = new Map<string, TranscriptEventInput[]>();

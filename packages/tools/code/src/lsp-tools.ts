@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
-import type { ToolResultBlock } from "@volto/core";
+import { defineTool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
+import type { ToolResultBlock } from "@voltojs/core";
 import type { LspClient, LspClientProvider, LspDiagnostic, LspDocumentReference } from "./lsp-client.js";
 import { CAP_LSP_QUERY } from "./lsp-client.js";
 import { uriToFile } from "./lsp-uri.js";

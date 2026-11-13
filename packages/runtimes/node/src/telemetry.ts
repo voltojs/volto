@@ -3,7 +3,7 @@
  * Records all spans and metrics for later assertion.
  */
 
-import type { Telemetry, TelemetrySpan } from "@volto/core";
+import type { Telemetry, TelemetrySpan } from "@voltojs/core";
 
 export interface RecordedSpan {
   name: string;

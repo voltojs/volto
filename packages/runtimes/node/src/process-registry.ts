@@ -8,7 +8,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import type { ShellLaunchOptions, ShellProcessInfo, ShellProcessOutput } from "@volto/core";
+import type { ShellLaunchOptions, ShellProcessInfo, ShellProcessOutput } from "@voltojs/core";
 import {
   createProcessOutputBuffer,
   DEFAULT_PROCESS_BUFFER_BYTES,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@voltojs/core";
 import { createWebFetchTool, createWebSearchTool } from "../index.js";
 
 describe("TC-E11: web_fetch 输出截断 + web_search 认证头", () => {

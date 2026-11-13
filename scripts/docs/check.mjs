@@ -258,7 +258,7 @@ for (const page of pages.filter((entry) => entry.rel.startsWith("integrating/"))
 }
 if (snippetFiles.length > 0) {
   if (!fs.existsSync(path.join(ROOT, "packages/sdk/dist/index.d.ts"))) {
-    error("integrating/*", "示例代码无法编译：先构建 SDK（`pnpm turbo run build --filter @volto/sdk`）");
+    error("integrating/*", "示例代码无法编译：先构建 SDK（`pnpm turbo run build --filter @voltojs/sdk`）");
   } else {
     fs.rmSync(snippetDir, { recursive: true, force: true });
     fs.mkdirSync(snippetDir, { recursive: true });
@@ -339,7 +339,7 @@ if (!baseline) {
   const changed = [];
   for (const [name, surface] of Object.entries(surfaces.sections)) {
     if (surface.missing) {
-      error("packages/sdk/dist", "缺少 SDK 构建产物，先 `pnpm turbo run build --filter @volto/sdk`");
+      error("packages/sdk/dist", "缺少 SDK 构建产物，先 `pnpm turbo run build --filter @voltojs/sdk`");
       continue;
     }
     const previous = baseline.sections?.[name];

@@ -35,7 +35,7 @@
 
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
-import type { FileSystem, SandboxMode } from "@volto/core";
+import type { FileSystem, SandboxMode } from "@voltojs/core";
 import type { SandboxConfig } from "./sandbox.js";
 import type { SandboxEnforcement } from "./sandbox-enforcement.js";
 

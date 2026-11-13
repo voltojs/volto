@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Check, Copy } from 'lucide-react';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage } from '@voltojs/sdk/sse';
 import { TurnUsageChip } from './TurnUsageChip';
 import { formatTimestamp } from '@/lib/time-format';
 

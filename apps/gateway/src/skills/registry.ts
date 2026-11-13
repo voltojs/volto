@@ -6,8 +6,8 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { expandInstructions } from "@volto/core";
-import type { LoadedSkill, SkillInvocationPolicy, SkillRegistry, SkillSummary } from "@volto/core";
+import { expandInstructions } from "@voltojs/core";
+import type { LoadedSkill, SkillInvocationPolicy, SkillRegistry, SkillSummary } from "@voltojs/core";
 import { getConfigDir } from "../config/paths.js";
 import { loadInstructionFileTree } from "../instructions.js";
 import { parseSkillFile, type ParsedSkillFile } from "./frontmatter.js";

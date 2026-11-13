@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
-import { createCharTokenizer, textScript } from "@volto/core";
+import { createCharTokenizer, textScript } from "@voltojs/core";
 import type {
   AttachmentStore,
   ContentBlock,
@@ -26,7 +26,7 @@ import type {
   ReducerState,
   StepContext,
   StoredAttachment,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 

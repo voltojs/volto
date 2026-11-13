@@ -6,7 +6,7 @@
 
 import { openFilePreview } from '@/stores/pane-store';
 import { useSessionStore } from '@/stores/session-store';
-import type { FileRef } from '@volto/sdk/file-refs';
+import type { FileRef } from '@voltojs/sdk/file-refs';
 
 /** Project that owns a session's content; null when the session is unknown. */
 export function projectIdForSession(sessionId: string): string | null {

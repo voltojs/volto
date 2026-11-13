@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 import { InputBar, type InputBarProps } from '../InputBar';
 import { ChatPanel } from '../ChatPanel';
 import { useSessionStore } from '@/stores/session-store';

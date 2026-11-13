@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import type { ModelPort, Message } from "@volto/core";
+import type { ModelPort, Message } from "@voltojs/core";
 
 function makeModelPort(response: { type: "text"; text: string }): ModelPort {
   return {

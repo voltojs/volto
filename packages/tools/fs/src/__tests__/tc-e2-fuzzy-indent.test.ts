@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem, FileReadResult, FileStat } from "@volto/core";
+import type { FileSystem, FileReadResult, FileStat } from "@voltojs/core";
 import { createEditFileTool } from "../edit-file.js";
 
 function createInMemoryFs(seed: Record<string, string>): {

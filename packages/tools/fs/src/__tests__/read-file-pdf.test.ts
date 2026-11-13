@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { FileSystem } from "@volto/core";
+import type { FileSystem } from "@voltojs/core";
 import { createReadFileTool } from "../read-file.js";
 import type { PdfLikeParser } from "../read-file.js";
 

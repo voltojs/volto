@@ -6,7 +6,7 @@
  * they are used only within the adapter for actual operations.
  */
 
-import type { Secrets } from "@volto/core";
+import type { Secrets } from "@voltojs/core";
 
 export interface SecretsScope {
   /** Secret refs this scope may resolve. If undefined, all refs are allowed. */

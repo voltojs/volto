@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ToolDefinition, PermissionConfig, ApprovalGate } from "@volto/core";
+import type { ToolDefinition, PermissionConfig, ApprovalGate } from "@voltojs/core";
 import {
   createMockModelPort,
   toolUseStart,
@@ -7,7 +7,7 @@ import {
   modelDone,
   textDelta,
   createDefaultPermissionConfig,
-} from "@volto/core";
+} from "@voltojs/core";
 import { createRunner } from "../runner.js";
 import type { AuditEntry, AuditSink } from "../runner.js";
 

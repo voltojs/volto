@@ -13,7 +13,7 @@ import Database from "better-sqlite3";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FileSystem } from "@volto/core";
+import type { FileSystem } from "@voltojs/core";
 import { createNodeFileSystem } from "../filesystem.js";
 import { createSqliteDatabaseOpener } from "../database.js";
 

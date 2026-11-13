@@ -16,11 +16,11 @@
  */
 
 import * as fs from "node:fs/promises";
-import type { AgentEntry, AgentSpec } from "@volto/sdk";
+import type { AgentEntry, AgentSpec } from "@voltojs/sdk";
 import { scanAgentEntries } from "../agents/routes.js";
 import { getConfigDir } from "./paths.js";
 import { getConfigStore } from "./store.js";
-import { t, type Locale } from "@volto/i18n";
+import { t, type Locale } from "@voltojs/i18n";
 
 export interface RoutingTierRecord {
   id: string;

@@ -1,5 +1,5 @@
 {
-  "name": "@volto/desktop-app",
+  "name": "@voltojs/desktop-app",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -16,10 +16,10 @@
     "package:linux": "electron-vite build && electron-builder --linux --publish never --config electron-builder.yml"
   },
   "dependencies": {
-    "@volto/sdk": "workspace:*",
+    "@voltojs/sdk": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "@volto/provider-pi-ai": "workspace:*",
+    "@voltojs/provider-pi-ai": "workspace:*",
     "electron-store": "^11.0.2",
     "lucide-react": "^1.21.0",
     "radix-ui": "^1.6.0",

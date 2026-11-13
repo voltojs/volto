@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { ToolDefinition } from "@volto/core";
-import { filterVisibleTools } from "@volto/core";
+import type { ToolDefinition } from "@voltojs/core";
+import { filterVisibleTools } from "@voltojs/core";
 import { createTodoWriteTool, CAP_PLAN_WRITE } from "../index.js";
 
 describe("plan capability gating", () => {

@@ -16,9 +16,9 @@
  * All rejections are expressed as ShellEvents (stdout/stderr/exit), never thrown.
  */
 
-import type { Shell, ShellExecOptions, ShellEvent, ShellLaunchOptions } from "@volto/core";
-import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@volto/core";
-import type { SandboxMode } from "@volto/core";
+import type { Shell, ShellExecOptions, ShellEvent, ShellLaunchOptions } from "@voltojs/core";
+import type { Sandbox, SandboxExecSpec, SandboxEvent } from "@voltojs/core";
+import type { SandboxMode } from "@voltojs/core";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { writeFileSync, unlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
@@ -33,7 +33,7 @@ import type { SessionSpawnHandle } from "./persistent-session.js";
 // SandboxConfig (Plan 009 §4.3)
 // ──────────────────────────────────────────────
 
-/** Three-tier isolation mode — platform-agnostic semantics (re-exported from @volto/core) */
+/** Three-tier isolation mode — platform-agnostic semantics (re-exported from @voltojs/core) */
 export type { SandboxMode };
 
 /** Platform backend selection */

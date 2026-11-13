@@ -1,4 +1,4 @@
-export type { Tool as ShellTool, ToolHandler } from "@volto/tools-common";
+export type { Tool as ShellTool, ToolHandler } from "@voltojs/tools-common";
 export { createBashTool } from "./bash.js";
 export type { BashToolOptions } from "./bash.js";
 export type {

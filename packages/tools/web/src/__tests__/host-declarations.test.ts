@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Network } from "@volto/core";
+import type { Network } from "@voltojs/core";
 import { createWebFetchTool } from "../web-fetch.js";
 
 const networkStub = {} as unknown as Network;

@@ -5,7 +5,7 @@
  *
  * NOTE on "rewind & continue": a checkpoint state is typically a terminal
  * `done` state, which the reducer rejects inputs on. To resume running from
- * a rewound state, apply `resetTurnForNextInput` (from @volto/core) — the
+ * a rewound state, apply `resetTurnForNextInput` (from @voltojs/core) — the
  * same primitive createAgent uses to carry cross-turn state (messages,
  * readFiles, and the un-delivered steering queue in `queuedUserInputs`,
  * which it preserves rather than clears) across turns while clearing the
@@ -13,10 +13,10 @@
  * `initialState`. See runner-time-travel tests.
  */
 
-import type { SessionStore, ReducerState } from "@volto/core";
-import { step, diffState, createInitialState } from "@volto/core";
-import type { StepContext } from "@volto/core";
-import type { StateDiff } from "@volto/core";
+import type { SessionStore, ReducerState } from "@voltojs/core";
+import { step, diffState, createInitialState } from "@voltojs/core";
+import type { StepContext } from "@voltojs/core";
+import type { StateDiff } from "@voltojs/core";
 
 export interface Checkpoint {
   seq: number;
@@ -97,4 +97,4 @@ export { createInitialState };
 
 /** Re-exported for hosts that want to diff states without importing core */
 export { diffState };
-export type { StateDiff } from "@volto/core";
+export type { StateDiff } from "@voltojs/core";

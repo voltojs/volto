@@ -15,9 +15,9 @@ import type {
   ModelEvent,
   ToolDefinition,
   ToolResult,
-} from "@volto/core";
-import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
-import type { Tool } from "@volto/tools-common";
+} from "@voltojs/core";
+import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
+import type { Tool } from "@voltojs/tools-common";
 import type { AgentEntry } from "../agent-registry/index.js";
 
 function createEchoTool(): Tool {

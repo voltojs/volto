@@ -10,8 +10,8 @@ import {
   modelDone,
   createDefaultPermissionConfig,
   extractBlockText,
-} from "@volto/core";
-import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, PolicyEngine, ToolResultMessage } from "@volto/core";
+} from "@voltojs/core";
+import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, PolicyEngine, ToolResultMessage } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

@@ -6,7 +6,7 @@
  * queues events and resolves them when the async generator polls.
  */
 
-import type { EventSink } from "@volto/core";
+import type { EventSink } from "@voltojs/core";
 
 export interface StreamChannel {
   eventSink: EventSink;

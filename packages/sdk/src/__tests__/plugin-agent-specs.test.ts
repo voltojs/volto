@@ -10,8 +10,8 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
 import type { Plugin } from "../plugin.js";
-import type { ModelPort, ModelRequest, ModelEvent } from "@volto/core";
-import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
+import type { ModelPort, ModelRequest, ModelEvent } from "@voltojs/core";
+import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
 import type { AgentEntry } from "../agent-registry/index.js";
 
 function recordingModelPort(script: ModelEvent[][]) {

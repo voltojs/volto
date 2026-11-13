@@ -34,8 +34,8 @@
  */
 
 import path from "node:path";
-import type { FileSystem } from "@volto/core";
-import type { DatabaseAdapter, DatabaseOpener, SqlRow } from "@volto/tools-data";
+import type { FileSystem } from "@voltojs/core";
+import type { DatabaseAdapter, DatabaseOpener, SqlRow } from "@voltojs/tools-data";
 import { realResolve, realResolveRoot } from "./sandboxed-filesystem.js";
 
 /** Raised when a requested database path leaves the workspace. */

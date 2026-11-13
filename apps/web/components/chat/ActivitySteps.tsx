@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Brain, ListChecks, CircleAlert, LoaderCircle } from 'lucide-react';
-import type { ConversationBlock } from '@volto/sdk/sse';
+import type { ConversationBlock } from '@voltojs/sdk/sse';
 import type { StreamDensity } from '@/lib/stream-density';
 import { toolCallSummary } from '@/lib/tool-summary';
 import { SubagentCard } from './SubagentCard';

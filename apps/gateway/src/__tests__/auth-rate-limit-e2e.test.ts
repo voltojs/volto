@@ -23,7 +23,7 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { WebSocket } from "ws";
-import type { ModelPort } from "@volto/core";
+import type { ModelPort } from "@voltojs/core";
 import { createServer, type ServerOptions } from "../server.js";
 import { cookieAttributesFor } from "../auth/middleware.js";
 import { createAuthRateLimiter } from "../auth/rate-limit.js";

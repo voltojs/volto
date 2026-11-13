@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from '../MessageList';
 import type { ChatEntry } from '@/lib/projection';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage } from '@voltojs/sdk/sse';
 
 // jsdom has no layout; the list scrolls its bottom anchor into view.
 Element.prototype.scrollIntoView ??= () => {};

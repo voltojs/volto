@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { FileWatcher, FileWatchRegistration, FileWatchEvent, ToolDefinition } from "@volto/core";
-import { filterVisibleTools } from "@volto/core";
+import type { FileWatcher, FileWatchRegistration, FileWatchEvent, ToolDefinition } from "@voltojs/core";
+import { filterVisibleTools } from "@voltojs/core";
 import { createWatchFilesTool } from "../watch-files.js";
 import { createUnwatchFilesTool } from "../unwatch-files.js";
 import { createListWatchesTool } from "../list-watches.js";

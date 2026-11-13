@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toOpenAiMessages } from "../model-port.js";
-import type { Message } from "@volto/core";
+import type { Message } from "@voltojs/core";
 
 function img(data: string) {
   return { type: "image" as const, source: { type: "base64" as const, mediaType: "image/png", data } };

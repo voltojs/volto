@@ -3,8 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createFileMemoryStore } from "../store.js";
-import { describeMemoryStoreContract } from "@volto/memory-common/contract";
-import type { MemoryEntry, MemoryStore } from "@volto/core";
+import { describeMemoryStoreContract } from "@voltojs/memory-common/contract";
+import type { MemoryEntry, MemoryStore } from "@voltojs/core";
 
 let tempDir: string;
 
@@ -126,7 +126,7 @@ describe("createFileMemoryStore", () => {
   it("normalizes a missing tier to semantic so tier filters match across stores", async () => {
     const { store, reload } = pair();
     // An entry saved without a tier must match a tier: "semantic" query —
-    // the same answer @volto/memory-inmemory gives (core contract).
+    // the same answer @voltojs/memory-inmemory gives (core contract).
     await store.save(entry("tierless alpha", { scope: { kind: "project", projectId: "p1" } }));
 
     const semantic = await store.query("tierless", 10, {

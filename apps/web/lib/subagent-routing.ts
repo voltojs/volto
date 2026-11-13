@@ -1,7 +1,7 @@
 import type {
   TaggedTranscriptDelta,
   TranscriptEventInput,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 
 /** Bucket key for tagged events that arrive without a childSessionId. */
 export const UNTAGGED_BUCKET = '_';

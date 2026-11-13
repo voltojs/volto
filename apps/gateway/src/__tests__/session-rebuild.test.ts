@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "../sessions.js";
-import type { ReducerState } from "@volto/core";
-import { buildPermissionReminder, isPermissionReminder } from "@volto/core";
+import type { ReducerState } from "@voltojs/core";
+import { buildPermissionReminder, isPermissionReminder } from "@voltojs/core";
 
 /** Registries created by a test, torn down so their heartbeat timers die. */
 const created: Array<{ closeAll: () => Promise<void> }> = [];

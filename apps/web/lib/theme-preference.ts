@@ -5,7 +5,7 @@
  * (`lib/browser-boot`) and the layout can import them without pulling in the
  * preferences store and, transitively, the whole transport layer: that
  * chain (`theme-provider` → `preferences-store` → `lib/preferences` →
- * `agent-config` → `lib/approvals` → `@volto/sdk/sse` → `@volto/core`)
+ * `agent-config` → `lib/approvals` → `@voltojs/sdk/sse` → `@voltojs/core`)
  * closes a cycle back into the layout's own modules, and a cycle read too
  * early hands back `undefined` where a constant was expected.
  */

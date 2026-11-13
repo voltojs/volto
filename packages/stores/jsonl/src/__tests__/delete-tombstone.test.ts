@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createStore, encodeWorkspaceName } from "../index.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 /**
  * Forces `fs.mkdir` (the call `appendEventBatch` makes right after it

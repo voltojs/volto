@@ -22,7 +22,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { replayTrajectory } from "./replay.js";
 import type { Trajectory } from "./trajectory.js";
-import type { StepContext } from "@volto/core";
+import type { StepContext } from "@voltojs/core";
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 

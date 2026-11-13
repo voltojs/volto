@@ -5,7 +5,7 @@
  * cannot grow memory without bound. Response bodies are never captured.
  */
 
-import type { DiagnosticsOutcome } from "@volto/tools-browser";
+import type { DiagnosticsOutcome } from "@voltojs/tools-browser";
 
 export type DiagnosticsLevel = "error" | "warning" | "info";
 

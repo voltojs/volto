@@ -22,7 +22,7 @@ import type {
   ModelRequest,
   ToolDefinition,
   ToolResultContent,
-} from "@volto/core";
+} from "@voltojs/core";
 import { readReplayEnvelope, type PiReplayBlock } from "./replay.js";
 
 /**

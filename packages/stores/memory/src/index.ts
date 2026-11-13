@@ -3,7 +3,7 @@
  * Maps-based, non-persistent. Good for testing and single-session use.
  */
 
-import type { SessionStore, SessionSnapshot } from "@volto/core";
+import type { SessionStore, SessionSnapshot } from "@voltojs/core";
 
 export function createMemoryStore(): SessionStore {
   const store = new Map<string, SessionSnapshot>();

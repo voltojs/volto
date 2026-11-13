@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { ModelPort } from "@volto/core";
-import { createStore } from "@volto/store-jsonl";
+import type { ModelPort } from "@voltojs/core";
+import { createStore } from "@voltojs/store-jsonl";
 import { createServer } from "../server.js";
 import { BUILT_IN_COMMANDS, builtInCommands } from "../commands.js";
-import { renderCommand } from "@volto/sdk";
+import { renderCommand } from "@voltojs/sdk";
 
 const MODEL_PORT: ModelPort = {
   async *stream() {

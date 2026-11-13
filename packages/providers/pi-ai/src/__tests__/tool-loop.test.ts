@@ -10,7 +10,7 @@ import {
   type ThinkingContent as PiThinkingContent,
   type ToolCall as PiToolCall,
 } from "@earendil-works/pi-ai";
-import type { AssistantMessage, ModelEvent, ModelRequest } from "@volto/core";
+import type { AssistantMessage, ModelEvent, ModelRequest } from "@voltojs/core";
 import { buildModels } from "../collection.js";
 import { createPiAiModelPortFromModels } from "../model-port.js";
 

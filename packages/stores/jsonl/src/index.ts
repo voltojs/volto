@@ -11,7 +11,7 @@
  * workspace's absolute path encoded into a filesystem-safe directory name
  * (every character outside [a-zA-Z0-9] becomes `-`).
  *
- * This is deliberately not an implementation of `@volto/core`'s
+ * This is deliberately not an implementation of `@voltojs/core`'s
  * `SessionStore` port. That port is a whole-`AgentState` snapshot store built
  * for HITL checkpoint/resume and keyed by a per-turn id; this store is
  * append-only, keyed by the host's own chat session id, and exists to record
@@ -25,7 +25,7 @@ import type {
   TranscriptEventInput,
   TranscriptReader,
   TranscriptStore,
-} from "@volto/core";
+} from "@voltojs/core";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
@@ -137,7 +137,7 @@ function isEnoent(err: unknown): boolean {
   return err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-/** Sanitizes a session id into a safe filename (mirrors @volto/store-file). */
+/** Sanitizes a session id into a safe filename (mirrors @voltojs/store-file). */
 function fileNameFor(sessionId: string): string {
   const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
   return `${safe}.jsonl`;

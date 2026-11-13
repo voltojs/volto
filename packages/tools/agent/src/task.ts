@@ -1,6 +1,6 @@
-import type { DispatchVerification, PermissionPreset, TokenUsage, ToolResult } from "@volto/core";
+import type { DispatchVerification, PermissionPreset, TokenUsage, ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
 
 /**
@@ -332,7 +332,7 @@ export function createTaskTool(
         const result = await dispatch({
           message: input.message,
           // The 2,000-char cap mirrors ACCEPTANCE_LIMITS.maxAcceptanceChars in
-          // @volto/core (spec §4.1); tools-* consumes core types only, so the
+          // @voltojs/core (spec §4.1); tools-* consumes core types only, so the
           // literal is repeated here rather than value-imported.
           ...(input.acceptance !== undefined ? { acceptance: input.acceptance } : {}),
           subagentType: input.subagent_type,

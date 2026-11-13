@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createNodeScheduler } from "@volto/runtime-node";
-import { createSeededClock } from "@volto/eval";
+import { createNodeScheduler } from "@voltojs/runtime-node";
+import { createSeededClock } from "@voltojs/eval";
 
 describe("createNodeScheduler", () => {
   describe("schedule + cancel", () => {

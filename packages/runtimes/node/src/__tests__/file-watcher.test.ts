@@ -3,7 +3,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { FileWatchEvent } from "@volto/core";
+import type { FileWatchEvent } from "@voltojs/core";
 import { createNodeFileWatcher } from "../file-watcher.js";
 
 const DEFAULT_TIMEOUT_MS = 5000;

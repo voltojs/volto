@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
+import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
 import type {
   ModelEvent,
   ModelPort,
   ModelRequest,
   TranscriptEventInput,
   TranscriptStore,
-} from "@volto/core";
+} from "@voltojs/core";
 import { createWiredAgent } from "../wiring.js";
 import { sandboxModeFor } from "../permission-modes.js";
 

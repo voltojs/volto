@@ -1,19 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
-import { createMockModelPort, textScript } from "@volto/core";
-import type { PermissionConfig, StepContext } from "@volto/core";
-import type { RunnerOptions } from "@volto/runtime-node";
+import { createMockModelPort, textScript } from "@voltojs/core";
+import type { PermissionConfig, StepContext } from "@voltojs/core";
+import type { RunnerOptions } from "@voltojs/runtime-node";
 
 // `createAgent`'s return value (AgentInstance) does not expose the internal
 // `stepContext` it builds — only `ports`, `run`, `stream`, `resume`,
 // `getState`, and `sessionStore` are public. So instead of reading
 // `agent.stepContext` (which does not exist), we intercept `createRunner`
-// from @volto/runtime-node — the one place `stepContext` actually crosses
+// from @voltojs/runtime-node — the one place `stepContext` actually crosses
 // into the Runner — and capture the `stepContext` it was called with while
 // driving one real turn through a stubbed ModelPort.
 const capturedRunnerOptions: RunnerOptions[] = [];
 
-vi.mock("@volto/runtime-node", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@volto/runtime-node")>();
+vi.mock("@voltojs/runtime-node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@voltojs/runtime-node")>();
   return {
     ...actual,
     createRunner: (opts: RunnerOptions) => {

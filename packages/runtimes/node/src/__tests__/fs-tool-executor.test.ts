@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { FileSystem, FileReadResult, FileStat, ReadFileRecord } from "@volto/core";
+import type { FileSystem, FileReadResult, FileStat, ReadFileRecord } from "@voltojs/core";
 import { createFsToolExecutor } from "../tool-executor.js";
 import { createNodeFileSystem } from "../filesystem.js";
 import fs from "node:fs/promises";

@@ -11,7 +11,7 @@ import {
   detectSystemBrowsers,
   resolveBrowserExecutable,
   type SystemBrowser,
-} from "@volto/runtime-node";
+} from "@voltojs/runtime-node";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
 

@@ -7,7 +7,7 @@
  * `tool_result` resolves, and any queued `steering_queued` entries.
  */
 
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 /** Identity of one event across the HTTP tail and the SSE stream. */
 export function eventKey(event: TranscriptEventInput): string {

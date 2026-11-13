@@ -44,8 +44,8 @@ jobs:
       # when no OPENAI_API_KEY is present (see provider vitest configs).
       - name: Replay regression (eval trajectories)
         run: |
-          pnpm --filter @volto/eval build
-          pnpm --filter @volto/eval replay
+          pnpm --filter @voltojs/eval build
+          pnpm --filter @voltojs/eval replay
 
       - name: Core zero-deps check
         run: node scripts/check-core-zero-deps.mjs

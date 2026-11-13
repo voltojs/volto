@@ -3,7 +3,7 @@
  * Wraps the global fetch API (available in edge runtimes and Cloudflare Workers).
  */
 
-import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@voltojs/core";
 
 export interface EdgeNetworkOptions {
   /** Default timeout in milliseconds (default: 30000) */

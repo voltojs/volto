@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Clean-project install smoke: the packed tarballs of the `@volto/sdk` dependency
+ * Clean-project install smoke: the packed tarballs of the `@voltojs/sdk` dependency
  * closure must install into a project that knows nothing about the workspace, and
- * `@volto/sdk` must work from there through node's normal resolution.
+ * `@voltojs/sdk` must work from there through node's normal resolution.
  *
  * Flow: build the closure into fresh `dist/` → temp dir → `npm init -y`
  * → `pnpm pack` every package in the closure into the temp dir → `npm install` all those
@@ -29,7 +29,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FIXTURE = join(ROOT, "scripts", "fixtures", "smoke-agent.mjs");
 
 /** Package whose `dependencies` closure gets packed and installed. */
-const ENTRY_PACKAGE = "@volto/sdk";
+const ENTRY_PACKAGE = "@voltojs/sdk";
 
 /** Every child process gets this long; a hung npm or node must fail, not block CI. */
 const TIMEOUT_MS = 10 * 60 * 1000;
@@ -132,7 +132,7 @@ function installedSize(project) {
     }
   };
   walk(nodeModules);
-  const installed = readdirSync(join(nodeModules, "@volto")).length;
+  const installed = readdirSync(join(nodeModules, "@voltojs")).length;
   return { bytes, installed };
 }
 
@@ -179,7 +179,7 @@ function main() {
     );
 
     const { bytes, installed } = installedSize(project);
-    console.log(`Installed node_modules: ${formatSize(bytes)} across ${installed} @volto/* package(s)`);
+    console.log(`Installed node_modules: ${formatSize(bytes)} across ${installed} @voltojs/* package(s)`);
 
     copyFileSync(FIXTURE, join(project, "smoke-agent.mjs"));
     run("node", ["smoke-agent.mjs"], { cwd: project, verbose: true }, "node smoke-agent.mjs");

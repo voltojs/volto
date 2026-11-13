@@ -1,4 +1,4 @@
-import type { Telemetry, TelemetrySpan } from "@volto/core";
+import type { Telemetry, TelemetrySpan } from "@voltojs/core";
 
 export interface OtelTelemetryOptions {
   endpoint: string;

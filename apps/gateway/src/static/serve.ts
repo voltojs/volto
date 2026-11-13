@@ -322,7 +322,7 @@ export async function serveStatic(
     res.writeHead(503, { "Content-Type": MIME_TYPES[".json"]!, "Cache-Control": NO_STORE });
     res.end(
       JSON.stringify({
-        error: `Web app not found at ${webRoot}. Build it with VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build, then point webRoot at the output directory.`,
+        error: `Web app not found at ${webRoot}. Build it with VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web build, then point webRoot at the output directory.`,
       }),
     );
     return true;

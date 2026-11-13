@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readConversation, readTrajectory } from "../transcript-reader.js";
-import type { TranscriptEvent, TranscriptReader } from "@volto/core";
+import type { TranscriptEvent, TranscriptReader } from "@voltojs/core";
 
 const EVENTS: TranscriptEvent[] = [
   { seq: 0, time: 100, type: "turn_start", data: { turn: 1 }, turn: 1 },

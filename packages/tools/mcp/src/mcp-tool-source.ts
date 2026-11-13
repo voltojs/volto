@@ -10,7 +10,7 @@
  * show/hide tools.
  */
 
-import type { ToolSource, ToolDefinition, ToolResult } from "@volto/core";
+import type { ToolSource, ToolDefinition, ToolResult } from "@voltojs/core";
 import { McpConnection } from "./connection.js";
 import type { McpTransport } from "./transport.js";
 

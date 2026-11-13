@@ -3,7 +3,7 @@ import { createStore } from "../index.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { AgentState, SessionSnapshot } from "@volto/core";
+import type { AgentState, SessionSnapshot } from "@voltojs/core";
 
 const emptyState: AgentState = {
   messages: [],

@@ -22,7 +22,7 @@ import type {
   ModelPort,
   ModelEvent,
   ModelRequest,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

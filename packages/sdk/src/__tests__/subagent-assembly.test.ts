@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { assembleSubAgent, createAgent } from "../create-agent.js";
 import type { AgentSpec } from "../agent-spec.js";
 import type { AgentEntry } from "../agent-registry/scan.js";
-import type { PermissionConfig } from "@volto/core";
+import type { PermissionConfig } from "@voltojs/core";
 import type {
   ToolDefinition,
   ToolResult,
@@ -11,15 +11,15 @@ import type {
   ModelEvent,
   EventSink,
   RiskTier,
-} from "@volto/core";
-import type { Tool } from "@volto/tools-common";
-import { CAP_LSP_QUERY } from "@volto/tools-code";
-import { CAP_DB_READ, CAP_DB_WRITE } from "@volto/tools-data";
+} from "@voltojs/core";
+import type { Tool } from "@voltojs/tools-common";
+import { CAP_LSP_QUERY } from "@voltojs/tools-code";
+import { CAP_DB_READ, CAP_DB_WRITE } from "@voltojs/tools-data";
 import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@volto/core";
+} from "@voltojs/core";
 
 function tool(name: string): Tool {
   return {

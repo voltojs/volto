@@ -1,5 +1,5 @@
-import { foldStandingTodos } from '@volto/sdk/sse';
-import type { TodoItem, TranscriptEventInput } from '@volto/sdk/sse';
+import { foldStandingTodos } from '@voltojs/sdk/sse';
+import type { TodoItem, TranscriptEventInput } from '@voltojs/sdk/sse';
 
 export type { TodoItem };
 export type TodoStatus = TodoItem['status'];

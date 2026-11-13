@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createStore } from "../index.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 /**
  * Delays every `fs.mkdir` call so that appends fired back-to-back genuinely

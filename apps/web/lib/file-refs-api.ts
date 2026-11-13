@@ -5,7 +5,7 @@
  */
 
 import { gatewayUrl } from './gateway-base';
-import type { RowRefSet } from '@volto/sdk/file-refs';
+import type { RowRefSet } from '@voltojs/sdk/file-refs';
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
   try {

@@ -1,5 +1,5 @@
 {
-  "name": "@volto/web",
+  "name": "@voltojs/web",
   "version": "0.0.1",
   "type": "module",
   "private": true,
@@ -28,8 +28,8 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/suggestion": "^3.31.3",
-    "@volto/i18n": "workspace:*",
-    "@volto/sdk": "workspace:*",
+    "@voltojs/i18n": "workspace:*",
+    "@voltojs/sdk": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "highlight.js": "^11.12.0",

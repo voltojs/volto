@@ -1,6 +1,6 @@
-import type { Network, ToolResult } from "@volto/core";
+import type { Network, ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
 import { CAP_NETWORK_FETCH } from "./capabilities.js";
 
 const OUTPUT_LIMIT = 100_000;

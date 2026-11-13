@@ -13,9 +13,9 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
-import { createNodeFileSystem } from "@volto/runtime-node";
+import { createMockModelPort, toolCallScript, textScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
+import { createNodeFileSystem } from "@voltojs/runtime-node";
 
 const PAGE_TEXTS = [
   "PAGE_ONE_ALPHA_MARKER",

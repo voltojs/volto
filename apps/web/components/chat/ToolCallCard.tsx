@@ -3,10 +3,10 @@
 import { memo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { CircleAlert, Check, LoaderCircle } from 'lucide-react';
-import type { ConversationImage, ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationImage, ConversationToolCall } from '@voltojs/sdk/sse';
 import { toolIcon } from '@/lib/tool-icon';
 import { verificationBadge } from '@/lib/verification-badge';
-import { toolCallFileRef } from '@volto/sdk/file-refs';
+import { toolCallFileRef } from '@voltojs/sdk/file-refs';
 import { FileRefChip } from './FileRefChip';
 import { TraceRow } from './TraceRow';
 import { ToolResultImage } from './ToolResultImage';

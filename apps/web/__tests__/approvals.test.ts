@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { denialNoteKeyFor, riskNoteKeyFor, selectPendingApprovals } from '@/lib/approvals';
 import { riskNotesFor } from '@/components/chat/ApprovalCard';
-import type { TranscriptEventInput } from '@volto/core';
+import type { TranscriptEventInput } from '@voltojs/core';
 
 describe('denialNoteKeyFor', () => {
   it('distinguishes a dropped connection from a user click', () => {

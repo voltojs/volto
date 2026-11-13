@@ -1,4 +1,4 @@
-// @volto/tools-code — LSP code intelligence tools
+// @voltojs/tools-code — LSP code intelligence tools
 
 export type { LspClient, LspClientProvider, LspDiagnostic, LspDiagnosticReport, LspDocumentReference, LspLocation, LspHover, LspReference } from "./lsp-client.js";
 export { CAP_LSP_QUERY } from "./lsp-client.js";

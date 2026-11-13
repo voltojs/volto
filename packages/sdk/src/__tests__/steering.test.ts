@@ -6,14 +6,14 @@
 
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textDelta, modelDone } from "@volto/core";
+import { createMockModelPort, textDelta, modelDone } from "@voltojs/core";
 import type {
   ModelPort,
   ModelEvent,
   UserMessage,
   ContentBlock,
   TranscriptEventInput,
-} from "@volto/core";
+} from "@voltojs/core";
 
 /** Poll until `predicate` is true or the deadline elapses. */
 async function waitUntil(

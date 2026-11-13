@@ -11,7 +11,7 @@
  */
 
 import * as path from "node:path";
-import type { ResolvedToolInput, ToolDefinition } from "@volto/core";
+import type { ResolvedToolInput, ToolDefinition } from "@voltojs/core";
 import { realResolve, realResolveRoot } from "./sandboxed-filesystem.js";
 
 export interface ToolInputFactResolver {

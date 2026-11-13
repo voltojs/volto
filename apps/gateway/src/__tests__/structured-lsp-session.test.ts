@@ -3,8 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMockModelPort, extractBlockText, textScript, toolCallScript } from "@volto/core";
-import type { ContentBlock, ModelEvent, ModelPort, ModelRequest } from "@volto/core";
+import { createMockModelPort, extractBlockText, textScript, toolCallScript } from "@voltojs/core";
+import type { ContentBlock, ModelEvent, ModelPort, ModelRequest } from "@voltojs/core";
 import { createWiredAgent } from "../wiring.js";
 
 /**

@@ -1,5 +1,5 @@
 /**
- * @volto/tools-document — document format parsing tools.
+ * @voltojs/tools-document — document format parsing tools.
  *
  * read_document uses a DocumentParserAdapter to convert PDF/docx/xlsx/image
  * files into structured text or image blocks. The adapter is pluggable;

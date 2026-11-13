@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createNodeShell } from "../shell.js";
-import type { Shell, ShellEvent } from "@volto/core";
+import type { Shell, ShellEvent } from "@voltojs/core";
 
 /**
  * Poll the process buffer until `needle` shows up. A fixed sleep asserts on

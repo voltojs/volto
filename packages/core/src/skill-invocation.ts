@@ -17,7 +17,7 @@ import { truncateUtf8 } from "./workspace-instructions.js";
  * rejects outright, resent on every subsequent turn since it lives in
  * `messages` rather than a per-turn system layer. Kept as a separate literal
  * (not shared via import) because packages/tools/skill may only `import type`
- * from @volto/core, never a value.
+ * from @voltojs/core, never a value.
  */
 const MAX_SKILL_INJECTION_BYTES = 64 * 1024;
 

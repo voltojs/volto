@@ -9,7 +9,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageList } from '../MessageList';
 import type { ChatEntry } from '@/lib/projection';
-import type { ConversationMessage, ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationMessage, ConversationToolCall } from '@voltojs/sdk/sse';
 
 // Base UI Collapsible under jsdom needs the pointer-capture shims (same as
 // turn-usage-chip.test.tsx).

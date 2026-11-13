@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AttachmentStore } from "@volto/core";
+import type { AttachmentStore } from "@voltojs/core";
 import type { BrowserAdapter } from "../browser-adapter.js";
 import type { ActionOutcome, BrowserState } from "../snapshot.js";
 import {

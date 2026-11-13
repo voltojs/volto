@@ -14,7 +14,7 @@ import {
   loadHooksConfig,
   runCommandHook,
 } from "../config/hooks.js";
-import type { HookContext } from "@volto/core";
+import type { HookContext } from "@voltojs/core";
 
 function captureError(fn: () => unknown): unknown {
   try {

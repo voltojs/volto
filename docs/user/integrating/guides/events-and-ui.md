@@ -31,7 +31,7 @@ data: {"type":"tool_result","data":{"callId":"…","isError":false,"content":"�
 
 ```
 
-`@volto/sdk/sse` 里的客户端用带 id 的具名帧、支持 `Last-Event-ID` 续传；网关的 `/events` 也读这个头补发断线期间的事件。
+`@voltojs/sdk/sse` 里的客户端用带 id 的具名帧、支持 `Last-Event-ID` 续传；网关的 `/events` 也读这个头补发断线期间的事件。
 
 ## 两类事件
 

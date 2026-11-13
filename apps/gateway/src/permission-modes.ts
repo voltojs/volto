@@ -1,7 +1,7 @@
 /**
  * The permission presets offered to clients.
  *
- * The vocabulary and the preset table live in `@volto/core` (spec 2026-11-11
+ * The vocabulary and the preset table live in `@voltojs/core` (spec 2026-11-11
  * D1): the SDK dispatches sub-agents by the same names the UI shows, and two
  * copies of "what does `read-only` mean" would be two truths. This module is
  * the gateway's thin face over it — the names below are the ones the server's
@@ -13,8 +13,8 @@ import {
   isPermissionPreset,
   permissionConfigOf,
   type PermissionPreset,
-} from "@volto/core";
-import type { PermissionConfig, SandboxMode } from "@volto/core";
+} from "@voltojs/core";
+import type { PermissionConfig, SandboxMode } from "@voltojs/core";
 
 export type UiPermissionMode = PermissionPreset;
 

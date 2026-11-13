@@ -32,9 +32,9 @@ import type {
   Secrets,
   Scheduler,
   PolicyEngine,
-} from "@volto/core";
-import { createHeuristicTokenizer } from "@volto/core";
-import { createMemoryStore } from "@volto/store-memory";
+} from "@voltojs/core";
+import { createHeuristicTokenizer } from "@voltojs/core";
+import { createMemoryStore } from "@voltojs/store-memory";
 
 let idCounter = 0;
 

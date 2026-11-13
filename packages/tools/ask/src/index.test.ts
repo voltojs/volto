@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createAskUserTool } from "./index.js";
-import type { ApprovalGate, EventSink, PendingToolCall, RiskTier } from "@volto/core";
+import type { ApprovalGate, EventSink, PendingToolCall, RiskTier } from "@voltojs/core";
 
 function harness(gateResult: { decision: "allow" | "deny"; answer?: string[] }) {
   const events: Array<{ type: string; data: Record<string, unknown> }> = [];

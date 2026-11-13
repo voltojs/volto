@@ -1,5 +1,5 @@
 /**
- * @volto/tools-browser — agent browser automation tools.
+ * @voltojs/tools-browser — agent browser automation tools.
  *
  * BrowserAdapter provides the runtime capabilities; these tools wrap it
  * with defineTool and capability gating.

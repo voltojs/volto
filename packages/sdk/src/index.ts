@@ -1,4 +1,4 @@
-// @volto/sdk — facade: createAgent, run / stream / resume
+// @voltojs/sdk — facade: createAgent, run / stream / resume
 
 export { createAgent, assembleSubAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "./create-agent.js";
 // Acceptance verification budgets and verifier timeout (spec 2026-11-11).
@@ -21,8 +21,8 @@ export { createCostMeter } from "./cost-meter.js";
 export type { CostMeterOptions, PricingTable, PricingEntry, CostMeterResult } from "./cost-meter.js";
 
 // M12: Audit
-export { defaultAuditSink } from "@volto/runtime-node";
-export type { AuditEntry, AuditSink } from "@volto/runtime-node";
+export { defaultAuditSink } from "@voltojs/runtime-node";
+export type { AuditEntry, AuditSink } from "@voltojs/runtime-node";
 
 // Re-export commonly needed types
 export type {
@@ -40,11 +40,11 @@ export type {
   FileWatchEvent,
   FileWatchRegistration,
   FileChangedInput,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // Re-export runner types for advanced usage
-export type { Runner, RunnerOptions, ToolExecutor, CompactNowResult } from "@volto/runtime-node";
-export { CompactionBusyError } from "@volto/runtime-node";
+export type { Runner, RunnerOptions, ToolExecutor, CompactNowResult } from "@voltojs/runtime-node";
+export { CompactionBusyError } from "@voltojs/runtime-node";
 
 // Re-export default ports for customization
 export {
@@ -91,8 +91,8 @@ export type {
 } from "./plugin.js";
 
 // M13: Hooks (re-exported from core)
-export { runHookPipeline } from "@volto/core";
-export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "@volto/core";
+export { runHookPipeline } from "@voltojs/core";
+export type { Hook, HookOutcome, HookPatch, HookContext, HookLifecycle, HookHandler } from "@voltojs/core";
 
 // M13: Declarative agent spec
 export { resolveAgentSpec, loadAgentSpec } from "./agent-spec.js";
@@ -121,7 +121,7 @@ export type { SlashCommand } from "./commands.js";
 // M13: Skills
 export type { Skill, ResourceLoader } from "./skills.js";
 
-// SSE protocol layer (import as: import { sse } from '@volto/sdk')
+// SSE protocol layer (import as: import { sse } from '@voltojs/sdk')
 export * as sse from "./sse/index.js";
 
 // Transcript read facade

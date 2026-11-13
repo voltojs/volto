@@ -13,7 +13,7 @@ import type {
   ModelPort,
   ModelRequest,
   ModelEvent,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Seeded PRNG (simple mulberry32)

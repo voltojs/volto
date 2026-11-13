@@ -1,11 +1,11 @@
 /**
- * SSE (Server-Sent Events) protocol layer for @volto/sdk.
+ * SSE (Server-Sent Events) protocol layer for @voltojs/sdk.
  *
  * Provides typed frame definitions, an event mapper (transcript events and
  * deltas -> wire frames), a server bridge (StreamChannel -> HTTP SSE), and a
  * client with auto-reconnect and typed event subscriptions. Also re-exports
  * the core projections so the web app can project without importing
- * @volto/core directly and without touching this package's Node-only root.
+ * @voltojs/core directly and without touching this package's Node-only root.
  */
 
 // Types
@@ -38,7 +38,7 @@ export type {
   EventSourceFactory,
 } from "./client.js";
 
-// Re-exported so the web app can project without importing @volto/core
+// Re-exported so the web app can project without importing @voltojs/core
 // directly and without touching this package's Node-only root entry.
 export {
   buildTurnRecords,
@@ -46,7 +46,7 @@ export {
   toConversationView,
   toTrajectoryView,
   groupConversationBlocks,
-} from "@volto/core";
+} from "@voltojs/core";
 export type {
   TurnRecord,
   StepRecord,
@@ -70,7 +70,7 @@ export type {
   TrajectoryRow,
   TodoItem,
   UserMessageSource,
-} from "@volto/core";
+} from "@voltojs/core";
 export {
   emptyContextUsageFold,
   foldContextUsageEvent,
@@ -82,7 +82,7 @@ export {
   foldSnapshotEvent,
   snapshotView,
   foldStandingTodos,
-} from "@volto/core";
+} from "@voltojs/core";
 export type {
   ContextUsageFold,
   ContextUsageHeader,
@@ -90,8 +90,8 @@ export type {
   ContextUsageView,
   ContextUsageSnapshot,
   ContextUsageHeaderEstimate,
-} from "@volto/core";
-export { classifyCommandRisk } from "@volto/core";
-export type { CommandRiskKind } from "@volto/core";
-export { tokenizeCommand, isMatchableCommandToken } from "@volto/core";
-export type { ContextReminderKind } from "@volto/core";
+} from "@voltojs/core";
+export { classifyCommandRisk } from "@voltojs/core";
+export type { CommandRiskKind } from "@voltojs/core";
+export { tokenizeCommand, isMatchableCommandToken } from "@voltojs/core";
+export type { ContextReminderKind } from "@voltojs/core";

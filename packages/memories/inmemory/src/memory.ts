@@ -3,7 +3,7 @@
  *
  * Implements the `MemoryStore` port with lexical scoring (spec §4.1/§4.3):
  * - query filters by scope / tier first, then ranks with `scoreMemoryText`
- *   from `@volto/memory-common`, returning only entries with score > 0.
+ *   from `@voltojs/memory-common`, returning only entries with score > 0.
  * - A missing entry `scope` is treated as global (spec §4.1).
  * - `id: ""` is replaced by a store-generated id; missing `createdAt` is
  *   backfilled from the injected clock.
@@ -20,8 +20,8 @@ import type {
   MemoryQueryFilter,
   MemoryScope,
   Embedder,
-} from "@volto/core";
-import { scoreMemoryText } from "@volto/memory-common";
+} from "@voltojs/core";
+import { scoreMemoryText } from "@voltojs/memory-common";
 
 export type MemoryTier = "working" | "episodic" | "semantic";
 

@@ -4,8 +4,8 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
+} from "@voltojs/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // createAgent default wiring for todo_write

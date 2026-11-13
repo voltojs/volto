@@ -5,14 +5,14 @@ import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   StepContext,
   ToolDefinition,
   PendingToolCall,
   ToolResult,
   TodoItem,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures — mirror runner.test.ts harness

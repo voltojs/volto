@@ -19,7 +19,7 @@ import { summary } from './helpers/session.js';
 import type {
   TaggedTranscriptDelta,
   TranscriptEventInput,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 
 /** The hook's channel callbacks, captured by the fake client below. */
 const channel: {

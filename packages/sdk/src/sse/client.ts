@@ -23,7 +23,7 @@ import {
   type ConnectedData,
   type TaggedTranscriptDelta,
 } from "./types.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 // ---------------------------------------------------------------------------
 // Configuration

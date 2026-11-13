@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { resolveImageRefs, createRunner } from "../runner.js";
-import { pruneOversizedToolResults, textScript } from "@volto/core";
+import { pruneOversizedToolResults, textScript } from "@voltojs/core";
 import type {
   AttachmentStore,
   Message,
@@ -10,7 +10,7 @@ import type {
   ModelEvent,
   StepContext,
   ReducerState,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const PNG = "iVBORw0KGgo=";
 

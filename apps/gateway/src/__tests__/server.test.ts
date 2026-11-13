@@ -15,8 +15,8 @@ import { buildConfigScript } from "../static/serve.js";
 import { getConfigDir } from "../config/paths.js";
 import { loadPermissionRules } from "../config/permissions.js";
 import { rotateAccessToken } from "../auth/access-token.js";
-import { encodeWorkspaceName } from "@volto/store-jsonl";
-import type { BrowserHost } from "@volto/runtime-node";
+import { encodeWorkspaceName } from "@voltojs/store-jsonl";
+import type { BrowserHost } from "@voltojs/runtime-node";
 import {
   applyPartial,
   buildTurnRecords,
@@ -26,7 +26,7 @@ import {
   toolCallScript,
   decide,
   ceilingOf,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   ConversationMessage,
   ModelPort,
@@ -35,7 +35,7 @@ import type {
   TranscriptEvent,
   TranscriptEventInput,
   TurnRecord,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const MOCK_MODEL: ModelPort = {
   async *stream() {
@@ -2647,7 +2647,7 @@ describe("POST /approvals", () => {
 
 /**
  * A minimal ApprovalGate-shaped interface, local to these tests — avoids
- * pulling in `@volto/core`'s full `ApprovalGate` type just for a structural
+ * pulling in `@voltojs/core`'s full `ApprovalGate` type just for a structural
  * cast.
  */
 interface StubApprovalGate {

@@ -1,5 +1,5 @@
 /**
- * @volto/eval — trajectory replay and regression testing harness.
+ * @voltojs/eval — trajectory replay and regression testing harness.
  *
  * Provides:
  * - Trajectory recording format (JSON-serializable)

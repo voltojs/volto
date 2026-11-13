@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useChatStore } from '@/stores/chat-store';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const started = (childId: string): TranscriptEventInput =>
   ({

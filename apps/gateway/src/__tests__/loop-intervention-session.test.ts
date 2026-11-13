@@ -8,8 +8,8 @@ import {
   toolCallScript,
   renderLoopReminder,
   renderLoopIntervention,
-} from "@volto/core";
-import type { ModelEvent, ModelPort, ModelRequest, Message, PermissionConfig } from "@volto/core";
+} from "@voltojs/core";
+import type { ModelEvent, ModelPort, ModelRequest, Message, PermissionConfig } from "@voltojs/core";
 import { createWiredAgent } from "../wiring.js";
 import { buildPermissionConfig, sandboxModeFor } from "../permission-modes.js";
 

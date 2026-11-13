@@ -1,5 +1,5 @@
 /**
- * Tool-name sets for @volto/tools-fs.
+ * Tool-name sets for @voltojs/tools-fs.
  *
  * FS_TOOL_NAMES is the full export surface (visibility / docs / tests).
  * FS_EXECUTOR_TOOL_NAMES is the subset implemented by
@@ -8,7 +8,7 @@
  * through the FS executor would yield "Unknown tool".
  */
 
-/** All tool names exported by @volto/tools-fs */
+/** All tool names exported by @voltojs/tools-fs */
 export const FS_TOOL_NAMES: ReadonlySet<string> = new Set([
   "read_file",
   "edit_file",

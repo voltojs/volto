@@ -1,6 +1,6 @@
-import type { Shell, ToolResult } from "@volto/core";
+import type { Shell, ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 
 const killShellSchema = z.object({

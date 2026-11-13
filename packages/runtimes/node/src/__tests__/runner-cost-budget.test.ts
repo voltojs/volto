@@ -14,8 +14,8 @@ import {
   textDelta,
   usage,
   modelDone,
-} from "@volto/core";
-import type { StepContext, ToolDefinition, EventSink } from "@volto/core";
+} from "@voltojs/core";
+import type { StepContext, ToolDefinition, EventSink } from "@voltojs/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

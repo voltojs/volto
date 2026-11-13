@@ -17,10 +17,10 @@ import {
   toolCallScript,
   textScript,
   CAP_MODEL_VISION,
-} from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
-import { createMemoryStore } from "@volto/store-memory";
-import { createNodeFileSystem, createNodeAttachmentStore } from "@volto/runtime-node";
+} from "@voltojs/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
+import { createMemoryStore } from "@voltojs/store-memory";
+import { createNodeFileSystem, createNodeAttachmentStore } from "@voltojs/runtime-node";
 
 /** 1×1 red PNG. Exact base64 asserted on the request surface. */
 const PNG_1X1 =

@@ -10,8 +10,8 @@
 
 import { describe, it, expect } from "vitest";
 import { createRunner } from "../runner.js";
-import { createMockModelPort, toolCallScript, textScript, resetTurnForNextInput } from "@volto/core";
-import type { SessionStore, SessionSnapshot, StepContext, ToolDefinition, ReducerState } from "@volto/core";
+import { createMockModelPort, toolCallScript, textScript, resetTurnForNextInput } from "@voltojs/core";
+import type { SessionStore, SessionSnapshot, StepContext, ToolDefinition, ReducerState } from "@voltojs/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

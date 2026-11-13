@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { modelDone, textScript, toolUseDelta, toolUseStart } from "@volto/core";
-import type { ModelEvent, ModelPort, ModelRequest, TranscriptEventInput } from "@volto/core";
+import { modelDone, textScript, toolUseDelta, toolUseStart } from "@voltojs/core";
+import type { ModelEvent, ModelPort, ModelRequest, TranscriptEventInput } from "@voltojs/core";
 
 function fakeChatStore() {
   const bySession = new Map<string, TranscriptEventInput[]>();

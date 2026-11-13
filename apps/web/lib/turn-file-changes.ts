@@ -9,7 +9,7 @@
  * Pure: the fold only reads the entries it is given.
  */
 
-import type { FileChange } from '@volto/sdk/sse';
+import type { FileChange } from '@voltojs/sdk/sse';
 import type { ChatEntry } from './projection';
 
 /**

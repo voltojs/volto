@@ -9,7 +9,7 @@ import { ConversationUsageChip } from '../ConversationUsageChip';
 import { formatCompactTokens } from '@/lib/context-meter-model';
 import { cacheHitRate, formatCacheHitRate } from '@/lib/turn-usage-model';
 import { conversationUsage } from '@/lib/session-stats-model';
-import type { TurnUsage } from '@volto/sdk/sse';
+import type { TurnUsage } from '@voltojs/sdk/sse';
 
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};

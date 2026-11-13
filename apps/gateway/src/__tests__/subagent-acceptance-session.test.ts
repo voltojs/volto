@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { textScript, toolCallScript } from "@volto/core";
-import type { ModelEvent, ModelPort, ModelRequest } from "@volto/core";
+import { textScript, toolCallScript } from "@voltojs/core";
+import type { ModelEvent, ModelPort, ModelRequest } from "@voltojs/core";
 import { startTestServer, type TestServer } from "./helpers.js";
 
 /**

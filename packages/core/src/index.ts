@@ -1,4 +1,4 @@
-// @volto/core — pure functional kernel, zero dependencies
+// @voltojs/core — pure functional kernel, zero dependencies
 
 export const VERSION = "0.0.1";
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
 import type { CreateAgentOptions } from "../create-agent.js";
-import { textScript } from "@volto/core";
-import type { ModelPort, ModelRequest, ToolDefinition, ToolResult } from "@volto/core";
+import { textScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest, ToolDefinition, ToolResult } from "@voltojs/core";
 
 /**
  * F-163 / F-164 — default tool-visibility wiring in createAgent

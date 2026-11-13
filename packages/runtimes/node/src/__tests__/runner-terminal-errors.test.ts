@@ -28,13 +28,13 @@ import {
   toolUseDelta,
   toolUseStart,
   usage,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   EventSink,
   StepContext,
   ToolDefinition,
   TranscriptEventInput,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

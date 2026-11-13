@@ -4,7 +4,7 @@
  * Persists snapshots in a local SQLite database file.
  */
 
-import type { SessionStore, SessionSnapshot } from "@volto/core";
+import type { SessionStore, SessionSnapshot } from "@voltojs/core";
 import Database from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { drainBackgroundTasks } from "../runner.js";
-import { createInitialState } from "@volto/core";
+import { createInitialState } from "@voltojs/core";
 
 // The drain path is where the model never called task_output: a failed
 // acceptance verdict must not arrive as an ordinary completion. The notice

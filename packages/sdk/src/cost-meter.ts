@@ -6,12 +6,12 @@
  * budget enforcement (that's M8 Phase 4's responsibility).
  */
 
-import type { ModelEvent, EventSink, Telemetry, PricingEntry, PricingTable } from "@volto/core";
-import { computeUsageCost } from "@volto/core";
+import type { ModelEvent, EventSink, Telemetry, PricingEntry, PricingTable } from "@voltojs/core";
+import { computeUsageCost } from "@voltojs/core";
 
 // Re-exported so the SDK's public API is unchanged — the arithmetic and
-// types now live in @volto/core (shared with the Node runtime's budget
-// gates), but consumers of @volto/sdk still import them from here.
+// types now live in @voltojs/core (shared with the Node runtime's budget
+// gates), but consumers of @voltojs/sdk still import them from here.
 export type { PricingEntry, PricingTable };
 
 export interface CostMeterResult {

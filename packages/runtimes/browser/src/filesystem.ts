@@ -12,7 +12,7 @@ import type {
   FileListResult,
   FileGlobResult,
   FileGrepResult,
-} from "@volto/core";
+} from "@voltojs/core";
 
 interface VirtualNode {
   type: "file" | "directory";

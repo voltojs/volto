@@ -16,7 +16,7 @@
 
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
-import type { EgressPolicy } from "@volto/runtime-node";
+import type { EgressPolicy } from "@voltojs/runtime-node";
 
 const HOST_LIST_KEYS = ["allowHosts", "denyHosts"] as const;
 

@@ -18,13 +18,13 @@ import type {
   ModelRequest,
   ModelEvent,
   EventSink,
-} from "@volto/core";
-import type { Tool } from "@volto/tools-common";
+} from "@voltojs/core";
+import type { Tool } from "@voltojs/tools-common";
 import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@volto/core";
+} from "@voltojs/core";
 import { GENERAL_PURPOSE_NAME, EXPLORE_NAME } from "../agent-registry/builtin.js";
 
 function namedTool(name: string): Tool {

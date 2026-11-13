@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { CircleHelp, ShieldAlert } from 'lucide-react';
-import { classifyCommandRisk } from '@volto/sdk/sse';
+import { classifyCommandRisk } from '@voltojs/sdk/sse';
 import { Button } from '@/components/ui/button';
 import { riskNoteKeyFor, rememberablePrefixes } from '@/lib/approvals';
 import type { PendingApproval, ApprovalOutcome } from '@/lib/approvals';

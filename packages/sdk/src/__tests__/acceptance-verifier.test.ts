@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { ModelPort } from "@volto/core";
-import { createMockModelPort, textDelta, usage, modelDone, modelError } from "@volto/core";
+import type { ModelPort } from "@voltojs/core";
+import { createMockModelPort, textDelta, usage, modelDone, modelError } from "@voltojs/core";
 import { parseAcceptanceVerdict, verifyDispatch } from "../acceptance-verifier.js";
 
 describe("parseAcceptanceVerdict", () => {

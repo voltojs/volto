@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { AttachmentStore, StoredAttachment } from "@volto/core";
+import type { AttachmentStore, StoredAttachment } from "@voltojs/core";
 import { readImageDimensions } from "./image-dimensions.js";
 
 export interface NodeAttachmentStoreOptions {

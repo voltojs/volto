@@ -17,8 +17,8 @@
 import { accessSync, constants, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { isAbsolute, relative, resolve } from "node:path";
-import type { Clock, FileSystem } from "@volto/core";
-import { fileToUri, uriToFile } from "@volto/tools-code";
+import type { Clock, FileSystem } from "@voltojs/core";
+import { fileToUri, uriToFile } from "@voltojs/tools-code";
 import type {
   LspClient,
   LspClientProvider,
@@ -28,7 +28,7 @@ import type {
   LspHover,
   LspLocation,
   LspReference,
-} from "@volto/tools-code";
+} from "@voltojs/tools-code";
 import { createSandboxedProcessSpawner } from "./sandbox.js";
 import type { SandboxConfig, SandboxedProcess } from "./sandbox.js";
 

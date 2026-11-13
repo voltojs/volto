@@ -12,7 +12,7 @@ import {
   usage,
   modelDone,
   extractBlockText,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   StepContext,
   ToolDefinition,
@@ -20,7 +20,7 @@ import type {
   ToolResult,
   ToolResultMessage,
   PermissionConfig,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const writeTool: ToolDefinition = {
   name: "write_file",

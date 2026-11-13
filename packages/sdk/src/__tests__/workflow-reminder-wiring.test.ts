@@ -5,8 +5,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
+import { createMockModelPort, textScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
 
 const ENTER = "You are in plan mode (plan). wf-sdk-text";
 

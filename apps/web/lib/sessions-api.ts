@@ -3,7 +3,7 @@
  * (`GET /sessions`, `GET /sessions/:id`, `GET /sessions/:id/trajectory`,
  * `GET /sessions/:id/events`) — the jsonl store's chat history, already
  * projected server-side into the shared `ConversationView` /
- * `TrajectoryView` shapes re-exported by `@volto/sdk/sse` (the raw-events
+ * `TrajectoryView` shapes re-exported by `@voltojs/sdk/sse` (the raw-events
  * endpoint is the exception: wire-order events, projected client-side).
  */
 
@@ -14,7 +14,7 @@ import type {
   TranscriptEventInput,
   TrajectoryView,
   TodoItem,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 import type { QueuedSeed } from './projection';
 
 /** trajectory 接口失败。410 = 旧版本写入的会话，其余归为网络/服务端故障。 */

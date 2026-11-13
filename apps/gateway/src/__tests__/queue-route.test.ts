@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ModelRequest, TranscriptEventInput, UserMessage } from "@volto/core";
-import { pendingSteeredMessages } from "@volto/core";
-import { DEFAULT_LOCALE, t } from "@volto/i18n";
+import type { ModelRequest, TranscriptEventInput, UserMessage } from "@voltojs/core";
+import { pendingSteeredMessages } from "@voltojs/core";
+import { DEFAULT_LOCALE, t } from "@voltojs/i18n";
 import { createWiredAgent } from "../wiring.js";
 import { startTestServer, type TestServer } from "./helpers.js";
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as crypto from "node:crypto";
 import { createRunner } from "../runner.js";
-import { textScript, createCharTokenizer } from "@volto/core";
+import { textScript, createCharTokenizer } from "@voltojs/core";
 import type {
   Message,
   ModelPort,
@@ -12,7 +12,7 @@ import type {
   CompactionConfig,
   PromptAnchorState,
   EventSink,
-} from "@volto/core";
+} from "@voltojs/core";
 
 function createSpyModelPort(script: ModelEvent[][]): ModelPort & { calls: ModelRequest[] } {
   const calls: ModelRequest[] = [];

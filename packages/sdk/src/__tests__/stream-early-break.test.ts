@@ -4,8 +4,8 @@ import {
   textDelta,
   modelDone,
   modelError,
-} from "@volto/core";
-import type { ModelPort, ModelEvent } from "@volto/core";
+} from "@voltojs/core";
+import type { ModelPort, ModelEvent } from "@voltojs/core";
 
 /**
  * A model port whose stream yields events with explicit awaits between them

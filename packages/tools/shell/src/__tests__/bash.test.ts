@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import type { Shell, ShellEvent } from "@volto/core";
+import type { Shell, ShellEvent } from "@voltojs/core";
 import { spawn } from "node:child_process";
-import { DEFAULT_TIMEOUTS } from "@volto/tools-common";
+import { DEFAULT_TIMEOUTS } from "@voltojs/tools-common";
 import { createBashTool, CAP_SHELL_EXEC } from "../index.js";
 
 /** Mock shell that actually executes commands via child_process.spawn (concurrent stdout/stderr) */

@@ -4,8 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock @volto/sdk/sse before importing the module under test
-vi.mock('@volto/sdk/sse', () => {
+// Mock @voltojs/sdk/sse before importing the module under test
+vi.mock('@voltojs/sdk/sse', () => {
   const destroy = vi.fn();
   const mockClient = {
     connect: vi.fn(),
@@ -23,7 +23,7 @@ vi.mock('@volto/sdk/sse', () => {
 });
 
 import { getSSEClient, disconnectSSEClient } from '../lib/sse-client.js';
-import { createSSEClient } from '@volto/sdk/sse';
+import { createSSEClient } from '@voltojs/sdk/sse';
 
 const createSSEClientMock = vi.mocked(createSSEClient);
 

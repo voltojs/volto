@@ -1,14 +1,14 @@
 /**
- * @volto/tools-ask — ask_user tool
+ * @voltojs/tools-ask — ask_user tool
  *
  * Uses ApprovalGate / EventSink to ask the host a question.
  * When the host lacks interactive capability, returns isError.
  */
 
-import type { ApprovalGate, EventSink, Id } from "@volto/core";
+import type { ApprovalGate, EventSink, Id } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
 
 const schema = z.object({
   question: z.string().describe("The question to ask the user."),

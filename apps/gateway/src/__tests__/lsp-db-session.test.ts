@@ -8,9 +8,9 @@ import {
   extractBlockText,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { ContentBlock, ModelEvent, ModelPort, ModelRequest } from "@volto/core";
-import { probeBinary } from "@volto/runtime-node";
+} from "@voltojs/core";
+import type { ContentBlock, ModelEvent, ModelPort, ModelRequest } from "@voltojs/core";
+import { probeBinary } from "@voltojs/runtime-node";
 import {
   buildSandboxConfigs,
   createWiredAgent,
@@ -43,8 +43,8 @@ import {
  * the real createAgent. Governance semantics themselves are pinned by
  * toolset-governance-session.test.ts.
  */
-vi.mock("@volto/sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@volto/sdk")>();
+vi.mock("@voltojs/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@voltojs/sdk")>();
   return {
     ...actual,
     createAgent: (opts: Parameters<typeof actual.createAgent>[0]) =>

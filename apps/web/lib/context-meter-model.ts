@@ -4,7 +4,7 @@
  * (no React, no DOM).
  */
 
-import type { ContextUsageView } from '@volto/sdk/sse';
+import type { ContextUsageView } from '@voltojs/sdk/sse';
 
 export const CONTEXT_METER_SEGMENTS = [
   { key: 'system', labelKey: 'usage.segment.system' },

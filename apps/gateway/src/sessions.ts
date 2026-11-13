@@ -10,13 +10,13 @@
 
 import type * as http from "node:http";
 import * as crypto from "node:crypto";
-import { sse, mergeQueuedEdit, type CreateAgentOptions } from "@volto/sdk";
-import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput, TranscriptEventMap, UserMessageSource } from "@volto/core";
-import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@volto/core";
-import type { JsonlSessionStore, ChatSessionRecord } from "@volto/store-jsonl";
-import { scopeToWorkspace } from "@volto/store-jsonl";
-import { createPiAiModelPort, type ConfiguredProtocol, type PiAiProviderConfig, type ProviderAuth, type ProviderProtocol } from "@volto/provider-pi-ai";
-import { t } from "@volto/i18n";
+import { sse, mergeQueuedEdit, type CreateAgentOptions } from "@voltojs/sdk";
+import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, CompactionConfig, AgentInput, PermissionRule, ModelInputValue, UserMessage, SteeringEditInput, SteeringRemoveInput, TranscriptEventMap, UserMessageSource } from "@voltojs/core";
+import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@voltojs/core";
+import type { JsonlSessionStore, ChatSessionRecord } from "@voltojs/store-jsonl";
+import { scopeToWorkspace } from "@voltojs/store-jsonl";
+import { createPiAiModelPort, type ConfiguredProtocol, type PiAiProviderConfig, type ProviderAuth, type ProviderProtocol } from "@voltojs/provider-pi-ai";
+import { t } from "@voltojs/i18n";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
 import { resolveProjectPath, unknownProjectMessage, type createProjectStore } from "./config/projects.js";
@@ -548,7 +548,7 @@ export type QueuedMessageAction =
  * `undefined` for an empty or turn-less log. Passed to createAgent() as
  * `initialTurn` (via WiringOptions) so a rebuilt agent instance continues
  * turn numbering instead of restarting at 1 — see CreateAgentOptions.initialTurn
- * in @volto/sdk. `undefined` means "omit the option entirely", not "0":
+ * in @voltojs/sdk. `undefined` means "omit the option entirely", not "0":
  * createAgent() treats an explicit 0 as a real seed (next turn = 1), which
  * happens to be indistinguishable from the default here, but omission is the
  * more honest signal for "no prior transcript".
@@ -568,7 +568,7 @@ function highestTurnStart(events: readonly TranscriptEvent[]): number | undefine
  * `initialStep` (via WiringOptions) so a rebuilt agent instance's
  * cross-process resume Runner continues the paused turn's step sequence
  * instead of restarting at 1 — see CreateAgentOptions.initialStep in
- * @volto/sdk. `undefined` means "omit the option entirely", not "0",
+ * @voltojs/sdk. `undefined` means "omit the option entirely", not "0",
  * mirroring highestTurnStart's convention above.
  */
 function highestStepInTurn(events: readonly TranscriptEvent[], turn: number): number | undefined {

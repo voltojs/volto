@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage } from '@voltojs/sdk/sse';
 import {
   fetchServerSessions,
   fetchServerSessionDetail,

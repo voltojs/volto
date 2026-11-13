@@ -1,6 +1,6 @@
-import type { Shell, ToolResult } from "@volto/core";
+import type { Shell, ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { DEFAULT_TIMEOUTS, defineTool, renderTimeoutSignature } from "@volto/tools-common";
+import { DEFAULT_TIMEOUTS, defineTool, renderTimeoutSignature } from "@voltojs/tools-common";
 import { CAP_SHELL_EXEC } from "./capabilities.js";
 import type { BashSessionLike } from "./session-port.js";
 

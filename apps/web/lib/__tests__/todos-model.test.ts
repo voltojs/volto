@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { foldTodosFromEvents, countTodos } from '../todos-model';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 function todoEvent(todos: Array<{ content: string; status: string }>): TranscriptEventInput {
   return {

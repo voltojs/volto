@@ -1,7 +1,7 @@
 /**
  * MCP JSON-RPC 2.0 protocol types — subset used by the client.
  * These mirror the MCP specification's wire format without importing
- * the full MCP SDK (keeping @volto/core zero-dep invariant).
+ * the full MCP SDK (keeping @voltojs/core zero-dep invariant).
  */
 
 // ── JSON-RPC 2.0 base ──────────────────────────

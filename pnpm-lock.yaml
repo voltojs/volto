@@ -38,10 +38,10 @@ importers:
 
   apps/desktop-app:
     dependencies:
-      '@volto/provider-pi-ai':
+      '@voltojs/provider-pi-ai':
         specifier: workspace:*
         version: link:../../packages/providers/pi-ai
-      '@volto/sdk':
+      '@voltojs/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
       class-variance-authority:
@@ -111,34 +111,34 @@ importers:
 
   apps/gateway:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@volto/i18n':
+      '@voltojs/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
-      '@volto/memory-file':
+      '@voltojs/memory-file':
         specifier: workspace:*
         version: link:../../packages/memories/file
-      '@volto/provider-pi-ai':
+      '@voltojs/provider-pi-ai':
         specifier: workspace:*
         version: link:../../packages/providers/pi-ai
-      '@volto/runtime-node':
+      '@voltojs/runtime-node':
         specifier: workspace:*
         version: link:../../packages/runtimes/node
-      '@volto/sdk':
+      '@voltojs/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
-      '@volto/store-file':
+      '@voltojs/store-file':
         specifier: workspace:*
         version: link:../../packages/stores/file
-      '@volto/store-jsonl':
+      '@voltojs/store-jsonl':
         specifier: workspace:*
         version: link:../../packages/stores/jsonl
-      '@volto/store-sqlite':
+      '@voltojs/store-sqlite':
         specifier: workspace:*
         version: link:../../packages/stores/sqlite
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../../packages/tools/common
       ws:
@@ -203,10 +203,10 @@ importers:
       '@tiptap/suggestion':
         specifier: ^3.31.3
         version: 3.31.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
-      '@volto/i18n':
+      '@voltojs/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
-      '@volto/sdk':
+      '@voltojs/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
       class-variance-authority:
@@ -311,13 +311,13 @@ importers:
 
   packages/embedders/openai:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/eval:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../core
 
@@ -325,37 +325,37 @@ importers:
 
   packages/memories/common:
     devDependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/memories/file:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/memory-common':
+      '@voltojs/memory-common':
         specifier: workspace:*
         version: link:../common
 
   packages/memories/inmemory:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/memory-common':
+      '@voltojs/memory-common':
         specifier: workspace:*
         version: link:../common
 
   packages/providers/anthropic:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/providers/openai:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
@@ -364,46 +364,46 @@ importers:
       '@earendil-works/pi-ai':
         specifier: ^1.5.0
         version: 1.5.0(@aws-sdk/credential-provider-node@3.972.82)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.0)(zod@4.4.3)
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtimes/browser:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtimes/edge:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtimes/node:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-browser':
+      '@voltojs/tools-browser':
         specifier: workspace:*
         version: link:../../tools/browser
-      '@volto/tools-code':
+      '@voltojs/tools-code':
         specifier: workspace:*
         version: link:../../tools/code
-      '@volto/tools-data':
+      '@voltojs/tools-data':
         specifier: workspace:*
         version: link:../../tools/data
-      '@volto/tools-document':
+      '@voltojs/tools-document':
         specifier: workspace:*
         version: link:../../tools/document
-      '@volto/tools-fs':
+      '@voltojs/tools-fs':
         specifier: workspace:*
         version: link:../../tools/fs
-      '@volto/tools-shell':
+      '@voltojs/tools-shell':
         specifier: workspace:*
         version: link:../../tools/shell
-      '@volto/tools-web':
+      '@voltojs/tools-web':
         specifier: workspace:*
         version: link:../../tools/web
       better-sqlite3:
@@ -425,64 +425,64 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
-      '@volto/eval':
+      '@voltojs/eval':
         specifier: workspace:*
         version: link:../../eval
 
   packages/sdk:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../core
-      '@volto/runtime-node':
+      '@voltojs/runtime-node':
         specifier: workspace:*
         version: link:../runtimes/node
-      '@volto/store-memory':
+      '@voltojs/store-memory':
         specifier: workspace:*
         version: link:../stores/memory
-      '@volto/tool-skill':
+      '@voltojs/tool-skill':
         specifier: workspace:*
         version: link:../tools/skill
-      '@volto/tools-agent':
+      '@voltojs/tools-agent':
         specifier: workspace:*
         version: link:../tools/agent
-      '@volto/tools-ask':
+      '@voltojs/tools-ask':
         specifier: workspace:*
         version: link:../tools/ask
-      '@volto/tools-browser':
+      '@voltojs/tools-browser':
         specifier: workspace:*
         version: link:../tools/browser
-      '@volto/tools-code':
+      '@voltojs/tools-code':
         specifier: workspace:*
         version: link:../tools/code
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../tools/common
-      '@volto/tools-data':
+      '@voltojs/tools-data':
         specifier: workspace:*
         version: link:../tools/data
-      '@volto/tools-document':
+      '@voltojs/tools-document':
         specifier: workspace:*
         version: link:../tools/document
-      '@volto/tools-fs':
+      '@voltojs/tools-fs':
         specifier: workspace:*
         version: link:../tools/fs
-      '@volto/tools-memory':
+      '@voltojs/tools-memory':
         specifier: workspace:*
         version: link:../tools/memory
-      '@volto/tools-plan':
+      '@voltojs/tools-plan':
         specifier: workspace:*
         version: link:../tools/plan
-      '@volto/tools-schedule':
+      '@voltojs/tools-schedule':
         specifier: workspace:*
         version: link:../tools/schedule
-      '@volto/tools-shell':
+      '@voltojs/tools-shell':
         specifier: workspace:*
         version: link:../tools/shell
-      '@volto/tools-vcs':
+      '@voltojs/tools-vcs':
         specifier: workspace:*
         version: link:../tools/vcs
-      '@volto/tools-web':
+      '@voltojs/tools-web':
         specifier: workspace:*
         version: link:../tools/web
       zod:
@@ -491,25 +491,25 @@ importers:
 
   packages/stores/file:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/stores/jsonl:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/stores/memory:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/stores/postgres:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
       pg:
@@ -522,7 +522,7 @@ importers:
 
   packages/stores/sqlite:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
       better-sqlite3:
@@ -535,10 +535,10 @@ importers:
 
   packages/tools/agent:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -547,10 +547,10 @@ importers:
 
   packages/tools/ask:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -559,10 +559,10 @@ importers:
 
   packages/tools/browser:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -571,10 +571,10 @@ importers:
 
   packages/tools/code:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -583,7 +583,7 @@ importers:
 
   packages/tools/common:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
       zod:
@@ -592,10 +592,10 @@ importers:
 
   packages/tools/data:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -604,10 +604,10 @@ importers:
 
   packages/tools/document:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -616,10 +616,10 @@ importers:
 
   packages/tools/fs:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -628,16 +628,16 @@ importers:
 
   packages/tools/mcp:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
 
   packages/tools/memory:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -646,10 +646,10 @@ importers:
 
   packages/tools/plan:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -658,10 +658,10 @@ importers:
 
   packages/tools/schedule:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -670,10 +670,10 @@ importers:
 
   packages/tools/shell:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -682,10 +682,10 @@ importers:
 
   packages/tools/skill:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -694,10 +694,10 @@ importers:
 
   packages/tools/vcs:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:
@@ -706,10 +706,10 @@ importers:
 
   packages/tools/web:
     dependencies:
-      '@volto/core':
+      '@voltojs/core':
         specifier: workspace:*
         version: link:../../core
-      '@volto/tools-common':
+      '@voltojs/tools-common':
         specifier: workspace:*
         version: link:../common
       zod:

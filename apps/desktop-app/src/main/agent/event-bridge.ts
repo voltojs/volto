@@ -4,7 +4,7 @@
  */
 
 import { BrowserWindow } from "electron";
-import type { EventSink } from "@volto/core";
+import type { EventSink } from "@voltojs/core";
 
 /** Agent 事件类型 */
 export interface AgentEvent {

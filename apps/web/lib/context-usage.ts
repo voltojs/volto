@@ -12,7 +12,7 @@ import {
   type ContextUsageSnapshot,
   type ContextUsageView,
   type TranscriptEventInput,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 
 // Same source as the server's node tokenizer — both delegate to core's
 // heuristic, so a snapshot made server-side continues client-side unchanged.

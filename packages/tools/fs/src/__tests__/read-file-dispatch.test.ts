@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { FileSystem, AttachmentStore } from "@volto/core";
+import type { FileSystem, AttachmentStore } from "@voltojs/core";
 import { createReadFileTool } from "../read-file.js";
 
 const PNG = "iVBORw0KGgo=";

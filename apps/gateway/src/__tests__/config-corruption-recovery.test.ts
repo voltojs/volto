@@ -23,7 +23,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createServer } from "../server.js";
-import type { ModelPort } from "@volto/core";
+import type { ModelPort } from "@voltojs/core";
 
 const MOCK_MODEL: ModelPort = {
   async *stream() {

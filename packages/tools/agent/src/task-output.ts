@@ -1,6 +1,6 @@
-import type { DispatchVerification, TokenUsage, ToolResult } from "@volto/core";
+import type { DispatchVerification, TokenUsage, ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
 import { CAP_AGENT_TASK, CAP_AGENT_DEPTH_AVAILABLE } from "./capabilities.js";
 import { buildResultBlocks } from "./task.js";
 

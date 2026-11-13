@@ -20,7 +20,7 @@ import type {
   ModelReasoningInfo,
   ReasoningEffortId,
   ResolvedModelInfo,
-} from "@volto/core";
+} from "@voltojs/core";
 
 /** The three protocols Volto exposes as first-class routes. */
 export type ProviderProtocol =

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
 import { createStore } from "../index.js";
-import { runStoreContractTests } from "@volto/core/testing";
+import { runStoreContractTests } from "@voltojs/core/testing";
 import pg from "pg";
 
 const { Pool } = pg;

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { createAgent } from "../create-agent.js";
 import type { CreateAgentOptions } from "../create-agent.js";
-import { textScript, toolCallScript } from "@volto/core";
-import type { ModelPort, ModelRequest } from "@volto/core";
-import type { LspClient, LspClientProvider } from "@volto/tools-code";
-import type { DatabaseAdapter, DatabaseOpener } from "@volto/tools-data";
+import { textScript, toolCallScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
+import type { LspClient, LspClientProvider } from "@voltojs/tools-code";
+import type { DatabaseAdapter, DatabaseOpener } from "@voltojs/tools-data";
 
 /**
  * F-122 — SDK options, capability split and assembly.

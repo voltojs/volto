@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem, FileWatcher } from "@volto/core";
-import type { Tool } from "@volto/tools-common";
+import type { FileSystem, FileWatcher } from "@voltojs/core";
+import type { Tool } from "@voltojs/tools-common";
 import { createReadFileTool } from "../read-file.js";
 import { createWriteFileTool } from "../write-file.js";
 import { createEditFileTool } from "../edit-file.js";

@@ -2,7 +2,7 @@
 
 import { Database } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import type { TurnUsage } from '@volto/sdk/sse';
+import type { TurnUsage } from '@voltojs/sdk/sse';
 import {
   Popover,
   PopoverContent,

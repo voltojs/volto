@@ -3,7 +3,7 @@ import { createRunner } from "../runner.js";
 import {
   textScript,
   createCharTokenizer,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   Message,
   ModelPort,
@@ -14,7 +14,7 @@ import type {
   CompactionConfig,
   TranscriptEventInput,
   Id,
-} from "@volto/core";
+} from "@voltojs/core";
 
 /**
  * A spy ModelPort that records every request's messages and replays a script

@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ChatSessionMeta, TranscriptEventInput } from "@volto/core";
+import type { ChatSessionMeta, TranscriptEventInput } from "@voltojs/core";
 import { createSessionRegistry } from "../sessions.js";
 
 interface FakeStore {
@@ -24,7 +24,7 @@ interface FakeStore {
 
 /**
  * A transcript store that folds `session_meta` field-by-field exactly like
- * `@volto/store-jsonl` does — the property every title write relies on.
+ * `@voltojs/store-jsonl` does — the property every title write relies on.
  */
 function fakeStore(initial?: ChatSessionMeta): FakeStore {
   const store: FakeStore = {

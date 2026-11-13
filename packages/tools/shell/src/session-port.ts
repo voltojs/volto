@@ -1,8 +1,8 @@
 /**
  * Minimal session contract consumed by the bash tool.
  *
- * Declared here so `@volto/tools-shell` never value-imports (or even
- * type-imports) `@volto/runtime-node`. `PersistentSession` in runtime-node
+ * Declared here so `@voltojs/tools-shell` never value-imports (or even
+ * type-imports) `@voltojs/runtime-node`. `PersistentSession` in runtime-node
  * structurally satisfies this interface.
  */
 export interface BashSessionRunResult {

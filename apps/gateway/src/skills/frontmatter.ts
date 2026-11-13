@@ -8,7 +8,7 @@
  * A naive `indexOf(":")` split parses those as the literal string ">-".
  */
 
-import type { SkillInvocationPolicy } from "@volto/core";
+import type { SkillInvocationPolicy } from "@voltojs/core";
 
 export interface ParsedSkillFile {
   name: string;

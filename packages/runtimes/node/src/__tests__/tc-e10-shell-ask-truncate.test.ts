@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
-import type { StepContext, ToolDefinition } from "@volto/core";
+import type { StepContext, ToolDefinition } from "@voltojs/core";
 import {
   createMockModelPort,
   toolUseStart,
   toolUseDelta,
   modelDone,
   textDelta,
-} from "@volto/core";
-import { createBashTool, CAP_SHELL_EXEC } from "@volto/tools-shell";
+} from "@voltojs/core";
+import { createBashTool, CAP_SHELL_EXEC } from "@voltojs/tools-shell";
 import { createRunner } from "../runner.js";
 import { createShellToolExecutor } from "../shell-tool-executor.js";
 import { createAutoAllowGate } from "../approval-gate.js";
-import { createDefaultPermissionConfig } from "@volto/core";
+import { createDefaultPermissionConfig } from "@voltojs/core";
 
 const bashDef: ToolDefinition = createBashTool({
   async *exec() {

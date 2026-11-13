@@ -21,8 +21,8 @@ import type {
   ModelRequest,
   ToolDefinition,
   TranscriptEventInput,
-} from "@volto/core";
-import type { Tool } from "@volto/tools-common";
+} from "@voltojs/core";
+import type { Tool } from "@voltojs/tools-common";
 
 const ECHO_DEF: ToolDefinition = {
   name: "echo",

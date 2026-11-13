@@ -7,8 +7,8 @@
  * 请求），不随单个 session 的创建/销毁而失效。
  */
 
-import type { AgentInstance } from "@volto/sdk";
-import type { EventSink, Message } from "@volto/core";
+import type { AgentInstance } from "@voltojs/sdk";
+import type { EventSink, Message } from "@voltojs/core";
 import { createAgentInstance } from "./wiring.js";
 import { createApprovalGate } from "./approval-gate.js";
 import { resolveModelBinding, persistedMessagesToInitialMessages } from "./session-history.js";

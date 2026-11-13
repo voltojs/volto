@@ -12,7 +12,7 @@ import type {
   DocumentParserAdapter,
   DocumentParseOptions,
   DocumentParseResult,
-} from "@volto/tools-document";
+} from "@voltojs/tools-document";
 import { readImageDimensions } from "./image-dimensions.js";
 
 export interface NodeDocumentParserOptions {

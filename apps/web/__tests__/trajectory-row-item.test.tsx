@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TrajectoryRowItem } from '@/components/trajectory/TrajectoryRowItem';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 const row = (over: Partial<TrajectoryRow> = {}): TrajectoryRow =>
   ({

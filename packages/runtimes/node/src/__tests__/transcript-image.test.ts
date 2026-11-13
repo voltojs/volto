@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createTranscriptRecorder } from "../transcript-recorder.js";
-import { projectMessages, buildTurnRecords, toConversationView } from "@volto/core";
-import type { TranscriptEvent, TranscriptEventInput, TranscriptStore } from "@volto/core";
+import { projectMessages, buildTurnRecords, toConversationView } from "@voltojs/core";
+import type { TranscriptEvent, TranscriptEventInput, TranscriptStore } from "@voltojs/core";
 
 function memoryStore(sink: TranscriptEventInput[]): TranscriptStore {
   return {

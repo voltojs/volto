@@ -25,8 +25,8 @@ import * as http from "node:http";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { ModelPort } from "@volto/core";
+import { createMockModelPort, toolCallScript, textScript } from "@voltojs/core";
+import type { ModelPort } from "@voltojs/core";
 import { createServer, type HeadlessServer } from "../server.js";
 
 // ── 环境隔离（同 wiring.test.ts：指令/技能扫描挂在 $HOME 与 VOLTO_CONFIG_DIR 下）──

@@ -18,7 +18,7 @@ import {
   renderLoopReminder,
   textScript,
   toolCallScript,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   Message,
   ModelEvent,
@@ -26,7 +26,7 @@ import type {
   ModelRequest,
   ToolDefinition,
   ToolResult,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const echoDef: ToolDefinition = {
   name: "echo",

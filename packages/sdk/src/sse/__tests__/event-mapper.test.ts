@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createEventMapper, formatSSEFrame } from "../event-mapper.js";
 import { SSEFrameType } from "../types.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 const ASSISTANT: TranscriptEventInput = {
   time: 200,

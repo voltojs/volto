@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TrajectoryDrawer } from "../TrajectoryDrawer";
 import { useTrajectoryDrawerStore } from "@/stores/trajectory-drawer-store";
-import type { TrajectoryRow } from "@volto/sdk/sse";
+import type { TrajectoryRow } from "@voltojs/sdk/sse";
 import { GATEWAY_URL_KEY, resetGatewayBaseForTest } from "@/lib/gateway-base";
 
 const ROW: TrajectoryRow = {

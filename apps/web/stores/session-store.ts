@@ -3,7 +3,7 @@ import type {
   ConversationMessage,
   ContextUsageSnapshot,
   TodoItem,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 import type { Model } from '@/lib/config-api';
 import type { QueuedSeed } from '@/lib/projection';
 import {

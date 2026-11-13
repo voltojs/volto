@@ -7,7 +7,7 @@
  * prompt text (no throw).
  */
 
-import type { JSONSchema } from "@volto/core";
+import type { JSONSchema } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Types

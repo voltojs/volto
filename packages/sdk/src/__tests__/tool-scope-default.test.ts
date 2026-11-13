@@ -1,6 +1,6 @@
 import { it, expect } from "vitest";
-import { filterByScope } from "@volto/core";
-import type { ToolDefinition } from "@volto/core";
+import { filterByScope } from "@voltojs/core";
+import type { ToolDefinition } from "@voltojs/core";
 import { buildDefaultToolVisibility } from "../tool-scope-default.js";
 
 const FLOOR = [

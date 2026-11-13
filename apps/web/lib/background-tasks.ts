@@ -1,4 +1,4 @@
-import type { ConversationView, ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationView, ConversationToolCall } from '@voltojs/sdk/sse';
 
 export interface BackgroundTaskItem {
   id: string;

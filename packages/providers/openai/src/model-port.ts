@@ -16,7 +16,7 @@ import type {
   ToolResultMessage,
   ToolResultBlock,
   ResolvedModelInfo,
-} from "@volto/core";
+} from "@voltojs/core";
 import { normalizeStream, type RawStreamChunk } from "./stream-normalize.js";
 
 export interface OpenAIModelPortOptions {

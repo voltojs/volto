@@ -18,7 +18,7 @@ import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ModelPort } from "@volto/core";
+import type { ModelPort } from "@voltojs/core";
 import { createServer, type HeadlessServer } from "../server.js";
 
 const MODEL_PORT: ModelPort = {

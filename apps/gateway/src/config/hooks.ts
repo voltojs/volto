@@ -20,7 +20,7 @@
 import { spawn } from "node:child_process";
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
-import type { Hook, HookContext, HookLifecycle, HookOutcome } from "@volto/core";
+import type { Hook, HookContext, HookLifecycle, HookOutcome } from "@voltojs/core";
 
 /** Default per-hook wall-clock budget (spec D5): 10s, then SIGTERM + deny. */
 export const DEFAULT_HOOK_TIMEOUT_MS = 10_000;

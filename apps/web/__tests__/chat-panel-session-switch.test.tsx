@@ -15,7 +15,7 @@ import { useSessionStore } from '@/stores/session-store';
 import { useChatStore } from '@/stores/chat-store';
 import { usePaneStore } from '@/stores/pane-store';
 import { useConfigStore } from '@/stores/config-store';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),

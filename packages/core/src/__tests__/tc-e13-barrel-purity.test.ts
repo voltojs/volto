@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import * as path from "node:path";
 
 describe("TC-E13: Core barrel 无 vitest 污染", () => {
-  it("importing @volto/core in non-test env does not trigger vitest loading", () => {
+  it("importing @voltojs/core in non-test env does not trigger vitest loading", () => {
     // Run a plain Node script (no vitest) that imports the core barrel.
     // If vitest leaks into the barrel, this will fail with a module-not-found
     // or vitest-related error.
@@ -49,7 +49,7 @@ describe("TC-E13: Core barrel 无 vitest 污染", () => {
     }
   });
 
-  it("runStoreContractTests is available from @volto/core/testing", async () => {
+  it("runStoreContractTests is available from @voltojs/core/testing", async () => {
     // Verify the testing submodule is importable separately.
     const testingMod = await import("../testing/store-contract.js");
     expect(testingMod.runStoreContractTests).toBeDefined();

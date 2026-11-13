@@ -6,14 +6,14 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   ModelEvent,
   ModelPort,
   ModelRequest,
   Message,
   ToolResultContent,
-} from "@volto/core";
+} from "@voltojs/core";
 import { createWiredAgent } from "../wiring.js";
 import { buildPermissionConfig, sandboxModeFor } from "../permission-modes.js";
 

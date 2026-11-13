@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Markdown } from '@/components/chat/Markdown';
 import { AnswerRow } from '@/components/chat/AnswerRow';
 import { usePaneStore } from '@/stores/pane-store';
-import type { RefAnnotation } from '@volto/sdk/file-refs';
+import type { RefAnnotation } from '@voltojs/sdk/file-refs';
 
 const OPEN = '在右侧面板打开';
 
@@ -93,7 +93,7 @@ describe('Markdown non-file refs stay plain', () => {
   });
 
   it('does not linkify npm-scope package names', () => {
-    render(<Markdown content={'`@volto/core` 是零依赖内核'} projectId="p1" />);
+    render(<Markdown content={'`@voltojs/core` 是零依赖内核'} projectId="p1" />);
     expect(screen.queryByRole('button')).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createCostMeter } from "../cost-meter.js";
 import type { PricingTable } from "../cost-meter.js";
-import type { EventSink } from "@volto/core";
+import type { EventSink } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

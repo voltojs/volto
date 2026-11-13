@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-// NOTE: createMockModelPort/textDelta are exported from "@volto/core" itself
+// NOTE: createMockModelPort/textDelta are exported from "@voltojs/core" itself
 // (re-exported from its internal ./testing/mock-model-port.js). The package's
 // "./testing" subpath export maps only to store-contract.js, which does not
-// include them — importing from "@volto/core/testing" does not compile.
-import { createMockModelPort, textDelta, textScript, toolCallScript } from "@volto/core";
-import type { TranscriptEventInput } from "@volto/core";
+// include them — importing from "@voltojs/core/testing" does not compile.
+import { createMockModelPort, textDelta, textScript, toolCallScript } from "@voltojs/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 function fakeChatStore() {
   const bySession = new Map<string, TranscriptEventInput[]>();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { groupFeedEntries } from '../feed-groups';
 import type { ChatEntry } from '../projection';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage } from '@voltojs/sdk/sse';
 
 const assistant = (
   id: string,

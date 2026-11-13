@@ -20,7 +20,7 @@ import {
   defaultPolicyEngine,
 } from "../defaults.js";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript } from "@volto/core";
+import { createMockModelPort, textScript } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // ToolSource

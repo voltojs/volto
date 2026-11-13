@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createAgent } from "../create-agent.js";
-import { createAutoAllowGate, createNodeFileSystem, createNodeShell } from "@volto/runtime-node";
+import { createAutoAllowGate, createNodeFileSystem, createNodeShell } from "@voltojs/runtime-node";
 import {
   createMockModelPort,
   textDelta,
@@ -12,8 +12,8 @@ import {
   usage,
   modelDone,
   extractBlockText,
-} from "@volto/core";
-import type { ToolResultMessage } from "@volto/core";
+} from "@voltojs/core";
+import type { ToolResultMessage } from "@voltojs/core";
 
 let root: string;
 

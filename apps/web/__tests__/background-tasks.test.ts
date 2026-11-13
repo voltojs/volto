@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildTurnRecords, toConversationView } from '@volto/sdk/sse';
-import type { ConversationView, TranscriptEvent } from '@volto/sdk/sse';
+import { buildTurnRecords, toConversationView } from '@voltojs/sdk/sse';
+import type { ConversationView, TranscriptEvent } from '@voltojs/sdk/sse';
 import {
   collectBackgroundTasks,
   subagentTaskTitle,

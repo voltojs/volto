@@ -7,7 +7,7 @@
  * bundle — the same boundary `agent-config.ts` keeps for `/sse`.
  */
 
-import type { AgentSpec } from '@volto/sdk';
+import type { AgentSpec } from '@voltojs/sdk';
 import { gatewayUrl } from './gateway-base';
 import { ApiError } from './config-api';
 

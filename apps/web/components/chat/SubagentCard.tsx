@@ -3,7 +3,7 @@
 import { memo, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Bot, Check, CircleAlert, LoaderCircle } from 'lucide-react';
-import type { ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationToolCall } from '@voltojs/sdk/sse';
 import { formatDuration } from '@/lib/trajectory-view-model';
 import { subagentTaskTitle, subagentTypeOf } from '@/lib/background-tasks';
 import { verificationBadge } from '@/lib/verification-badge';

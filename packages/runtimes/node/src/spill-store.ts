@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { SpillStore } from "@volto/core";
+import type { SpillStore } from "@voltojs/core";
 
 export interface NodeSpillStoreOptions {
   /** Workspace root — the same root the FileSystem port was built with. */

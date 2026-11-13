@@ -12,7 +12,7 @@ import {
   USER_SOURCE_LABEL_KEYS,
   userSourceLabelKey,
 } from '@/lib/trajectory-view-model';
-import type { TrajectoryRow, ContextReminderKind } from '@volto/sdk/sse';
+import type { TrajectoryRow, ContextReminderKind } from '@voltojs/sdk/sse';
 
 describe('KIND_LABEL_KEYS / KIND_BADGE_CLASS', () => {
   it('covers every row kind with a catalog key and badge classes', () => {

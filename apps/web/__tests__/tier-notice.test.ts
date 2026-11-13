@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { composeChatEntries, type ChatNotice } from '@/lib/projection';
 import { tierNoticeFromEvent } from '@/lib/tier-notice';
 import { useChatStore } from '../stores/chat-store.js';
-import type { ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationMessage } from '@voltojs/sdk/sse';
 
 /** The notice a `{ tierId: "ghost" }` degradation produces (copy is verbatim). */
 const TIER_NOTICE: ChatNotice = {

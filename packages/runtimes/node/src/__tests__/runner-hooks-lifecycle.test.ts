@@ -35,7 +35,7 @@ import {
   createCharTokenizer,
   createInitialState,
   createDefaultPermissionConfig,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   Hook,
   HookContext,
@@ -50,7 +50,7 @@ import type {
   ToolDefinition,
   EventSink,
   ApprovalGate,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

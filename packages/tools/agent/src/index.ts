@@ -1,4 +1,4 @@
-export type { Tool as AgentTool, ToolHandler } from "@volto/tools-common";
+export type { Tool as AgentTool, ToolHandler } from "@voltojs/tools-common";
 export { createTaskTool } from "./task.js";
 export type { SubAgentDispatch, SubAgentResult, AgentTypeSummary, AgentTierSummary } from "./task.js";
 export { createTaskOutputTool } from "./task-output.js";

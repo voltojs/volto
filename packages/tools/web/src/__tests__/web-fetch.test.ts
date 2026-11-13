@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { Network } from "@volto/core";
-import { renderTimeoutSignature } from "@volto/tools-common";
+import type { Network } from "@voltojs/core";
+import { renderTimeoutSignature } from "@voltojs/tools-common";
 import { createWebFetchTool, createWebSearchTool, CAP_NETWORK_FETCH } from "../index.js";
 
 function mockNetwork(responseBody: string, status = 200): Network {

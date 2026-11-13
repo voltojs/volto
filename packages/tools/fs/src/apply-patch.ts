@@ -1,8 +1,8 @@
-import type { FileSystem } from "@volto/core";
+import type { FileSystem } from "@voltojs/core";
 import { z } from "zod";
 import { CAP_FS_WRITE } from "./capabilities.js";
-import { computeUnifiedDiff, defineTool as defineFileTool } from "@volto/tools-common";
-import type { Tool as FileTool } from "@volto/tools-common";
+import { computeUnifiedDiff, defineTool as defineFileTool } from "@voltojs/tools-common";
+import type { Tool as FileTool } from "@voltojs/tools-common";
 
 /**
  * Unified diff hunk — a contiguous block of context/+/− lines

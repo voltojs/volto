@@ -18,7 +18,7 @@ it('导出产物存在且不含 /gateway 前缀', { timeout: 180_000 }, () => {
   // readonly union), so build the copy explicitly instead of deleting a key.
   const env: NodeJS.ProcessEnv = { ...process.env, VOLTO_WEB_EXPORT: '1' };
   delete env['NEXT_PUBLIC_AGENT_SERVER_URL'];
-  execFileSync('pnpm', ['--filter', '@volto/web', 'build'], {
+  execFileSync('pnpm', ['--filter', '@voltojs/web', 'build'], {
     env,
     stdio: 'inherit',
   });

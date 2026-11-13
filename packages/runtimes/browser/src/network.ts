@@ -3,7 +3,7 @@
  * Wraps the global fetch API (available in browsers and edge runtimes).
  */
 
-import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@voltojs/core";
 
 export interface BrowserNetworkOptions {
   /** Default timeout in milliseconds (default: 30000) */

@@ -5,7 +5,7 @@
  * Denied requests return a structured error result, never throw.
  */
 
-import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@voltojs/core";
 
 export interface EgressPolicy {
   /** If defined, only these hostnames are allowed (allowlist mode) */

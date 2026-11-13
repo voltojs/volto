@@ -6,8 +6,8 @@ import {
   toolCallScript,
   formatTodoListForModel,
   TODO_LIST_LAYER_ID,
-} from "@volto/core";
-import type { EventSink, ModelPort, ModelRequest, Message } from "@volto/core";
+} from "@voltojs/core";
+import type { EventSink, ModelPort, ModelRequest, Message } from "@voltojs/core";
 
 /**
  * End-to-end smoke for the standing-todo pipeline:

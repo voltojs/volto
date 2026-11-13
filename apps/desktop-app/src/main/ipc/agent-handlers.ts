@@ -7,8 +7,8 @@ import { type IpcMainInvokeEvent } from "electron";
 import { getAgentManager } from "../agent/agent-manager.js";
 import type { ApprovalRequestPayload } from "../agent/approval-gate.js";
 import { createIpcChannel, type AnyIpcChannel, type IpcChannel } from "./handlers.js";
-import { diffState } from "@volto/sdk";
-import type { ReducerState, StateDiff } from "@volto/sdk";
+import { diffState } from "@voltojs/sdk";
+import type { ReducerState, StateDiff } from "@voltojs/sdk";
 
 /** 创建 agent 请求参数 */
 export interface CreateAgentArgs {

@@ -1,4 +1,4 @@
-import type { ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationToolCall } from '@voltojs/sdk/sse';
 
 /** The rendered pieces a trace row shows for one acceptance verdict. */
 export interface VerificationBadgeModel {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toAnthropicMessages } from "../model-port.js";
-import type { Message } from "@volto/core";
+import type { Message } from "@voltojs/core";
 
 const img = {
   type: "image" as const,

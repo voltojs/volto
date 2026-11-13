@@ -7,8 +7,8 @@ import {
   type SlashCommand,
 } from "../commands.js";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, textScript, isPermissionReminder } from "@volto/core";
-import type { SkillRegistry } from "@volto/core";
+import { createMockModelPort, textScript, isPermissionReminder } from "@voltojs/core";
+import type { SkillRegistry } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // parseArgs

@@ -6,9 +6,9 @@
  */
 
 import { z } from "zod";
-import type { AttachmentStore, ToolResult, ToolResultBlock } from "@volto/core";
-import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
+import type { AttachmentStore, ToolResult, ToolResultBlock } from "@voltojs/core";
+import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
 import { CAP_BROWSER_CONTROL } from "./browser-adapter.js";
 import type { BrowserAdapter } from "./browser-adapter.js";
 import type { ActionOutcome } from "./snapshot.js";

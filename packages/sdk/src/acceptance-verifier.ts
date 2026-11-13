@@ -2,14 +2,14 @@
  * Acceptance verifier — one structured model call per dispatch attempt.
  *
  * The deterministic parts (prompt, schema, limits, rework decisions) live in
- * @volto/core; this module owns the I/O: a single tools-free model call whose
+ * @voltojs/core; this module owns the I/O: a single tools-free model call whose
  * JSON answer becomes an AcceptanceVerdict. Anything unverifiable (timeout,
  * port error, unparseable output) maps to an `error` verdict — never `failed`.
  */
 
 import { z } from "zod";
-import type { AcceptanceVerdict, ModelPort, ModelRequest, TokenUsage } from "@volto/core";
-import { ACCEPTANCE_LIMITS, ACCEPTANCE_VERDICT_SCHEMA, renderAcceptancePrompt } from "@volto/core";
+import type { AcceptanceVerdict, ModelPort, ModelRequest, TokenUsage } from "@voltojs/core";
+import { ACCEPTANCE_LIMITS, ACCEPTANCE_VERDICT_SCHEMA, renderAcceptancePrompt } from "@voltojs/core";
 
 /** Default wall-clock budget for one verifier call (Task 6 re-exports it). */
 export const ACCEPTANCE_VERIFY_TIMEOUT_MS = 60_000;

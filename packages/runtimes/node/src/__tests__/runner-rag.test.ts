@@ -9,7 +9,7 @@ import type {
   MemoryEntry,
   MemoryQueryFilter,
   TranscriptEventInput,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const ctx: StepContext = { tools: [], model: "test-model" };
 

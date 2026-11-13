@@ -2,7 +2,7 @@
  * score.ts — pure lexical scoring for memory retrieval.
  *
  * Zero dependencies, no I/O: every function here is a pure string
- * transformation so both `@volto/memory-file` and `@volto/memory-inmemory`
+ * transformation so both `@voltojs/memory-file` and `@voltojs/memory-inmemory`
  * share one ranking implementation (spec §4.3, decision D4).
  */
 

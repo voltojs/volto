@@ -1,5 +1,5 @@
 import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
-import type { ModelEvent } from "@volto/core";
+import type { ModelEvent } from "@voltojs/core";
 import { toReplayEnvelope } from "./replay.js";
 
 /**

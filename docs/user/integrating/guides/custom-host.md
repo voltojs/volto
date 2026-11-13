@@ -56,7 +56,7 @@ verified: 2026-11-11
 官方网关还没接 MCP，自建宿主可以直接接：
 
 ```ts
-import { McpToolSource, StdioTransport } from "@volto/tools-mcp";
+import { McpToolSource, StdioTransport } from "@voltojs/tools-mcp";
 
 const mcp = new McpToolSource({
   servers: [

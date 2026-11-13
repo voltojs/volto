@@ -2,10 +2,10 @@
  * read_document — document parsing tool wrapping DocumentParserAdapter.
  */
 
-import type { AttachmentStore, FileSystem } from "@volto/core";
+import type { AttachmentStore, FileSystem } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint, parsePageSpec } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
+import { defineTool, MAX_IMAGE_BASE64, imageDownscaleHint, parsePageSpec } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
 import type { DocumentParserAdapter } from "./document-parser.js";
 
 const CAP_DOCUMENT = "document:parse";

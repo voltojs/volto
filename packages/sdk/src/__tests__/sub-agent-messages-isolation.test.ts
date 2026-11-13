@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { toolCallScript, textScript } from "@volto/core";
+import { toolCallScript, textScript } from "@voltojs/core";
 import type {
   ModelPort,
   ModelEvent,
   ModelRequest,
   Message,
-} from "@volto/core";
+} from "@voltojs/core";
 
 /**
  * Spy port that records each call's `messages`, so we can prove the sub-agent

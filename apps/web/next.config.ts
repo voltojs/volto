@@ -8,7 +8,7 @@ const isExport = process.env.VOLTO_WEB_EXPORT === '1';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@volto/sdk', '@volto/i18n'],
+  transpilePackages: ['@voltojs/sdk', '@voltojs/i18n'],
   ...(isExport
     ? {
         output: 'export' as const,

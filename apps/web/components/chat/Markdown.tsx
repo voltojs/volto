@@ -6,7 +6,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { parseLinkRef, resolveFileRef, type RefAnnotation } from '@volto/sdk/file-refs';
+import { parseLinkRef, resolveFileRef, type RefAnnotation } from '@voltojs/sdk/file-refs';
 import { FileRefChip } from './FileRefChip';
 
 /**

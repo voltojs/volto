@@ -1,5 +1,5 @@
 {
-  "name": "@volto/tools-document",
+  "name": "@voltojs/tools-document",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
     "test": "vitest run"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=22"
@@ -32,8 +32,8 @@
     "url": "git+https://github.com/zlipeng/volto.git"
   },
   "dependencies": {
-    "@volto/core": "workspace:*",
-    "@volto/tools-common": "workspace:*",
+    "@voltojs/core": "workspace:*",
+    "@voltojs/tools-common": "workspace:*",
     "zod": "^4.4.3"
   }
 }

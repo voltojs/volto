@@ -2,7 +2,7 @@
  * Session-store selection for the gateway: sqlite when its native driver
  * loads, the JSON-directory file store otherwise.
  *
- * Why a factory instead of a static import: `@volto/store-sqlite` pulls in
+ * Why a factory instead of a static import: `@voltojs/store-sqlite` pulls in
  * `better-sqlite3`, a native module that fails to load on a machine without
  * a prebuilt binary (a Node upgrade, a libc it was not built for). A static
  * import turns that into a startup crash — `volto doctor` could not even run
@@ -26,7 +26,7 @@
  * breaking the real module.
  */
 
-import type { SessionStore } from "@volto/core";
+import type { SessionStore } from "@voltojs/core";
 
 export type SessionStoreKind = "sqlite" | "file";
 
@@ -45,7 +45,7 @@ export interface CreateSessionStoreOptions {
   dbPath: string;
   /** Directory of the JSON file store used when sqlite is unavailable. */
   fallbackDir: string;
-  /** Injection seam for tests; defaults to importing `@volto/store-sqlite`. */
+  /** Injection seam for tests; defaults to importing `@voltojs/store-sqlite`. */
   loadSqlite?: () => Promise<SessionStore>;
   /**
    * Called once with the load failure before the fallback is used, after the
@@ -72,7 +72,7 @@ function fileStoreForced(env: NodeJS.ProcessEnv): boolean {
 }
 
 async function loadFileStore(directory: string): Promise<SessionStore> {
-  const { createStore } = await import("@volto/store-file");
+  const { createStore } = await import("@voltojs/store-file");
   return createStore({ directory });
 }
 
@@ -157,7 +157,7 @@ export async function createSessionStore(
   const loadSqlite =
     opts.loadSqlite ??
     (async () => {
-      const { createStore } = await import("@volto/store-sqlite");
+      const { createStore } = await import("@voltojs/store-sqlite");
       return createStore({ path: opts.dbPath });
     });
 

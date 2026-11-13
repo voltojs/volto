@@ -23,7 +23,7 @@
 
 import { ConfigCorruptError } from "./io.js";
 import { getConfigStore } from "./store.js";
-import type { LspServerSpec } from "@volto/runtime-node";
+import type { LspServerSpec } from "@voltojs/runtime-node";
 
 const TOP_LEVEL_KEYS = ["servers"] as const;
 const SERVER_KEYS = ["command", "args", "initializationParams"] as const;

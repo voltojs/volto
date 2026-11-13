@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Shell } from "@volto/core";
+import type { Shell } from "@voltojs/core";
 import { createKillShellTool, CAP_SHELL_EXEC } from "../index.js";
 
 interface FakeOutput {

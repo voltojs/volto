@@ -1,7 +1,7 @@
 'use client';
 
-import type { ConversationBlock, ConversationMessage } from '@volto/sdk/sse';
-import type { RefAnnotation } from '@volto/sdk/file-refs';
+import type { ConversationBlock, ConversationMessage } from '@voltojs/sdk/sse';
+import type { RefAnnotation } from '@voltojs/sdk/file-refs';
 import { AttachmentImage } from './AttachmentImage';
 import { Markdown } from './Markdown';
 import { MessageFooter } from './MessageFooter';

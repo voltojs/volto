@@ -9,7 +9,7 @@ import {
   formatLongDuration,
   sessionStats,
 } from '@/lib/session-stats-model';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 type RowInput = Partial<TrajectoryRow> &
   Pick<TrajectoryRow, 'id' | 'kind' | 'turn'>;

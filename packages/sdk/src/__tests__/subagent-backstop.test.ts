@@ -20,8 +20,8 @@
 
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest, ModelEvent } from "@volto/core";
+import { createMockModelPort, toolCallScript, textScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest, ModelEvent } from "@voltojs/core";
 import type { AgentSpec } from "../agent-spec.js";
 import type { AgentEntry } from "../agent-registry/scan.js";
 

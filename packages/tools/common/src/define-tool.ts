@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolResult, RiskTier, Capability, JSONSchema } from "@volto/core";
+import type { ToolDefinition, ToolResult, RiskTier, Capability, JSONSchema } from "@voltojs/core";
 import { z } from "zod";
 import type { Tool } from "./tool.js";
 

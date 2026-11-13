@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 /**
  * 轨迹行详情抽屉的全局状态：主轨迹面板（TrajectoryPanel 渲染抽屉）与

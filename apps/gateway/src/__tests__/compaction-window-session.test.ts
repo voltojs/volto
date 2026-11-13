@@ -8,13 +8,13 @@ import {
   toolUseDelta,
   toolUseStart,
   usage,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   ModelPort,
   ModelRequest,
   TranscriptEventInput,
   TranscriptStore,
-} from "@volto/core";
+} from "@voltojs/core";
 import { createWiredAgent } from "../wiring.js";
 import { sandboxModeFor } from "../permission-modes.js";
 

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { ContentBlock, StoredAttachment } from "@volto/core";
+import type { ContentBlock, StoredAttachment } from "@voltojs/core";
 import { convertAttachments } from "../attachments/convert.js";
 import { createAttachmentParsePdf } from "../wiring.js";
 

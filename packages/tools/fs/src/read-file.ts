@@ -1,8 +1,8 @@
-import type { AttachmentStore, FileReadResult, FileSystem } from "@volto/core";
+import type { AttachmentStore, FileReadResult, FileSystem } from "@voltojs/core";
 import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
-import { defineTool as defineFileTool, MAX_IMAGE_BASE64, imageDownscaleHint, parsePageSpec } from "@volto/tools-common";
-import type { Tool as FileTool } from "@volto/tools-common";
+import { defineTool as defineFileTool, MAX_IMAGE_BASE64, imageDownscaleHint, parsePageSpec } from "@voltojs/tools-common";
+import type { Tool as FileTool } from "@voltojs/tools-common";
 import { formatNotebook } from "./notebook.js";
 
 const MAX_LINES = 2000;
@@ -22,7 +22,7 @@ const schema = z.object({
 
 /**
  * Structural view of the document parser that read_file needs for `.pdf`.
- * Deliberately not `DocumentParserAdapter` from @volto/tools-document:
+ * Deliberately not `DocumentParserAdapter` from @voltojs/tools-document:
  * tools-fs must not depend on another tool package — the host (SDK) passes
  * the instance, and anything with a compatible `parse` works.
  */

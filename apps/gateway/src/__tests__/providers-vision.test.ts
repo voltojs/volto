@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ModelInputLimits, ModelInputValue } from "@volto/core";
+import type { ModelInputLimits, ModelInputValue } from "@voltojs/core";
 import { startTestServer, type TestServer } from "./helpers.js";
 
 interface WireModel {

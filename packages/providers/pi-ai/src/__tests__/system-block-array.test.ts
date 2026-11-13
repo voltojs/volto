@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Model as PiModel } from "@earendil-works/pi-ai";
-import type { Message, ModelRequest } from "@volto/core";
+import type { Message, ModelRequest } from "@voltojs/core";
 import { toPiContext } from "../context.js";
 
 /**

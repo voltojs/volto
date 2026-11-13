@@ -12,7 +12,7 @@ import {
   type ChatEntry,
   type ProjectedConversation,
 } from '@/lib/projection';
-import type { ConversationMessage, ContextUsageView } from '@volto/sdk/sse';
+import type { ConversationMessage, ContextUsageView } from '@voltojs/sdk/sse';
 import { dropCachedTrajectory } from '@/lib/trajectory-cache';
 import { projectContextUsage } from '@/lib/context-usage';
 

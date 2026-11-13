@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Shell } from "@volto/core";
+import type { Shell } from "@voltojs/core";
 import { createBashTool } from "../bash.js";
 
 const shellStub = {} as unknown as Shell;

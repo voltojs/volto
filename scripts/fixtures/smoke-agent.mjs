@@ -1,16 +1,16 @@
 /**
- * Clean-install smoke fixture for the published `@volto/sdk`.
+ * Clean-install smoke fixture for the published `@voltojs/sdk`.
  *
  * Run by `scripts/smoke-install.mjs` from a throwaway npm project that has nothing
  * but the packed tarballs installed. Its whole job is to prove the tarball's public
- * surface works from a plain `node` process: `@volto/sdk` resolves through node's
+ * surface works from a plain `node` process: `@voltojs/sdk` resolves through node's
  * own `exports` the way an outside consumer would resolve it, and a scripted
  * `ModelPort` streams two text deltas through the real agent loop.
  *
  * Only the package name is imported — never a workspace path — so a tarball that
  * ships a broken entry point fails here instead of silently passing.
  */
-import { createAgent } from "@volto/sdk";
+import { createAgent } from "@voltojs/sdk";
 
 const DELTAS = ["hello", " world"];
 
@@ -32,9 +32,9 @@ async function main() {
   const agent = createAgent({ modelPort });
 
   // Installed tarballs must resolve their own module graph: no workspace path may leak.
-  const loaded = import.meta.resolve("@volto/sdk");
+  const loaded = import.meta.resolve("@voltojs/sdk");
   if (loaded.includes("/.worktrees/") || loaded.includes("/packages/")) {
-    throw new Error(`@volto/sdk resolved outside node_modules: ${loaded}`);
+    throw new Error(`@voltojs/sdk resolved outside node_modules: ${loaded}`);
   }
 
   const received = [];

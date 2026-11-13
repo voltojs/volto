@@ -1,7 +1,7 @@
-import type { Shell } from "@volto/core";
+import type { Shell } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
 
 const CAP_SHELL_EXEC = "shell:exec";
 

@@ -1,8 +1,8 @@
 // packages/sdk/src/__tests__/save-plan.test.ts
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, toolCallScript } from "@volto/core";
-import type { PlanStore } from "@volto/core";
+import { createMockModelPort, toolCallScript } from "@voltojs/core";
+import type { PlanStore } from "@voltojs/core";
 
 function fakeStore() {
   const saved: Array<{ sessionId: string; projectPath: string; content: string }> = [];

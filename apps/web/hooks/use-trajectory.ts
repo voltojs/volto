@@ -13,7 +13,7 @@ import {
   fetchServerTrajectory,
   TrajectoryUnavailableError,
 } from '@/lib/sessions-api';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 export interface TrajectoryFeed {
   rows: TrajectoryRow[];

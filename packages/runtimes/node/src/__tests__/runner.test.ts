@@ -12,8 +12,8 @@ import {
   modelError,
   toolCallScript,
   textScript,
-} from "@volto/core";
-import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink, Hook, TranscriptEventInput } from "@volto/core";
+} from "@voltojs/core";
+import type { StepContext, ToolDefinition, PendingToolCall, ToolResult, EventSink, Hook, TranscriptEventInput } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

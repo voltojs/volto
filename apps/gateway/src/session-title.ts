@@ -18,8 +18,8 @@ import type {
   ModelPort,
   ModelRequest,
   TranscriptEvent,
-} from "@volto/core";
-import { projectMessages } from "@volto/core";
+} from "@voltojs/core";
+import { projectMessages } from "@voltojs/core";
 
 /**
  * A derived title is the first user message collapsed to one line, capped

@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { gatewayUrl } from '@/lib/gateway-base';
 import { cn } from '@/lib/utils';
 import { ImageLightbox } from './ImageLightbox';
-import type { ConversationImage } from '@volto/sdk/sse';
+import type { ConversationImage } from '@voltojs/sdk/sse';
 
 function imageSrc(image: ConversationImage, sessionId: string): string {
   return gatewayUrl(

@@ -12,7 +12,7 @@ import {
   promptTokens,
 } from '@/lib/turn-usage-model';
 import type { Provider } from '@/lib/config-api';
-import type { TurnUsage } from '@volto/sdk/sse';
+import type { TurnUsage } from '@voltojs/sdk/sse';
 
 const GOLD: TurnUsage = {
   inputTokens: 19_352,

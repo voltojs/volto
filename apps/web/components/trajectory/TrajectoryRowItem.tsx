@@ -10,7 +10,7 @@ import {
   formatDuration,
   locationTextRef,
 } from '@/lib/trajectory-view-model';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 interface TrajectoryRowItemProps {
   row: TrajectoryRow;

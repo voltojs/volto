@@ -1,6 +1,6 @@
-import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@volto/core";
-import type { ShellTool, BashToolOptions, BashSessionLike } from "@volto/tools-shell";
-import { createBashTool, createBashOutputTool, createKillShellTool } from "@volto/tools-shell";
+import type { PendingToolCall, ToolResult, Shell, ShellExecOptions, ShellEvent } from "@voltojs/core";
+import type { ShellTool, BashToolOptions, BashSessionLike } from "@voltojs/tools-shell";
+import { createBashTool, createBashOutputTool, createKillShellTool } from "@voltojs/tools-shell";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateShellToolExecutorOptions {

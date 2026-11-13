@@ -10,7 +10,7 @@ import { useMemo } from 'react';
 import { useChatStore } from '@/stores/chat-store';
 import { getCachedSubagentEvents } from '@/lib/subagent-cache';
 import { projectContextUsage } from '@/lib/context-usage';
-import type { ContextUsageView, TranscriptEventInput } from '@volto/sdk/sse';
+import type { ContextUsageView, TranscriptEventInput } from '@voltojs/sdk/sse';
 
 /**
  * Stored + live events without double-folding the same logical event. Disk

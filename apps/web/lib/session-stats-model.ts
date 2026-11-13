@@ -8,7 +8,7 @@
  * context-meter-model / turn-usage-model layering (pure functions + own
  * tests; components never inline arithmetic).
  */
-import type { TrajectoryRow, TurnUsage } from '@volto/sdk/sse';
+import type { TrajectoryRow, TurnUsage } from '@voltojs/sdk/sse';
 
 export interface SessionStats {
   /** Distinct turns that left at least one row. */

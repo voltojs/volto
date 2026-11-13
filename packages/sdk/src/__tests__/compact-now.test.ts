@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createCharTokenizer, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest, ModelEvent, Message } from "@volto/core";
+import { createCharTokenizer, textScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest, ModelEvent, Message } from "@voltojs/core";
 
 /**
  * Spy ModelPort that records every request and replays a script of event

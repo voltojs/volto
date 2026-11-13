@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { AttachmentStore } from "@volto/core";
+import type { AttachmentStore } from "@voltojs/core";
 import { createReadDocumentTool } from "../read-document.js";
 import type { DocumentParserAdapter } from "../document-parser.js";
 

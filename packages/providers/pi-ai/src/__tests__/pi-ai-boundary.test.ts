@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import type { AssistantMessage as PiAssistantMessage } from "@earendil-works/pi-ai";
 
-import type { ModelRequest } from "@volto/core";
+import type { ModelRequest } from "@voltojs/core";
 import { buildModels, type PiAiProviderConfig } from "../collection.js";
 import { toPiContext } from "../context.js";
 

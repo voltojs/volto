@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationToolCall } from '@voltojs/sdk/sse';
 import {
   collectTurnFileChanges,
   MAX_TURN_FILE_DIFF_CHARS,

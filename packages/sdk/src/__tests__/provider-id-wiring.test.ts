@@ -7,8 +7,8 @@ import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
 import type { AgentSpec } from "../agent-spec.js";
 import type { AgentEntry } from "../agent-registry/scan.js";
-import type { TranscriptEventInput } from "@volto/core";
-import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
+import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
 
 function agentEntry(spec: AgentSpec): AgentEntry {
   return { id: `plugin:${spec.name}`, scope: "plugin", spec, shadowed: false };

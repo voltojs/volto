@@ -16,8 +16,8 @@ import {
   extractBlockText,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { ContentBlock, ModelPort, ModelRequest } from "@volto/core";
+} from "@voltojs/core";
+import type { ContentBlock, ModelPort, ModelRequest } from "@voltojs/core";
 import { createWiredAgent } from "../wiring.js";
 
 let configDir: string;

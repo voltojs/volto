@@ -4,8 +4,8 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { Shell, ModelRequest, ModelEvent, ModelPort } from "@volto/core";
+} from "@voltojs/core";
+import type { Shell, ModelRequest, ModelEvent, ModelPort } from "@voltojs/core";
 
 /**
  * Wrap a base ModelPort so the first request's visible tool names are captured.

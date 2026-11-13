@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { ConversationBlock } from '@volto/sdk/sse';
+import type { ConversationBlock } from '@voltojs/sdk/sse';
 import { gatewayUrl } from '@/lib/gateway-base';
 
 export type ImageBlock = Extract<ConversationBlock, { type: 'image' }>;

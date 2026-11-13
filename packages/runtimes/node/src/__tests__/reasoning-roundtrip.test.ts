@@ -11,7 +11,7 @@ import {
   type ModelRequest,
   type StepContext,
   type ToolDefinition,
-} from "@volto/core";
+} from "@voltojs/core";
 import { createRunner } from "../runner.js";
 
 describe("runner threads reasoning effort and replay state", () => {

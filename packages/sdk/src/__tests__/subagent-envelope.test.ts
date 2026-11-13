@@ -8,15 +8,15 @@ import {
   toolUseDelta,
   modelDone,
   usage,
-} from "@volto/core";
-import type { ModelPort, ModelRequest, ModelEvent } from "@volto/core";
+} from "@voltojs/core";
+import type { ModelPort, ModelRequest, ModelEvent } from "@voltojs/core";
 import type { AgentSpec } from "../agent-spec.js";
 import type { AgentEntry } from "../agent-registry/scan.js";
 
 // ──────────────────────────────────────────────
 // Helpers (the reference pattern is
 // apps/gateway/src/__tests__/lsp-db-session.test.ts:76 —
-// captureModelPort is not exported from @volto/core, so each test file
+// captureModelPort is not exported from @voltojs/core, so each test file
 // defines its own.)
 // ──────────────────────────────────────────────
 

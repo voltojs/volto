@@ -2,7 +2,7 @@
 
 > Volto agent 的 Electron 桌面客户端 —— 提供可视化对话、调试、权限审批与配置面板。
 
-基于 `@volto/sdk` 构建，主进程承载 agent 内核与工具栈（FS / Shell / Network / OpenAI Provider），渲染进程通过 IPC 与之通信。所有可观测事件均经统一的 EventSink 桥接到渲染端，用于实时聊天与调试视图。调试面板（🐛）含事件时间轴、工具追踪、State 检视、**时间旅行**（checkpoint 列表 + 回退 diff）与日志五个 Tab。
+基于 `@voltojs/sdk` 构建，主进程承载 agent 内核与工具栈（FS / Shell / Network / OpenAI Provider），渲染进程通过 IPC 与之通信。所有可观测事件均经统一的 EventSink 桥接到渲染端，用于实时聊天与调试视图。调试面板（🐛）含事件时间轴、工具追踪、State 检视、**时间旅行**（checkpoint 列表 + 回退 diff）与日志五个 Tab。
 
 ## 项目布局
 
@@ -38,16 +38,16 @@ apps/desktop-app/
 pnpm install
 ```
 
-> 本应用是 turbo monorepo 的一员，依赖 `@volto/sdk`（workspace）。从根目录运行 pnpm 才会正确解析 workspace 链接。
+> 本应用是 turbo monorepo 的一员，依赖 `@voltojs/sdk`（workspace）。从根目录运行 pnpm 才会正确解析 workspace 链接。
 
 ## 开发
 
 ```bash
 # 启动开发模式（含 React 热重载）
-pnpm --filter @volto/desktop-app dev
+pnpm --filter @voltojs/desktop-app dev
 
 # 仅做 type / lint 检查
-pnpm turbo run typecheck lint --filter @volto/desktop-app
+pnpm turbo run typecheck lint --filter @voltojs/desktop-app
 ```
 
 启动后会弹出 Electron 窗口。首次使用前请打开右上 ⚙ 设置弹窗，在「模型」Tab 中**新增供应商**（填写 OpenAI 兼容服务的 API Key，可选自定义 baseURL）并为其添加至少一个模型；然后在对话页左上角选择该模型即可开始。
@@ -72,7 +72,7 @@ pnpm turbo run typecheck lint --filter @volto/desktop-app
 | `ask`（默认） | `mode = default`，`IRREVERSIBLE: "ask"` | 高风险写入与不可逆操作弹出审批对话框 |
 | `deny` | `mode = default`，全 tier `"deny"` | 全部工具调用直接拒绝（只读模式） |
 
-> ⚠️ 历史注意：`@volto/core` 的 `mode = "plan"` 是"只读模式"而非"询问模式"——把 store 的 `"ask"` 错映射到 `"plan"` 会让 ApprovalDialog 永远不弹。详见 `src/main/agent/wiring.ts` 头部长注释。
+> ⚠️ 历史注意：`@voltojs/core` 的 `mode = "plan"` 是"只读模式"而非"询问模式"——把 store 的 `"ask"` 错映射到 `"plan"` 会让 ApprovalDialog 永远不弹。详见 `src/main/agent/wiring.ts` 头部长注释。
 
 ## 打包
 
@@ -80,12 +80,12 @@ pnpm turbo run typecheck lint --filter @volto/desktop-app
 
 ```bash
 # 验证打包配置（仅解包到 dist/，不出 installer，不签名）—— CI / 本地烟测
-pnpm --filter @volto/desktop-app package:dir
+pnpm --filter @voltojs/desktop-app package:dir
 
 # 各平台 installer（需要对应平台原生工具链）
-pnpm --filter @volto/desktop-app package:mac     # .dmg + .zip
-pnpm --filter @volto/desktop-app package:win     # .nsis
-pnpm --filter @volto/desktop-app package:linux   # .AppImage + .deb
+pnpm --filter @voltojs/desktop-app package:mac     # .dmg + .zip
+pnpm --filter @voltojs/desktop-app package:win     # .nsis
+pnpm --filter @voltojs/desktop-app package:linux   # .AppImage + .deb
 ```
 
 ### 图标资源

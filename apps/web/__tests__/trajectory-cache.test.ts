@@ -6,7 +6,7 @@ import {
   clearTrajectoryCache,
 } from '@/lib/trajectory-cache';
 import { TrajectoryUnavailableError } from '@/lib/sessions-api';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 const row = (id: string): TrajectoryRow => ({
   index: 1,

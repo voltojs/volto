@@ -40,11 +40,11 @@ const TEST_ARTIFACT = /\.test\.(?:js|d\.ts|js\.map|d\.ts\.map)$/;
 
 /**
  * Files a package must ship beyond the generic `dist/` entry and types, keyed by package.
- * `@volto/core` promises `dist/testing/store-contract.js` through `exports["./testing"]`;
+ * `@voltojs/core` promises `dist/testing/store-contract.js` through `exports["./testing"]`;
  * asserting it by name keeps that public contract from regressing silently. Other
  * packages' subpaths are covered generically by `declaredFiles`.
  */
-const REQUIRED_FILES = new Map([["@volto/core", ["dist/testing/store-contract.js"]]]);
+const REQUIRED_FILES = new Map([["@voltojs/core", ["dist/testing/store-contract.js"]]]);
 
 /** Strip a leading `./` so `./dist/x.js` and `dist/x.js` compare alike. */
 function normalizePath(value) {
@@ -189,7 +189,7 @@ function packedFiles(name) {
 
 /** A minimal manifest that is already complete; cases below mutate copies of it. */
 const COMPLETE_MANIFEST = {
-  name: "@volto/fixture",
+  name: "@voltojs/fixture",
   version: "0.1.0",
   main: "./dist/index.js",
   types: "./dist/index.d.ts",

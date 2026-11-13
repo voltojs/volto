@@ -5,7 +5,7 @@
  *
  * 与 context-meter-model.ts 同一分层：纯函数 + 独立测试，组件不内联算术。
  */
-import type { RouteSource, TurnUsage } from '@volto/sdk/sse';
+import type { RouteSource, TurnUsage } from '@voltojs/sdk/sse';
 import type { CatalogProvider, Provider } from '@/lib/config-api';
 import { providerModels } from '@/stores/config-store';
 

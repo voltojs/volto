@@ -64,7 +64,7 @@ function main(argv) {
   // `apps/gateway/web` (the directory the tarball ships and the gateway
   // serves). Staging there rather than in `prepack` keeps `pnpm pack` — which
   // `check:pack` runs per package — from needing the Node build first.
-  execFileSync("pnpm", ["--filter", "@volto/gateway", "web:export"], { cwd: ROOT, stdio: "inherit" });
+  execFileSync("pnpm", ["--filter", "@voltojs/gateway", "web:export"], { cwd: ROOT, stdio: "inherit" });
 }
 
 if (process.argv[1] && join(dirname(fileURLToPath(import.meta.url)), "build-fresh.mjs") === process.argv[1]) {

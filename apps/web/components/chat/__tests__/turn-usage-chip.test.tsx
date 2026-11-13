@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { TurnUsageChip } from '../TurnUsageChip';
 import { useConfigStore } from '@/stores/config-store';
 import type { Provider } from '@/lib/config-api';
-import type { TurnUsage } from '@volto/sdk/sse';
+import type { TurnUsage } from '@voltojs/sdk/sse';
 
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};

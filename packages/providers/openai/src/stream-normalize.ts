@@ -9,7 +9,7 @@
  * - finish_reason → stopReason mapping
  */
 
-import type { ModelEvent } from "@volto/core";
+import type { ModelEvent } from "@voltojs/core";
 
 /** Raw chunk shape from OpenAI-compatible /v1/chat/completions stream */
 interface RawChoiceDelta {

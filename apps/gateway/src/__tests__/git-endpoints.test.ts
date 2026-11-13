@@ -4,8 +4,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { ModelPort } from "@volto/core";
-import { createStore } from "@volto/store-jsonl";
+import type { ModelPort } from "@voltojs/core";
+import { createStore } from "@voltojs/store-jsonl";
 import { createServer, type HeadlessServer } from "../server.js";
 
 const execFileAsync = promisify(execFile);

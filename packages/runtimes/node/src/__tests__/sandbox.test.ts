@@ -3,7 +3,7 @@ import { createNodeSandbox, buildSeatbeltProfile, expandOverlays, createSandboxe
 import { createSandboxProxy, isHostAllowed } from "../sandbox-proxy.js";
 import { createNodeShell } from "../shell.js";
 import type { SandboxConfig } from "../sandbox.js";
-import type { Shell, ShellEvent } from "@volto/core";
+import type { Shell, ShellEvent } from "@voltojs/core";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";

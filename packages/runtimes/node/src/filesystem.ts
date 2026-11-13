@@ -9,7 +9,7 @@ import type {
   FileListResult,
   FileGlobResult,
   FileGrepResult,
-} from "@volto/core";
+} from "@voltojs/core";
 import { readImageDimensions } from "./image-dimensions.js";
 
 const MAX_GREP_LIMIT = 500;

@@ -5,7 +5,7 @@
  * normalizes the SSE response into core ModelEvents.
  */
 
-import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ModelInputValue, ToolResultBlock, ResolvedModelInfo } from "@volto/core";
+import type { ModelPort, ModelEvent, ModelRequest, Message, ContentBlock, ModelInputValue, ToolResultBlock, ResolvedModelInfo } from "@voltojs/core";
 import { normalizeStream, type RawAnthropicEvent } from "./stream-normalize.js";
 
 export interface AnthropicModelPortOptions {

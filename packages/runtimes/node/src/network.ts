@@ -2,7 +2,7 @@
  * Node Network adapter — implements the Network port using globalThis.fetch.
  */
 
-import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@voltojs/core";
 
 export interface NodeNetworkOptions {
   /** Default request timeout in milliseconds (default: 30_000) */
@@ -15,7 +15,7 @@ export interface NodeNetworkOptions {
  *
  * This template is byte-identical to tools-common's renderTimeoutSignature —
  * pinned by a cross-package test (category dependency rules forbid importing
- * @volto/tools-common here).
+ * @voltojs/tools-common here).
  */
 export function renderNetworkTimeoutSignature(subject: string, timeoutMs: number): string {
   return `[timeout] ${subject} timed out after ${timeoutMs}ms`;

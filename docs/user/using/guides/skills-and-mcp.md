@@ -55,7 +55,7 @@ description: 按本仓库的体例写发布说明。当用户要求整理 change
 
 ## MCP：现在的状态
 
-MCP（Model Context Protocol）客户端已经实现（`@volto/tools-mcp`：stdio 传输、工具发现、资源与提示词），但**官方网关与 Web 界面还没有接入它**——你在界面上找不到添加 MCP 服务器的入口，`config.json` 里也没有对应分区。
+MCP（Model Context Protocol）客户端已经实现（`@voltojs/tools-mcp`：stdio 传输、工具发现、资源与提示词），但**官方网关与 Web 界面还没有接入它**——你在界面上找不到添加 MCP 服务器的入口，`config.json` 里也没有对应分区。
 
 要现在用 MCP，需要在自建宿主里把 `McpToolSource` 挂进 `createAgent({ toolSources })`，详见 [自建宿主](../../integrating/guides/custom-host.md)。这是宿主接线的工作，不是配置项。
 

@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolResult } from "@volto/core";
+import type { ToolDefinition, ToolResult } from "@voltojs/core";
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<ToolResult>;
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { ToolDefinition, FileSystem } from "@volto/core";
-import { filterVisibleTools } from "@volto/core";
+import type { ToolDefinition, FileSystem } from "@voltojs/core";
+import { filterVisibleTools } from "@voltojs/core";
 import { createReadFileTool } from "../read-file.js";
 import { createEditFileTool } from "../edit-file.js";
 import { createWriteFileTool } from "../write-file.js";

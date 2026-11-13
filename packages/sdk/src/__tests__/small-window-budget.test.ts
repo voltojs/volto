@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import type { ModelPort } from "@volto/core";
+import type { ModelPort } from "@voltojs/core";
 
 /** A minimal text model; the test is about construction, not model behavior. */
 const modelPort: ModelPort = {

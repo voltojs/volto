@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ContentBlock, Message, ModelPort, ModelRequest } from "@volto/core";
+import type { ContentBlock, Message, ModelPort, ModelRequest } from "@voltojs/core";
 import { startTestServer, type TestServer } from "./helpers.js";
 
 /** 1×1 PNG. */

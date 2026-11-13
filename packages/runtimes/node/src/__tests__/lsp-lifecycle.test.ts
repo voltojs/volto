@@ -16,7 +16,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { FileSystem } from "@volto/core";
+import type { FileSystem } from "@voltojs/core";
 import { createNodeFileSystem } from "../filesystem.js";
 import { createNodeLspManager } from "../lsp.js";
 import type { LspManager, LspManagerOptions } from "../lsp.js";

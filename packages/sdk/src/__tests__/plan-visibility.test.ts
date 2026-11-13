@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { textScript, toolCallScript } from "@volto/core";
-import type { ModelRequest, ModelPort } from "@volto/core";
-import { createNodeFileSystem, createNodeShell } from "@volto/runtime-node";
+import { textScript, toolCallScript } from "@voltojs/core";
+import type { ModelRequest, ModelPort } from "@voltojs/core";
+import { createNodeFileSystem, createNodeShell } from "@voltojs/runtime-node";
 
 const requests: ModelRequest[] = [];
 const modelPort: ModelPort = {

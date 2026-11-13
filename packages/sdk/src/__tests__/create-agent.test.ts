@@ -6,12 +6,12 @@ import {
   toolCallScript,
   textDelta,
   modelDone,
-} from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput, SkillRegistry } from "@volto/core";
-import { createMemoryStore } from "@volto/store-memory";
+} from "@voltojs/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelEvent, ModelRequest, ApprovalGate, SessionStore, Message, TranscriptEventInput, SkillRegistry } from "@voltojs/core";
+import { createMemoryStore } from "@voltojs/store-memory";
 import { mergeConfig } from "../config.js";
 import type { ResolvedConfig } from "../config.js";
-import type { Tool } from "@volto/tools-common";
+import type { Tool } from "@voltojs/tools-common";
 
 // ──────────────────────────────────────────────
 // Fixtures

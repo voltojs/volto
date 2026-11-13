@@ -20,10 +20,10 @@
 
 ## 1. 核心纯度铁律（Functional Core Purity）— 本项目立身之本
 
-> 核心包 `@volto/core` 是纯函数内核。一旦引入副作用，可重放性、可快照测试、可移植性全部失效。
+> 核心包 `@voltojs/core` 是纯函数内核。一旦引入副作用，可重放性、可快照测试、可移植性全部失效。
 
 - **`packages/core/` 内禁止任何 I/O 与隐式副作用**：不得出现 `Date.now()` / `Math.random()` / `crypto.randomUUID()` / `node:*` import / 直接 `fs`。时间、随机、ID、token 计数一律走 `Clock` / `Random` / `Id` / `Tokenizer` port 注入。
-- **核心只 import port 接口类型，绝不 import 任何实现**。`@volto/core` 的 `dependencies` 与 `peerDependencies` 必须为空（CI 脚本 `check-core-zero-deps` 强制）。
+- **核心只 import port 接口类型，绝不 import 任何实现**。`@voltojs/core` 的 `dependencies` 与 `peerDependencies` 必须为空（CI 脚本 `check-core-zero-deps` 强制）。
 - **决策逻辑全部为纯函数** —— `step()` reducer、ContextAssembler、Compactor、ToolRouter、PermissionPolicy 不碰 I/O；真正的副作用只通过返回 `Effect[]` 表达，由 Runner 解释执行。
 - **重放纪律**：同一串 `AgentInput` 序列两次运行必须产生完全一致的 `(state, effects)` 序列。改动 reducer 后跑重放测试作为回归门。
 
@@ -51,18 +51,18 @@
 ## 3. 代码改动硬性约束
 
 - **只跑受影响包的静态门**：`pnpm turbo run typecheck lint test --filter <受影响包>`。**默认不要跑全仓**——全量类型检查 + 测试慢且吃内存（一次十几分钟、数个 GB），对单包改动没有额外信息量。全仓只在以下情形跑：**跨包契约变更（改了 core 的公开类型/port 契约）、发版前、或明确要求时**。
-- **`@volto/desktop-app` 一律排除**：它依赖 Electron 二进制、构建慢且对本次改动无验证价值，测试/类型检查命令里必须显式过滤掉：
+- **`@voltojs/desktop-app` 一律排除**：它依赖 Electron 二进制、构建慢且对本次改动无验证价值，测试/类型检查命令里必须显式过滤掉：
   ```bash
   # 受影响包（推荐）
-  pnpm turbo run typecheck lint test --filter @volto/sdk
+  pnpm turbo run typecheck lint test --filter @voltojs/sdk
   # 需要跨包验证时，排除桌面端
-  pnpm turbo run typecheck lint test --filter '!@volto/desktop-app'
+  pnpm turbo run typecheck lint test --filter '!@voltojs/desktop-app'
   ```
 - **改完依赖链上的包要重建 dist**：`tools-*` / `runtimes-*` / `sdk` 之间存在 `dist` 消费（不是源码直连），跨包测试跑在旧构建上会假绿/假红。跨包改动时先 `pnpm turbo run build --filter <上游包>`，或直接用 `--filter` 带上上游包让 turbo 按依赖图构建。
 - **依赖单向向下** — `core ← tools-*/providers-*/runtimes-*/stores-* ← sdk ← apps/*`。**`zod` 只允许出现在 `tools/*` 与 `sdk`**，核心只认抽象 `JSONSchema`。
   - **type-import only（适用于 tools-* / providers-* / stores-*）**：这些包只消费 core 的**接口类型**（port 契约、`ToolDefinition` / `ModelEvent` 等），一律 `import type`，不得值导入 core，以免与具体实现耦合。
   - **Runner / sdk 例外**：薄解释器(`runtimes-*` 的 Runner)与 SDK 门面是内核的**执行者**，必须值导入纯函数内核（`step` / `createInitialState` 等)——这是 functional-core / imperative-shell 的本意，导入纯函数不破坏可移植性,不属违规。
-- **目录与包命名规则** — 类目目录用**复数**（集合）：`tools/`、`providers/`、`runtimes/`、`stores/`；包名前缀按"该包是什么"取单/复数：`@volto/tools-fs`（一包多工具，复数）、`@volto/provider-openai` / `runtime-node` / `store-memory`（各一个实例，单数）。
+- **目录与包命名规则** — 类目目录用**复数**（集合）：`tools/`、`providers/`、`runtimes/`、`stores/`；包名前缀按"该包是什么"取单/复数：`@voltojs/tools-fs`（一包多工具，复数）、`@voltojs/provider-openai` / `runtime-node` / `store-memory`（各一个实例，单数）。
 - **第三方库构造器参数必须查阅官方文档确认**，不得凭记忆臆测（尤其 OpenAI 兼容 streaming 的 `tool_calls` 分片累积、Zod schema 写法）。
 
 ---
@@ -70,14 +70,14 @@
 # 工作流与质量门
 
 - **能力门控 vs 权限策略** 职责分离：门控（ToolRouter）决定"工具是否对模型可见"，权限（PermissionPolicy）决定"可见工具是否放行（allow / deny / ask）"。改动二者之一时勿混淆职责。
-- 静态门:`pnpm turbo run typecheck lint test --filter <受影响包>`（**不要默认全仓，`@volto/desktop-app` 一律排除**，见 §3）。
+- 静态门:`pnpm turbo run typecheck lint test --filter <受影响包>`（**不要默认全仓，`@voltojs/desktop-app` 一律排除**，见 §3）。
 - **计划最终要出自测报告时,用 `writing-selftest-reports` skill —— 在写 plan 时就用,不是等到最后要报告时**。它要求 plan 顶部建功能点台账、每个 task 末尾追加证据、末尾单独一个 task 由全新上下文生成报告。到最后才想起来,执行痕迹只剩 git 历史,报告只能靠考古重建。
 
 ## 用户文档（`docs/user/`）—— 改到用户感知面就必须同步
 
 用户文档与开发文档受众不同：`docs/superpowers/` 写「为什么这样设计」，`docs/user/` 只写「怎么用」。写作规范见 `docs/user/WRITING.md`。
 
-- **判定**：这次改动是否影响**使用者**看得见 / 配得了 / 能感知的东西（界面文案、菜单、配置键与默认值、错误信息、权限语义、工具可见性、安装步骤），或**集成者**依赖的公开面（`@volto/sdk` 导出、`createAgent` 选项、端口契约、事件类型、网关路由）。命中就必须在**同一提交**内更新 `docs/user/`。
+- **判定**：这次改动是否影响**使用者**看得见 / 配得了 / 能感知的东西（界面文案、菜单、配置键与默认值、错误信息、权限语义、工具可见性、安装步骤），或**集成者**依赖的公开面（`@voltojs/sdk` 导出、`createAgent` 选项、端口契约、事件类型、网关路由）。命中就必须在**同一提交**内更新 `docs/user/`。
 - **生成页不许手改**：`using/reference/tools.md`、`using/reference/config.md`、`integrating/reference/gateway-api.md`、`integrating/reference/sdk-exports.md` 由 `pnpm docs:gen` 产出；改代码或改对应 notes JSON（`docs/user/reference/*-notes.json` / `config-sections.json`）再生成。新增工具 / 配置字段 / 路由却不补 notes，`docs:check` 直接失败——这是有意的。
 - **收尾跑 `pnpm docs:check`**（需要先 `pnpm turbo run build`）。表面变了但没同步基线时它会失败并点名该改哪几页；确认对用户无感则 `pnpm docs:ack "理由"`，理由会进 diff。
 - **不要把 spec / plan 的内容搬进用户文档**，也不要在 `using/` 里解释实现细节（reducer / port / Effect 这类词属于 `integrating/`）。
@@ -104,18 +104,18 @@
 ```
 volto/
 ├── packages/
-│   ├── core/                 # @volto/core   纯函数内核 + ports 接口  ← 零依赖
-│   ├── sdk/                  # @volto/sdk    门面 run / stream / resume
-│   ├── eval/                 # @volto/eval   评测
+│   ├── core/                 # @voltojs/core   纯函数内核 + ports 接口  ← 零依赖
+│   ├── sdk/                  # @voltojs/sdk    门面 run / stream / resume
+│   ├── eval/                 # @voltojs/eval   评测
 │   ├── tools/                # 每个子目录一个工具包
 │   │   ├── fs shell web plan agent ask browser code data document mcp schedule vcs
-│   │   ├── common/           # @volto/tools-common  defineTool 等共享设施
-│   │   └── skill/            # @volto/tool-skill（注意：单数前缀，与其它 tools-* 不同）
-│   ├── providers/            # openai / anthropic / pi-ai   → @volto/provider-*
-│   ├── runtimes/             # node / browser / edge        → @volto/runtime-*
-│   ├── stores/               # memory / file / jsonl / sqlite / postgres → @volto/store-*
-│   ├── embedders/            # openai                       → @volto/embedder-*
-│   └── memories/             # inmemory                     → @volto/memory-*
+│   │   ├── common/           # @voltojs/tools-common  defineTool 等共享设施
+│   │   └── skill/            # @voltojs/tool-skill（注意：单数前缀，与其它 tools-* 不同）
+│   ├── providers/            # openai / anthropic / pi-ai   → @voltojs/provider-*
+│   ├── runtimes/             # node / browser / edge        → @voltojs/runtime-*
+│   ├── stores/               # memory / file / jsonl / sqlite / postgres → @voltojs/store-*
+│   ├── embedders/            # openai                       → @voltojs/embedder-*
+│   └── memories/             # inmemory                     → @voltojs/memory-*
 ├── apps/
 │   ├── gateway/      # HTTP + SSE 网关宿主：仅 wiring + 订阅事件，核心零改动
 │   ├── web/                  # Next.js 聊天前端，消费网关的 SSE 协议
@@ -135,13 +135,13 @@ pnpm turbo run build                      # 构建所有包
 pnpm turbo run typecheck                  # 类型检查 (tsc --noEmit)
 pnpm turbo run lint                       # 代码检查 (含 core 零依赖 / 纯度规则)
 pnpm turbo run test                       # 运行测试 (vitest)
-pnpm turbo run test --filter @volto/core   # 仅测受影响包
+pnpm turbo run test --filter @voltojs/core   # 仅测受影响包
 node scripts/check-core-zero-deps.mjs     # 校验核心包零运行时依赖
 ```
 
 ## Coding Conventions（细节）
 
-- **核心纯度** — 见 §1；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@volto/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
+- **核心纯度** — 见 §1；ESLint 在 `packages/core/**` 用 `no-restricted-imports` 禁 `node:*` 与所有 `@voltojs/*` 实现包，禁 `Date.now` / `Math.random` / `crypto.randomUUID`。
 - **ToolResult 双层** — `modelContent`（给模型，精简，超量必截断且声明）+ `displayMetadata`（给 UI / 日志，diff / 行数 / 耗时，经 EventSink 流出）。
 - **`edit_file` 编辑格式** — 主格式 `str_replace`（`old_string` / `new_string` / `replace_all?`）；精确匹配失败时 fuzzy fallback（① 忽略行首尾空白 ② 忽略 token 间空白正则）；未 `read_file` 或版本过期的文件拒绝编辑；写回前版本比对。`apply_patch`(diff) 留扩展点，暂不实现。
 - **缓存友好** — ContextAssembler 把静态内容（system prompt / tool defs / 项目指令）前置，变量（user 输入 / tool result）后置；工具集变更尽量发生在 turn 边界。

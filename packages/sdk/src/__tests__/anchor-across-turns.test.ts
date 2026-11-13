@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import type { EventSink, ModelPort, ModelRequest, ModelEvent } from "@volto/core";
+import type { EventSink, ModelPort, ModelRequest, ModelEvent } from "@voltojs/core";
 
 /**
  * A model that always reports the same provider usage. With a 1M window and

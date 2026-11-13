@@ -4,7 +4,7 @@ import {
   setCachedSubagentEvents,
   clearSubagentCache,
 } from '@/lib/subagent-cache';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const events = (text: string): TranscriptEventInput[] => [
   { time: 1, type: 'user_message', data: { content: 'go' } },

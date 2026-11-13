@@ -1,5 +1,5 @@
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import type { ModelInputValue, ModelInputLimits } from "@volto/core";
+import type { ModelInputValue, ModelInputLimits } from "@voltojs/core";
 
 /** A single model surfaced from pi-ai's built-in catalog. */
 export interface CatalogModel {

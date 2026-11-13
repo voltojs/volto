@@ -7,7 +7,7 @@ import {
   remainingTokens,
   shouldShowUnanchoredHint,
 } from '@/lib/context-meter-model';
-import type { ContextUsageView } from '@volto/sdk/sse';
+import type { ContextUsageView } from '@voltojs/sdk/sse';
 
 const view = (projectedTokens: number): ContextUsageView => ({
   projectedTokens,

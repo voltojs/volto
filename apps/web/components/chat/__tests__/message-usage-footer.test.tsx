@@ -11,7 +11,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageList } from '../MessageList';
 import type { ChatEntry } from '@/lib/projection';
-import type { ConversationMessage, TurnUsage } from '@volto/sdk/sse';
+import type { ConversationMessage, TurnUsage } from '@voltojs/sdk/sse';
 import { formatTimestamp } from '@/lib/time-format';
 
 Element.prototype.hasPointerCapture ??= () => false;

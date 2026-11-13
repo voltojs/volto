@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { MemoryEntry, MemoryQueryFilter, MemoryStore } from "@volto/core";
+import type { MemoryEntry, MemoryQueryFilter, MemoryStore } from "@voltojs/core";
 import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "../index.js";
 
 /** Spy store: records every call, returns whatever the test scripts. */

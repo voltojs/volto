@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { createTranscriptRecorder } from "../transcript-recorder.js";
-import { projectMessages, buildTurnRecords, toConversationView } from "@volto/core";
+import { projectMessages, buildTurnRecords, toConversationView } from "@voltojs/core";
 import type {
   Message,
   ToolResultBlock,
@@ -16,7 +16,7 @@ import type {
   TranscriptEvent,
   TranscriptEventInput,
   TranscriptStore,
-} from "@volto/core";
+} from "@voltojs/core";
 
 const STRUCT_BLOCK: ToolResultBlock = {
   type: "structured",

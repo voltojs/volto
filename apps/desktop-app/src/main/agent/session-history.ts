@@ -3,7 +3,7 @@
  * - resolveModelBinding：按会话绑定的 providerId/modelId 在 providers 列表里
  *   查找具体的 apiKey/baseURL/模型代码。
  * - persistedMessagesToInitialMessages：把渲染端持久化的消息列表转换成
- *   @volto/sdk 可接受的历史消息种子（createAgent 的 initialMessages 选项）。
+ *   @voltojs/sdk 可接受的历史消息种子（createAgent 的 initialMessages 选项）。
  *
  * 已知简化：只还原纯文本轮次（user / assistant 文本 / system），不重建
  * assistant 消息里的 tool_use / tool_result content block —— 持久化的
@@ -12,7 +12,7 @@
  * chat-store 自己的数据，与这里的模型上下文重建是两回事）。
  */
 
-import type { Message } from "@volto/core";
+import type { Message } from "@voltojs/core";
 import type { ProviderConfig, PersistedMessage } from "../store/schema.js";
 
 /** 解析出的模型绑定：某个 session 实际应该用哪个供应商的哪个模型 */

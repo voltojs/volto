@@ -1,5 +1,5 @@
 /**
- * @volto/tools-memory — explicit `memory` tool.
+ * @voltojs/tools-memory — explicit `memory` tool.
  *
  * A single tool with a discriminated-union input: `remember` writes a
  * project-scoped semantic entry, `recall` runs a scoped lexical query. The
@@ -11,9 +11,9 @@
  */
 
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
-import type { MemoryStore, ToolResult } from "@volto/core";
+import { defineTool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
+import type { MemoryStore, ToolResult } from "@voltojs/core";
 import { CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "./capabilities.js";
 
 /**

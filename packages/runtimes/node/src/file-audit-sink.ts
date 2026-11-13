@@ -5,7 +5,7 @@
  * into log aggregators (Datadog, Loki, etc.).
  *
  * Usage:
- *   import { createFileAuditSink } from "@volto/runtime-node";
+ *   import { createFileAuditSink } from "@voltojs/runtime-node";
  *   const auditSink = createFileAuditSink("/var/log/agent-audit.jsonl");
  */
 

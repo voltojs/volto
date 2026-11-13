@@ -14,7 +14,7 @@ import {
 } from '@/lib/subagent-cache';
 import { fetchSessionEvents } from '@/lib/sessions-api';
 import type { ChatEntry } from '@/lib/projection';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 vi.mock('@/lib/sessions-api', () => ({
   fetchSessionEvents: vi.fn(),

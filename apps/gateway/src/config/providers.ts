@@ -9,8 +9,8 @@
  */
 
 import * as crypto from "node:crypto";
-import type { ModelInputValue } from "@volto/core";
-import { isProviderProtocol, type ConfiguredProtocol, type ProviderAuth, type ProviderProtocol } from "@volto/provider-pi-ai";
+import type { ModelInputValue } from "@voltojs/core";
+import { isProviderProtocol, type ConfiguredProtocol, type ProviderAuth, type ProviderProtocol } from "@voltojs/provider-pi-ai";
 import { createCipher } from "./crypto.js";
 import { getConfigDir } from "./paths.js";
 import { getConfigStore } from "./store.js";

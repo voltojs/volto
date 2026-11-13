@@ -1,4 +1,4 @@
-# electron-builder configuration for @volto/desktop-app
+# electron-builder configuration for @voltojs/desktop-app
 #
 # 说明：
 # - 本应用为 Electron + electron-vite 项目，构建产物在 ./out（main / preload / renderer 各自子目录）

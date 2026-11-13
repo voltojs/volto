@@ -21,7 +21,7 @@ import * as path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { detectBackend, probeBinary } from "@volto/runtime-node";
+import { detectBackend, probeBinary } from "@voltojs/runtime-node";
 import { loadAccessToken, loadOrCreateAccessToken, rotateAccessToken, tokenFingerprint } from "./auth/access-token.js";
 import { getConfigDir } from "./config/paths.js";
 import {

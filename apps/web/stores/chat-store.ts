@@ -4,7 +4,7 @@ import type {
   TaggedTranscriptDelta,
   TranscriptDelta,
   TranscriptEventInput,
-} from '@volto/sdk/sse';
+} from '@voltojs/sdk/sse';
 import type { ChatNotice } from '@/lib/projection';
 import { mergeEventTail } from '@/lib/event-tail';
 

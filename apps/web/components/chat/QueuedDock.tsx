@@ -26,7 +26,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Paperclip } from 'lucide-react';
-import type { ConversationBlock } from '@volto/sdk/sse';
+import type { ConversationBlock } from '@voltojs/sdk/sse';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';

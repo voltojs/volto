@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { FileSystem, ToolResult } from "@volto/core";
+import type { FileSystem, ToolResult } from "@voltojs/core";
 import { createApplyPatchTool } from "../apply-patch.js";
 import { createEditFileTool } from "../edit-file.js";
 import { createMultiEditTool } from "../multi-edit.js";

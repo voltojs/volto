@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ToolCallCard, toolCallCardComparator } from '../ToolCallCard';
-import type { ConversationToolCall } from '@volto/sdk/sse';
+import type { ConversationToolCall } from '@voltojs/sdk/sse';
 
 const failed: ConversationToolCall = {
   id: '1',

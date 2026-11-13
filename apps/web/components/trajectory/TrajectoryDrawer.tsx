@@ -24,7 +24,7 @@ import {
   parseSystemLayers,
 } from '@/lib/trajectory-view-model';
 import type { DrawerTabKey } from '@/lib/trajectory-view-model';
-import type { ConversationImage, ModelRequestManifest, TrajectoryRow } from '@volto/sdk/sse';
+import type { ConversationImage, ModelRequestManifest, TrajectoryRow } from '@voltojs/sdk/sse';
 
 interface TrajectoryDrawerProps {
   row: TrajectoryRow | null;

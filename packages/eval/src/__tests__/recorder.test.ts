@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createTrajectoryRecorder } from "../recorder.js";
 import { replayTrajectory } from "../replay.js";
-import type { StepContext } from "@volto/core";
+import type { StepContext } from "@voltojs/core";
 
 const ctx: StepContext = {
   tools: [],

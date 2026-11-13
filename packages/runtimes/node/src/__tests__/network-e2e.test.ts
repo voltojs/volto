@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import type { Network, StepContext, ToolDefinition } from "@volto/core";
-import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta, UNTRUSTED_PREFIX } from "@volto/core";
-import { createWebFetchTool, CAP_NETWORK_FETCH } from "@volto/tools-web";
+import type { Network, StepContext, ToolDefinition } from "@voltojs/core";
+import { createMockModelPort, toolUseStart, toolUseDelta, modelDone, textDelta, UNTRUSTED_PREFIX } from "@voltojs/core";
+import { createWebFetchTool, CAP_NETWORK_FETCH } from "@voltojs/tools-web";
 import { createRunner } from "../runner.js";
 import { createNetworkToolExecutor } from "../network-tool-executor.js";
 

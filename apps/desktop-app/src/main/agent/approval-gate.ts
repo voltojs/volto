@@ -13,7 +13,7 @@
  */
 
 import { BrowserWindow } from "electron";
-import type { ApprovalGate, PendingToolCall, RiskTier } from "@volto/core";
+import type { ApprovalGate, PendingToolCall, RiskTier } from "@voltojs/core";
 
 /** 一条挂起的 approval 请求（主进程内部） */
 interface PendingApproval {

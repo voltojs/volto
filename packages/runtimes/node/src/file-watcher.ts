@@ -12,7 +12,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { FileWatchEvent, FileWatchRegistration, FileWatcher } from "@volto/core";
+import type { FileWatchEvent, FileWatchRegistration, FileWatcher } from "@voltojs/core";
 
 const DEFAULT_DEBOUNCE_MS = 200;
 

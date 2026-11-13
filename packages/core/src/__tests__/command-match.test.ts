@@ -3,11 +3,11 @@ import { tokenizeCommand, matchesCommandPrefix, isMatchableCommandToken } from "
 
 describe("tokenizeCommand", () => {
   it("splits a plain command on whitespace", () => {
-    expect(tokenizeCommand("pnpm test --filter @volto/core")).toEqual([
+    expect(tokenizeCommand("pnpm test --filter @voltojs/core")).toEqual([
       "pnpm",
       "test",
       "--filter",
-      "@volto/core",
+      "@voltojs/core",
     ]);
   });
 
@@ -80,7 +80,7 @@ describe("isMatchableCommandToken", () => {
   it("accepts ordinary argv tokens", () => {
     expect(isMatchableCommandToken("pnpm")).toBe(true);
     expect(isMatchableCommandToken("--filter")).toBe(true);
-    expect(isMatchableCommandToken("@volto/core")).toBe(true);
+    expect(isMatchableCommandToken("@voltojs/core")).toBe(true);
     expect(isMatchableCommandToken("a=b")).toBe(true);
   });
 

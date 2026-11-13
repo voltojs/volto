@@ -21,8 +21,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createAgent } from "@volto/sdk";
-import type { Message, ModelPort, ReducerState } from "@volto/core";
+import { createAgent } from "@voltojs/sdk";
+import type { Message, ModelPort, ReducerState } from "@voltojs/core";
 import { buildSubagentModelPortFactory, createSessionRegistry } from "../sessions.js";
 import { createWiredAgent } from "../wiring.js";
 import { createRoutingTierStore, type RoutingTierRecord } from "../config/routing-tiers.js";
@@ -32,8 +32,8 @@ import { createRoutingTierStore, type RoutingTierRecord } from "../config/routin
  * agent itself is still built for real (same partial-mock precedent as
  * lsp-db-session.test.ts).
  */
-vi.mock("@volto/sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@volto/sdk")>();
+vi.mock("@voltojs/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@voltojs/sdk")>();
   return {
     ...actual,
     createAgent: vi.fn(actual.createAgent),

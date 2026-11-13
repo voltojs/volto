@@ -1,5 +1,5 @@
 {
-  "name": "@volto/sdk",
+  "name": "@voltojs/sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,7 +29,7 @@
     "test": "vitest run"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=22"
@@ -40,24 +40,24 @@
     "url": "git+https://github.com/zlipeng/volto.git"
   },
   "dependencies": {
-    "@volto/core": "workspace:*",
-    "@volto/tools-common": "workspace:*",
-    "@volto/tool-skill": "workspace:*",
-    "@volto/tools-agent": "workspace:*",
-    "@volto/tools-ask": "workspace:*",
-    "@volto/tools-browser": "workspace:*",
-    "@volto/tools-code": "workspace:*",
-    "@volto/tools-data": "workspace:*",
-    "@volto/tools-document": "workspace:*",
-    "@volto/tools-fs": "workspace:*",
-    "@volto/tools-plan": "workspace:*",
-    "@volto/tools-schedule": "workspace:*",
-    "@volto/tools-shell": "workspace:*",
-    "@volto/tools-vcs": "workspace:*",
-    "@volto/tools-web": "workspace:*",
-    "@volto/runtime-node": "workspace:*",
-    "@volto/store-memory": "workspace:*",
-    "@volto/tools-memory": "workspace:*",
+    "@voltojs/core": "workspace:*",
+    "@voltojs/tools-common": "workspace:*",
+    "@voltojs/tool-skill": "workspace:*",
+    "@voltojs/tools-agent": "workspace:*",
+    "@voltojs/tools-ask": "workspace:*",
+    "@voltojs/tools-browser": "workspace:*",
+    "@voltojs/tools-code": "workspace:*",
+    "@voltojs/tools-data": "workspace:*",
+    "@voltojs/tools-document": "workspace:*",
+    "@voltojs/tools-fs": "workspace:*",
+    "@voltojs/tools-plan": "workspace:*",
+    "@voltojs/tools-schedule": "workspace:*",
+    "@voltojs/tools-shell": "workspace:*",
+    "@voltojs/tools-vcs": "workspace:*",
+    "@voltojs/tools-web": "workspace:*",
+    "@voltojs/runtime-node": "workspace:*",
+    "@voltojs/store-memory": "workspace:*",
+    "@voltojs/tools-memory": "workspace:*",
     "zod": "^4.4.3"
   }
 }

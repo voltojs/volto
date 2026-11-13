@@ -4,12 +4,12 @@
  *
  * The gateway serves the chat UI from `web/` next to its compiled server
  * (`apps/gateway/dist/server.js` → `apps/gateway/web/`), so the tarball is
- * self-contained: `npm i -g @volto/gateway && volto` yields a working UI.
+ * self-contained: `npm i -g @voltojs/gateway && volto` yields a working UI.
  * `apps/web/out` is a Next.js static export and therefore build output — it
  * never enters the repository, which is why `prepack` copies it here.
  *
  * Usage:
- *   VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build
+ *   VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web build
  *   node apps/gateway/scripts/copy-web-assets.mjs
  *
  * Idempotent: the destination is replaced wholesale, so a stale file from an
@@ -35,7 +35,7 @@ const repoRoot = join(packageRoot, "..", "..");
 const source = join(repoRoot, "apps", "web", "out");
 const destination = join(packageRoot, "web");
 const entryFile = join(source, "index.html");
-const BUILD_HINT = "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build";
+const BUILD_HINT = "VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web build";
 
 function fail(message) {
   console.error(`[copy-web-assets] ${message}`);

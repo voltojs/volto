@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useChatStore } from '../stores/chat-store.js';
-import type { TranscriptDelta, TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptDelta, TranscriptEventInput } from '@voltojs/sdk/sse';
 
 function resetStore(): void {
   useChatStore.setState({

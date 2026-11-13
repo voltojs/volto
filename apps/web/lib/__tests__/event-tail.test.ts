@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 import { eventKey, mergeEventTail } from '@/lib/event-tail';
 
 function ev(

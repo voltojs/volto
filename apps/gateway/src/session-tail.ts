@@ -10,7 +10,7 @@
  * this with the registry's live `running` flag, never treat the tail alone as
  * proof that a turn is running.
  */
-import type { TranscriptEvent } from "@volto/core";
+import type { TranscriptEvent } from "@voltojs/core";
 
 export function unfinishedTurnTail(
   events: readonly TranscriptEvent[],

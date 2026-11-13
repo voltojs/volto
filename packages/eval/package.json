@@ -1,5 +1,5 @@
 {
-  "name": "@volto/eval",
+  "name": "@voltojs/eval",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,7 +29,7 @@
     "replay": "node dist/cli.js"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=22"
@@ -40,6 +40,6 @@
     "url": "git+https://github.com/zlipeng/volto.git"
   },
   "dependencies": {
-    "@volto/core": "workspace:*"
+    "@voltojs/core": "workspace:*"
   }
 }

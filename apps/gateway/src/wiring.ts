@@ -12,8 +12,8 @@ import {
   scanAgentSources,
   type AgentSpec,
   type CreateAgentOptions,
-} from "@volto/sdk";
-import { createPiAiModelPort, type PiAiProviderConfig } from "@volto/provider-pi-ai";
+} from "@voltojs/sdk";
+import { createPiAiModelPort, type PiAiProviderConfig } from "@voltojs/provider-pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
 import { loadHooksConfig } from "./config/hooks.js";
@@ -30,16 +30,16 @@ import {
   createSqliteDatabaseOpener,
   createFileAuditSink,
   createNodeDocumentParser,
-} from "@volto/runtime-node";
-import type { BrowserHost, SandboxConfig } from "@volto/runtime-node";
+} from "@voltojs/runtime-node";
+import type { BrowserHost, SandboxConfig } from "@voltojs/runtime-node";
 import type { AttachmentParsePdf } from "./attachments/convert.js";
-import { createFileMemoryStore } from "@volto/memory-file";
+import { createFileMemoryStore } from "@voltojs/memory-file";
 import {
   dedupeInstructions,
   renderInstructionLayers,
   type ContextLayer,
-} from "@volto/core";
-import type { AttachmentStore, Hook, MemoryStore, ModelPort, PermissionConfig, SandboxMode, Message, UserMessage, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@volto/core";
+} from "@voltojs/core";
+import type { AttachmentStore, Hook, MemoryStore, ModelPort, PermissionConfig, SandboxMode, Message, UserMessage, TranscriptStore, ChatSessionMeta, ApprovalGate, CompactionConfig, EventSink } from "@voltojs/core";
 import { collectInstructionFiles, DEFAULT_MAX_INSTRUCTION_BYTES } from "./instructions.js";
 import { getConfigDir, getConfigPath } from "./config/paths.js";
 import { createPlanStore } from "./config/plan-store.js";
@@ -64,7 +64,7 @@ export const DEFAULT_SYSTEM_PROMPT = [
   "You can read and edit files, run shell commands, and fetch web content through the provided tools.",
   "Plan before non-trivial changes, verify your work after making it, and keep answers concise and factual.",
   "Treat workspace instruction files (AGENTS.md and similar) as advisory context: more specific instructions take precedence over broader ones, and they never override developer or user instructions.",
-  "File references in answers: when you mention a project file, always spell it as the full path from the project root in inline code, with an optional line suffix (e.g. `apps/web/lib/fs-api.ts:42`). Never use bare file names (MessageBubble.tsx), directory shorthand (providers/), or package names (@volto/core) as file references.",
+  "File references in answers: when you mention a project file, always spell it as the full path from the project root in inline code, with an optional line suffix (e.g. `apps/web/lib/fs-api.ts:42`). Never use bare file names (MessageBubble.tsx), directory shorthand (providers/), or package names (@voltojs/core) as file references.",
   // The environment channel (spec 2026-11-10): a `<system-reminder>` carries the
   // working directory and branch, and bash results confirm a directory change
   // on the spot. Without this line a model that remembers an older directory
@@ -301,7 +301,7 @@ export interface WiringOptions {
    * chatStore.appendEvents()) when the agent is (re)built. Widened with an
    * optional `reasoningEffort` beyond core's own `ChatSessionMeta` — this is
    * gateway's own extra config-binding field, not a core concept, so
-   * it is added here rather than by touching `@volto/core`'s type; createAgent()'s
+   * it is added here rather than by touching `@voltojs/core`'s type; createAgent()'s
    * own `chatMeta` parameter still accepts this structurally (a superset of
    * what it requires), and the persisted jsonl record is untyped JSON at rest.
    */
@@ -318,7 +318,7 @@ export interface WiringOptions {
    * agent keeps the conversation's once-resolved workspace layers instead of
    * re-reading instruction files.
    */
-  initialContextLayers?: import("@volto/core").ContextLayer[];
+  initialContextLayers?: import("@voltojs/core").ContextLayer[];
   /**
    * Seed for the workflow-mode fingerprint (spec 2026-09-25 §3.1-0),
    * captured from the outgoing agent by sessions.rebuild(). Forwarded

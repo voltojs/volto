@@ -184,9 +184,9 @@ describe('parentDir', () => {
 
 describe('package-name and directory refs stay plain text', () => {
   it('rejects npm-scope and alias refs — they name packages, not files', () => {
-    expect(parseFileRef('@volto/core')).toBeNull();
+    expect(parseFileRef('@voltojs/core')).toBeNull();
     expect(parseFileRef('`@/lib/utils`'.slice(1, -1))).toBeNull();
-    expect(parseLinkRef('@volto/core')).toBeNull();
+    expect(parseLinkRef('@voltojs/core')).toBeNull();
   });
 
   it('rejects trailing-slash directory refs — only files are judged', () => {
@@ -207,7 +207,7 @@ describe('parseAnnotationRef', () => {
   });
 
   it('still rejects non-paths', () => {
-    expect(parseAnnotationRef('@volto/core')).toBeNull();
+    expect(parseAnnotationRef('@voltojs/core')).toBeNull();
     expect(parseAnnotationRef('main...88b0e98')).toBeNull();
     expect(parseAnnotationRef('/abs/x.ts')).toBeNull();
   });

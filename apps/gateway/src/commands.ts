@@ -9,8 +9,8 @@
  * template would dual-track it into a plain message without the mode
  * switch).
  */
-import type { SlashCommand } from "@volto/sdk";
-import { t, type Locale } from "@volto/i18n";
+import type { SlashCommand } from "@voltojs/sdk";
+import { t, type Locale } from "@voltojs/i18n";
 
 const REVIEW_TEMPLATE =
   "Review the changes to {{0}} and list issues and fixes by severity; when no scope is given, review the current project's uncommitted changes.";

@@ -3,9 +3,9 @@
 // 名单外主机拿到结构化 403 且适配器根本不被触达，名单内原样透传。
 import { describe, it, expect } from "vitest";
 import { createAgent } from "../create-agent.js";
-import { createMockModelPort, toolCallScript, textScript } from "@volto/core";
-import type { Network, NetworkRequest, NetworkResponse } from "@volto/core";
-import type { EgressPolicy } from "@volto/runtime-node";
+import { createMockModelPort, toolCallScript, textScript } from "@voltojs/core";
+import type { Network, NetworkRequest, NetworkResponse } from "@voltojs/core";
+import type { EgressPolicy } from "@voltojs/runtime-node";
 
 function recordingNetwork(): { network: Network; requests: NetworkRequest[] } {
   const requests: NetworkRequest[] = [];

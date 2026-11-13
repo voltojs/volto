@@ -1,5 +1,5 @@
 {
-  "name": "@volto/gateway",
+  "name": "@voltojs/gateway",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/server.js",
@@ -21,12 +21,12 @@
     "test": "vitest run",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
-    "web:build": "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web build",
+    "web:build": "VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web build",
     "web:copy": "node scripts/copy-web-assets.mjs",
-    "web:export": "VOLTO_WEB_EXPORT=1 pnpm --filter @volto/web export && node scripts/copy-web-assets.mjs"
+    "web:export": "VOLTO_WEB_EXPORT=1 pnpm --filter @voltojs/web export && node scripts/copy-web-assets.mjs"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=22"
@@ -37,16 +37,16 @@
     "url": "git+https://github.com/zlipeng/volto.git"
   },
   "dependencies": {
-    "@volto/core": "workspace:*",
-    "@volto/i18n": "workspace:*",
-    "@volto/memory-file": "workspace:*",
-    "@volto/provider-pi-ai": "workspace:*",
-    "@volto/runtime-node": "workspace:*",
-    "@volto/sdk": "workspace:*",
-    "@volto/store-file": "workspace:*",
-    "@volto/store-jsonl": "workspace:*",
-    "@volto/store-sqlite": "workspace:*",
-    "@volto/tools-common": "workspace:*",
+    "@voltojs/core": "workspace:*",
+    "@voltojs/i18n": "workspace:*",
+    "@voltojs/memory-file": "workspace:*",
+    "@voltojs/provider-pi-ai": "workspace:*",
+    "@voltojs/runtime-node": "workspace:*",
+    "@voltojs/sdk": "workspace:*",
+    "@voltojs/store-file": "workspace:*",
+    "@voltojs/store-jsonl": "workspace:*",
+    "@voltojs/store-sqlite": "workspace:*",
+    "@voltojs/tools-common": "workspace:*",
     "ws": "^8.16.0"
   },
   "devDependencies": {

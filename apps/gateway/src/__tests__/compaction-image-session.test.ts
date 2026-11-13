@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { textScript } from "@volto/core";
-import type { ContentBlock, ModelPort, ModelRequest } from "@volto/core";
-import { createNodeAttachmentStore } from "@volto/runtime-node";
+import { textScript } from "@voltojs/core";
+import type { ContentBlock, ModelPort, ModelRequest } from "@voltojs/core";
+import { createNodeAttachmentStore } from "@voltojs/runtime-node";
 import { createWiredAgent } from "../wiring.js";
 import { buildPermissionConfig, sandboxModeFor } from "../permission-modes.js";
 

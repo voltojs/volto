@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import type { ContextUsageView } from '@volto/sdk/sse';
+import type { ContextUsageView } from '@voltojs/sdk/sse';
 import {
   CONTEXT_METER_SEGMENTS,
   compositionWidths,

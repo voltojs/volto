@@ -11,7 +11,7 @@
 // Frame type enum
 // ---------------------------------------------------------------------------
 
-import type { TranscriptDelta } from "@volto/core";
+import type { TranscriptDelta } from "@voltojs/core";
 
 /**
  * Wire frame kinds.

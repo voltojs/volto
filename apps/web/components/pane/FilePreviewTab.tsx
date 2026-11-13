@@ -10,7 +10,7 @@ import { Markdown } from '@/components/chat/Markdown';
 import { fetchFsFile, type FsFilePayload } from '@/lib/fs-api';
 import { revealPath } from '@/lib/config-api';
 import { useConfigStore } from '@/stores/config-store';
-import { parentDir } from '@volto/sdk/file-refs';
+import { parentDir } from '@voltojs/sdk/file-refs';
 import { splitHighlightedLines } from '@/lib/split-code-lines';
 import { cn } from '@/lib/utils';
 import type { PaneTab } from '@/stores/pane-store';

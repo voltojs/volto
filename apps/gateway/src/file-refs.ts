@@ -7,9 +7,9 @@
 
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
-import type { TranscriptEventInput } from "@volto/core";
-import { groupConversationBlocks, type ConversationMessage } from "@volto/sdk/sse";
-import { resolveMessageRefs, type RowRefSet } from "@volto/sdk/file-refs";
+import type { TranscriptEventInput } from "@voltojs/core";
+import { groupConversationBlocks, type ConversationMessage } from "@voltojs/sdk/sse";
+import { resolveMessageRefs, type RowRefSet } from "@voltojs/sdk/file-refs";
 import { resolveWithinRoot } from "./fs/files.js";
 
 export class UnknownProjectError extends Error {}

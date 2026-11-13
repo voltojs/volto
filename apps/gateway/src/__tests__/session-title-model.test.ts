@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ModelPort, ModelRequest } from "@volto/core";
+import type { ModelPort, ModelRequest } from "@voltojs/core";
 import {
   generateTitle,
   sanitizeGeneratedTitle,

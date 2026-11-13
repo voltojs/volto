@@ -4,7 +4,7 @@
  * Every Git invocation goes through an injectable `GitRunner` that takes an
  * argv array plus a fixed `cwd` — never a shell-interpolated command string.
  * This keeps the module unit-testable and free of injection surfaces.
- * I/O stays in the imperative shell: nothing here belongs in `@volto/core`.
+ * I/O stays in the imperative shell: nothing here belongs in `@voltojs/core`.
  */
 
 import { execFile } from "node:child_process";

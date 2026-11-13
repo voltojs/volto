@@ -2,9 +2,9 @@ import type {
   ApprovalDenialReason,
   TranscriptEventInput,
   TranscriptEventMap,
-} from '@volto/core';
-import type { CommandRiskKind } from '@volto/sdk/sse';
-import { isMatchableCommandToken, tokenizeCommand } from '@volto/sdk/sse';
+} from '@voltojs/core';
+import type { CommandRiskKind } from '@voltojs/sdk/sse';
+import { isMatchableCommandToken, tokenizeCommand } from '@voltojs/sdk/sse';
 
 /**
  * User-facing wording for a settled denial, keyed by the reason the gate

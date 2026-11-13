@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { normalizeStream } from "../stream-normalize.js";
 import type { RawStreamChunk } from "../stream-normalize.js";
-import type { ModelEvent } from "@volto/core";
+import type { ModelEvent } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Helpers

@@ -11,7 +11,7 @@ import { useTrajectoryDrawerStore } from '@/stores/trajectory-drawer-store';
 import { clearSubagentCache } from '@/lib/subagent-cache';
 import { clearTrajectoryCache } from '@/lib/trajectory-cache';
 import { fetchSessionEvents, fetchServerTrajectory } from '@/lib/sessions-api';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 vi.mock('@/lib/sessions-api', () => {
   // useStoredRows 以 instanceof 识别 trajectory 接口失败，mock 工厂必须

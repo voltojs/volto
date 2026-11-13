@@ -14,9 +14,9 @@ import type {
   SandboxMode,
   ApprovalPolicy,
   Decision,
-} from "@volto/core";
-import type { JSONSchema } from "@volto/core";
-import { isMatchableCommandToken } from "@volto/core";
+} from "@voltojs/core";
+import type { JSONSchema } from "@voltojs/core";
+import { isMatchableCommandToken } from "@voltojs/core";
 import type { AgentSpec } from "../agent-spec.js";
 
 export interface ParsedAgentFile {

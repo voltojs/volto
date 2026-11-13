@@ -1,5 +1,5 @@
 /**
- * @volto/tools-data — structured data tools: HTTP query + database
+ * @voltojs/tools-data — structured data tools: HTTP query + database
  *
  * http_query wraps the existing Network port with structured output.
  * db_query / db_exec provide SQL access to a model-given database path. The
@@ -7,10 +7,10 @@
  * filesystem or the workspace boundary themselves.
  */
 
-import type { Network } from "@volto/core";
+import type { Network } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
-import type { Tool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
+import type { Tool } from "@voltojs/tools-common";
 
 // ──────────────────────────────────────────────
 // DatabaseAdapter — abstract interface for SQL access

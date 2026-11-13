@@ -1,5 +1,5 @@
-import { createHeuristicTokenizer } from "@volto/core";
-import type { Tokenizer } from "@volto/core";
+import { createHeuristicTokenizer } from "@voltojs/core";
+import type { Tokenizer } from "@voltojs/core";
 
 /**
  * Browser adapter's tokenizer. Delegates to core's heuristic so the server-side

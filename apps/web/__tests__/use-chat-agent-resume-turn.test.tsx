@@ -15,7 +15,7 @@ import { useChatAgent } from '../hooks/use-chat-agent.js';
 import { useSessionStore } from '../stores/session-store.js';
 import { useChatStore } from '../stores/chat-store.js';
 import { summary } from './helpers/session.js';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const channel: { onEvent?: (event: TranscriptEventInput) => void } = {};
 

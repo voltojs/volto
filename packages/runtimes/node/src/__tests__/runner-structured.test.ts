@@ -25,8 +25,8 @@ import type {
   ToolResultMessage,
   Validator,
   ValidationResult,
-} from "@volto/core";
-import { createMockModelPort, toolCallScript, textScript, UNTRUSTED_PREFIX } from "@volto/core";
+} from "@voltojs/core";
+import { createMockModelPort, toolCallScript, textScript, UNTRUSTED_PREFIX } from "@voltojs/core";
 import { createRunner, type ToolExecutor } from "../runner.js";
 
 const STRUCT_DATA = { locations: [{ uri: "file:///a.ts", line: 3 }] };

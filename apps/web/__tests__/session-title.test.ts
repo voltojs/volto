@@ -5,7 +5,7 @@ import {
   runManualRename,
   TITLE_RETRY_DELAY_MS,
 } from '@/lib/session-title';
-import type { ConversationMessage, TranscriptEventInput } from '@volto/sdk/sse';
+import type { ConversationMessage, TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const user = (content: string): ConversationMessage =>
   ({ id: 'm', role: 'user', content }) as ConversationMessage;

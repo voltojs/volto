@@ -1,5 +1,5 @@
 import type { Models, ThinkingLevel } from "@earendil-works/pi-ai";
-import type { ModelEvent, ModelPort, ModelRequest, ResolvedModelInfo } from "@volto/core";
+import type { ModelEvent, ModelPort, ModelRequest, ResolvedModelInfo } from "@voltojs/core";
 import {
   buildModels,
   cacheCapability,

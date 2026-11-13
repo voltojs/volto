@@ -14,7 +14,7 @@ import {
   setCachedSubagentEvents,
 } from '@/lib/subagent-cache';
 import { fetchSessionEvents } from '@/lib/sessions-api';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 /**
  * 某个子代理会话的对话流：盘上恢复（GET /sessions/:id/events，Task 4 端点）

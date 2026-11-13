@@ -7,8 +7,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TrajectoryDrawer } from '@/components/trajectory/TrajectoryDrawer';
 import { usePaneStore } from '@/stores/pane-store';
-import { buildTurnRecords, toTrajectoryView } from '@volto/sdk/sse';
-import type { TrajectoryRow, TranscriptEvent } from '@volto/sdk/sse';
+import { buildTurnRecords, toTrajectoryView } from '@voltojs/sdk/sse';
+import type { TrajectoryRow, TranscriptEvent } from '@voltojs/sdk/sse';
 
 const row = (over: Partial<TrajectoryRow> = {}): TrajectoryRow =>
   ({ id: 'r1', kind: 'assistant', summary: '回答了问题', startedAt: 1, outputDetail: 'hello', ...over }) as TrajectoryRow;

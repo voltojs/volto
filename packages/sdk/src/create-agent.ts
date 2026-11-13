@@ -52,7 +52,7 @@ import type {
   FileWatcher,
   FileWatchEvent,
   TokenUsage,
-} from "@volto/core";
+} from "@voltojs/core";
 import {
   createDefaultPermissionConfig,
   ceilingOf,
@@ -77,17 +77,17 @@ import {
   renderAcceptanceNotice,
   renderReworkMessage,
   renderEvidenceDigest,
-} from "@volto/core";
-import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState, AcceptanceAttempt, AcceptanceVerdict, DispatchVerification, VerificationSummary } from "@volto/core";
+} from "@voltojs/core";
+import type { StepContext, ReducerState, TranscriptStore, TranscriptEventInput, ChatSessionMeta, PromptAnchorState, AcceptanceAttempt, AcceptanceVerdict, DispatchVerification, VerificationSummary } from "@voltojs/core";
 import { verifyDispatch, ACCEPTANCE_VERIFY_TIMEOUT_MS } from "./acceptance-verifier.js";
-import { createRunner, type Runner, type ToolExecutor } from "@volto/runtime-node";
-import type { RunnerOptions, CompactNowResult } from "@volto/runtime-node";
+import { createRunner, type Runner, type ToolExecutor } from "@voltojs/runtime-node";
+import type { RunnerOptions, CompactNowResult } from "@voltojs/runtime-node";
 import {
   createFsToolExecutor,
   createShellToolExecutor,
   createNetworkToolExecutor,
-} from "@volto/runtime-node";
-import { createAutoAllowGate, createSubAgentApprovalGate } from "@volto/runtime-node";
+} from "@voltojs/runtime-node";
+import { createAutoAllowGate, createSubAgentApprovalGate } from "@voltojs/runtime-node";
 import {
   createSandboxedShell,
   createSandboxSessionSpawner,
@@ -95,13 +95,13 @@ import {
   type SandboxConfig,
   type PersistentSession,
   type SessionSpawnHandle,
-} from "@volto/runtime-node";
-import { createNodeAttachmentStore, createNodeDocumentParser, wrapNetworkWithEgress } from "@volto/runtime-node";
-import { createNodeSpillStore } from "@volto/runtime-node";
-import type { EgressPolicy } from "@volto/runtime-node";
-import type { Tool } from "@volto/tools-common";
-import type { SubAgentDispatch, AgentTypeSummary, AgentTierSummary } from "@volto/tools-agent";
-import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@volto/tools-agent";
+} from "@voltojs/runtime-node";
+import { createNodeAttachmentStore, createNodeDocumentParser, wrapNetworkWithEgress } from "@voltojs/runtime-node";
+import { createNodeSpillStore } from "@voltojs/runtime-node";
+import type { EgressPolicy } from "@voltojs/runtime-node";
+import type { Tool } from "@voltojs/tools-common";
+import type { SubAgentDispatch, AgentTypeSummary, AgentTierSummary } from "@voltojs/tools-agent";
+import { createTaskTool, createTaskOutputTool, CAP_AGENT_TASK } from "@voltojs/tools-agent";
 import type { AgentEntry } from "./agent-registry/index.js";
 import type { AgentSpec } from "./agent-spec.js";
 import {
@@ -172,15 +172,15 @@ import {
   createListWatchesTool,
   CAP_FS_WATCH,
   FS_EXECUTOR_TOOL_NAMES,
-} from "@volto/tools-fs";
+} from "@voltojs/tools-fs";
 import {
   createBashTool,
   createBashOutputTool,
   createKillShellTool,
   SHELL_TOOL_NAMES,
   type BashSessionLike,
-} from "@volto/tools-shell";
-import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@volto/tools-web";
+} from "@voltojs/tools-shell";
+import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@voltojs/tools-web";
 import {
   createLspDefinitionTool,
   createLspReferencesTool,
@@ -188,8 +188,8 @@ import {
   createLspDiagnosticsTool,
   createLspHoverTool,
   CAP_LSP_QUERY,
-} from "@volto/tools-code";
-import type { LspClientProvider } from "@volto/tools-code";
+} from "@voltojs/tools-code";
+import type { LspClientProvider } from "@voltojs/tools-code";
 import {
   createGitStatusTool,
   createGitDiffTool,
@@ -197,16 +197,16 @@ import {
   createGitPushTool,
   createRunTestsTool,
   createBuildTool,
-} from "@volto/tools-vcs";
-import { createAskUserTool } from "@volto/tools-ask";
-import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "@volto/tools-memory";
-import { createTodoWriteTool, CAP_PLAN_WRITE } from "@volto/tools-plan";
-import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@volto/tools-data";
-import type { DatabaseOpener } from "@volto/tools-data";
-import { createReadDocumentTool } from "@volto/tools-document";
-import type { DocumentParserAdapter, DocumentParseOptions } from "@volto/tools-document";
-import { createScheduleTool, createCancelScheduleTool } from "@volto/tools-schedule";
-import { createSkillTool } from "@volto/tool-skill";
+} from "@voltojs/tools-vcs";
+import { createAskUserTool } from "@voltojs/tools-ask";
+import { createMemoryTool, CAP_MEMORY_READ, CAP_MEMORY_WRITE } from "@voltojs/tools-memory";
+import { createTodoWriteTool, CAP_PLAN_WRITE } from "@voltojs/tools-plan";
+import { createHttpQueryTool, createDbQueryTool, createDbExecTool, CAP_DB_READ, CAP_DB_WRITE } from "@voltojs/tools-data";
+import type { DatabaseOpener } from "@voltojs/tools-data";
+import { createReadDocumentTool } from "@voltojs/tools-document";
+import type { DocumentParserAdapter, DocumentParseOptions } from "@voltojs/tools-document";
+import { createScheduleTool, createCancelScheduleTool } from "@voltojs/tools-schedule";
+import { createSkillTool } from "@voltojs/tool-skill";
 import {
   BROWSER_TOOL_NAMES,
   createBrowserNavigateTool,
@@ -218,8 +218,8 @@ import {
   createBrowserScreenshotTool,
   createBrowserDiagnosticsTool,
   createBrowserStorageStateTool,
-} from "@volto/tools-browser";
-import type { BrowserAdapter } from "@volto/tools-browser";
+} from "@voltojs/tools-browser";
+import type { BrowserAdapter } from "@voltojs/tools-browser";
 import {
   defaultEventSink,
   defaultTokenizer,
@@ -246,7 +246,7 @@ import {
   collectPlugins,
 } from "./plugin.js";
 import { renderCommand, matchCommand } from "./commands.js";
-import { type AuditSink, defaultAuditSink } from "@volto/runtime-node";
+import { type AuditSink, defaultAuditSink } from "@voltojs/runtime-node";
 
 // ──────────────────────────────────────────────
 // Config resolution helper
@@ -1258,7 +1258,7 @@ export interface CreateAgentOptions {
    * preToolUse (after permission, before executor), postToolUse (after result).
    * Merged with any hooks registered by plugins. Serial execution, first deny short-circuits.
    */
-  hooks?: import("@volto/core").Hook[];
+  hooks?: import("@voltojs/core").Hook[];
 
   // ── M13: Slash commands ──
 
@@ -1409,7 +1409,7 @@ export interface AgentInstance {
    * Session store backing checkpoint/resume for this agent instance.
    * Checkpoints are saved under `<sessionId>#<seq>` (plus a canonical
    * `<sessionId>` key) at every turn boundary and HITL pause — hosts can
-   * list / rewind them with @volto/sdk's createTimeTravelDebugger.
+   * list / rewind them with @voltojs/sdk's createTimeTravelDebugger.
    */
   sessionStore: SessionStore;
 
@@ -2576,7 +2576,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     currentTurnEventSink = effectiveSink;
 
     // M13: Merge hooks from opts + plugins (plugin hooks appended after opts hooks)
-    const allHooks: import("@volto/core").Hook[] = [
+    const allHooks: import("@voltojs/core").Hook[] = [
       ...(opts.hooks ?? []),
       ...pluginData.hooks.map((ph) => ({
         name: ph.name,

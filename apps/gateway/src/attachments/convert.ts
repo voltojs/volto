@@ -20,7 +20,7 @@
  *   [attachment <name|id> could not be included: <reason>]
  */
 
-import type { ContentBlock, StoredAttachment } from "@volto/core";
+import type { ContentBlock, StoredAttachment } from "@voltojs/core";
 
 /** Result of parsing a PDF: its text plus the document's TOTAL page count. */
 export interface ParsedPdf {

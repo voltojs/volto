@@ -19,8 +19,8 @@ import type {
   ModelEvent,
   ModelPort,
   ModelRequest,
-} from "@volto/core";
-import { createMockModelPort, textScript, toolCallScript } from "@volto/core";
+} from "@voltojs/core";
+import { createMockModelPort, textScript, toolCallScript } from "@voltojs/core";
 
 function rec(script: ModelEvent[][]) {
   const requests: ModelRequest[] = [];

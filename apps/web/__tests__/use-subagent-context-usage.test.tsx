@@ -7,7 +7,7 @@ import {
   setCachedSubagentEvents,
   clearSubagentCache,
 } from '@/lib/subagent-cache';
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const HEADER = {
   hash: 'h1',

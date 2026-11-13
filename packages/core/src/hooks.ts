@@ -2,7 +2,7 @@
  * Hook types and pipeline — M13 Phase 3.
  *
  * Pure types live here (in core) so runtime-node can import them without
- * depending on @volto/sdk. The async `runHookPipeline` function is
+ * depending on @voltojs/sdk. The async `runHookPipeline` function is
  * also pure (no I/O) — it only orchestrates hook handler calls.
  *
  * Key invariant: hook denial produces a normalized tool_result(isError)

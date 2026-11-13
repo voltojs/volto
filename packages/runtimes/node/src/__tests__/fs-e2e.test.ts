@@ -7,7 +7,7 @@ import type {
   StepContext,
   ToolDefinition,
   TranscriptEvent,
-} from "@volto/core";
+} from "@voltojs/core";
 import {
   buildTurnRecords,
   createMockModelPort,
@@ -16,8 +16,8 @@ import {
   toConversationView,
   toolUseDelta,
   toolUseStart,
-} from "@volto/core";
-import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@volto/tools-fs";
+} from "@voltojs/core";
+import { createReadFileTool, createEditFileTool, CAP_FS_READ, CAP_FS_WRITE } from "@voltojs/tools-fs";
 import { createRunner } from "../runner.js";
 import { createFsToolExecutor } from "../tool-executor.js";
 

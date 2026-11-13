@@ -4,8 +4,8 @@ import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@volto/core";
-import type { ToolDefinition, ToolResult, ModelPort, ModelRequest, SkillRegistry } from "@volto/core";
+} from "@voltojs/core";
+import type { ToolDefinition, ToolResult, ModelPort, ModelRequest, SkillRegistry } from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

@@ -12,7 +12,7 @@ import type {
   TranscriptEventMap,
   TranscriptEventType,
   TranscriptStore,
-} from "@volto/core";
+} from "@voltojs/core";
 
 export interface TranscriptRecorderOptions {
   store: TranscriptStore | undefined;

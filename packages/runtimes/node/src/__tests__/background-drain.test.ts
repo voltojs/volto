@@ -5,8 +5,8 @@ import {
   createInitialState,
   modelDone,
   textDelta,
-} from "@volto/core";
-import type { AgentState } from "@volto/core";
+} from "@voltojs/core";
+import type { AgentState } from "@voltojs/core";
 
 function stateWithRunning(ids: string[]): AgentState {
   return {

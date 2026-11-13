@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import type { StepContext, ToolDefinition, ToolResult, PendingToolCall } from "@volto/core";
+import type { StepContext, ToolDefinition, ToolResult, PendingToolCall } from "@voltojs/core";
 import {
   createMockModelPort,
   toolCallScript,
   textScript,
-} from "@volto/core";
+} from "@voltojs/core";
 import { createRunner } from "../runner.js";
 import type { ToolExecutor } from "../runner.js";
-import * as toolRouterModule from "@volto/core";
+import * as toolRouterModule from "@voltojs/core";
 
 const readTool: ToolDefinition = {
   name: "read_file",

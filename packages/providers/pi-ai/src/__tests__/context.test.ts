@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, Model as PiModel, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 
-import type { Message, ModelRequest } from "@volto/core";
+import type { Message, ModelRequest } from "@voltojs/core";
 import { toReplayEnvelope } from "../replay.js";
 import { toPiContext } from "../context.js";
 

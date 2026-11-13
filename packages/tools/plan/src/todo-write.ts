@@ -1,6 +1,6 @@
-import type { ToolResult } from "@volto/core";
+import type { ToolResult } from "@voltojs/core";
 import { z } from "zod";
-import { defineTool } from "@volto/tools-common";
+import { defineTool } from "@voltojs/tools-common";
 import { CAP_PLAN_WRITE } from "./capabilities.js";
 
 const todoItemSchema = z

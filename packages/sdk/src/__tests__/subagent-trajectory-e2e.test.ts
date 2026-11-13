@@ -3,12 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createAgent } from "../create-agent.js";
-import { buildTurnRecords, toTrajectoryView } from "@volto/core";
-import type { EventSink, ModelEvent, ModelPort, ModelRequest, TrajectoryRow } from "@volto/core";
-import { createStore, scopeToWorkspace } from "@volto/store-jsonl";
-import type { ChatSessionRecord } from "@volto/store-jsonl";
+import { buildTurnRecords, toTrajectoryView } from "@voltojs/core";
+import type { EventSink, ModelEvent, ModelPort, ModelRequest, TrajectoryRow } from "@voltojs/core";
+import { createStore, scopeToWorkspace } from "@voltojs/store-jsonl";
+import type { ChatSessionRecord } from "@voltojs/store-jsonl";
 import type { AgentEntry } from "../agent-registry/scan.js";
-import { modelDone, textScript, toolUseDelta, toolUseStart } from "@volto/core";
+import { modelDone, textScript, toolUseDelta, toolUseStart } from "@voltojs/core";
 
 let directory: string;
 

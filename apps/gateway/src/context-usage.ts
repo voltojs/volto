@@ -9,10 +9,10 @@
  * out of the response entirely.
  */
 
-import { emptyContextUsageSnapshot, foldSnapshotEvent } from "@volto/core";
-import type { ContextUsageSnapshot } from "@volto/core";
-import { createNodeTokenizer } from "@volto/runtime-node";
-import type { JsonlSessionStore } from "@volto/store-jsonl";
+import { emptyContextUsageSnapshot, foldSnapshotEvent } from "@voltojs/core";
+import type { ContextUsageSnapshot } from "@voltojs/core";
+import { createNodeTokenizer } from "@voltojs/runtime-node";
+import type { JsonlSessionStore } from "@voltojs/store-jsonl";
 
 const tokenizer = createNodeTokenizer();
 

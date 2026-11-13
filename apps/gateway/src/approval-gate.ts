@@ -23,7 +23,7 @@ import type {
   ApprovalResult,
   PendingToolCall,
   RiskTier,
-} from "@volto/core";
+} from "@voltojs/core";
 
 /**
  * What a client may answer at an approval prompt.

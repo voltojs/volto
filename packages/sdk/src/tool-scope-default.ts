@@ -1,4 +1,4 @@
-import type { ScopeGroupConfig, ToolDefinition, ToolScopeConfig } from "@volto/core";
+import type { ScopeGroupConfig, ToolDefinition, ToolScopeConfig } from "@voltojs/core";
 
 /**
  * Default tool visibility synthesizer (T3 toolset governance).

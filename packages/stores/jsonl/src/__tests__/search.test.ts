@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createStore } from "../index.js";
 import type { JsonlSessionStore } from "../index.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 let dir: string;
 let store: JsonlSessionStore;

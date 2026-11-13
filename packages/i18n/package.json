@@ -1,5 +1,5 @@
 {
-  "name": "@volto/i18n",
+  "name": "@voltojs/i18n",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
     "test": "vitest run"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=22"

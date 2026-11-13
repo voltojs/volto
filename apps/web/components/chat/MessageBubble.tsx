@@ -1,6 +1,6 @@
 'use client';
 
-import type { ConversationBlock, ConversationMessage } from '@volto/sdk/sse';
+import type { ConversationBlock, ConversationMessage } from '@voltojs/sdk/sse';
 import { AttachmentImage } from './AttachmentImage';
 
 type ImageBlock = Extract<ConversationBlock, { type: 'image' }>;

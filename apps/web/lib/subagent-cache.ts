@@ -7,7 +7,7 @@
  * 独立成模块以便脱离 React 单测。
  */
 
-import type { TranscriptEventInput } from '@volto/sdk/sse';
+import type { TranscriptEventInput } from '@voltojs/sdk/sse';
 
 const cache = new Map<string, TranscriptEventInput[]>();
 

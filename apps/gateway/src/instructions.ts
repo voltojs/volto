@@ -16,7 +16,7 @@ import {
   expandInstructions,
   userInstructionDirs,
   type LoadedInstructionFile,
-} from "@volto/core";
+} from "@voltojs/core";
 import { getConfigDir } from "./config/paths.js";
 
 /**

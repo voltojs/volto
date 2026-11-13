@@ -1,8 +1,8 @@
-import type { FileSystem } from "@volto/core";
+import type { FileSystem } from "@voltojs/core";
 import { z } from "zod";
 import { CAP_FS_READ } from "./capabilities.js";
-import { defineTool as defineFileTool } from "@volto/tools-common";
-import type { Tool as FileTool } from "@volto/tools-common";
+import { defineTool as defineFileTool } from "@voltojs/tools-common";
+import type { Tool as FileTool } from "@voltojs/tools-common";
 
 const schema = z.object({
   pattern: z.string(),

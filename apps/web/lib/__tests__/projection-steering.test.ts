@@ -6,7 +6,7 @@ import {
   selectQueuedSeed,
 } from '@/lib/projection';
 import type { ChatEntry, FeedMessage } from '@/lib/projection';
-import type { ConversationMessage, TranscriptEventInput } from '@volto/sdk/sse';
+import type { ConversationMessage, TranscriptEventInput } from '@voltojs/sdk/sse';
 
 /**
  * Steering queue fold (spec 2026-11-04 §4.6): the web feed keeps queued

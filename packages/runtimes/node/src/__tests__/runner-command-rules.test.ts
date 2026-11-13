@@ -9,8 +9,8 @@ import {
   usage,
   modelDone,
   extractBlockText,
-} from "@volto/core";
-import type { PermissionConfig, PendingToolCall, StepContext, ToolDefinition, ToolResult, ToolResultMessage } from "@volto/core";
+} from "@voltojs/core";
+import type { PermissionConfig, PendingToolCall, StepContext, ToolDefinition, ToolResult, ToolResultMessage } from "@voltojs/core";
 
 const bashTool: ToolDefinition = {
   name: "bash",

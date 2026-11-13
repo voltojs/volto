@@ -3,7 +3,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTranslations } from 'next-intl';
 import { TrajectoryRowItem } from './TrajectoryRowItem';
-import type { TrajectoryRow } from '@volto/sdk/sse';
+import type { TrajectoryRow } from '@voltojs/sdk/sse';
 
 interface TrajectoryListProps {
   rows: TrajectoryRow[];

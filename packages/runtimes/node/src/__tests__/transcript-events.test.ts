@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { createRunner } from "../runner.js";
 import { createAutoAllowGate } from "../approval-gate.js";
 // NOTE: createMockModelPort / textDelta / reasoningDelta are re-exported from
-// @volto/core's main entry (see src/index.ts), not from the "@volto/core/testing"
+// @voltojs/core's main entry (see src/index.ts), not from the "@voltojs/core/testing"
 // subpath — that subpath only exposes the SessionStore contract test suite
-// (testing/store-contract.ts). Importing from "@volto/core/testing" here would
+// (testing/store-contract.ts). Importing from "@voltojs/core/testing" here would
 // fail to resolve these symbols.
 import {
   createMockModelPort,
@@ -15,7 +15,7 @@ import {
   modelDone,
   createDefaultPermissionConfig,
   resetTurnForNextInput,
-} from "@volto/core";
+} from "@voltojs/core";
 import type {
   TranscriptEventInput,
   ModelEvent,
@@ -26,7 +26,7 @@ import type {
   ApprovalGate,
   Hook,
   ModelRequestManifest,
-} from "@volto/core";
+} from "@voltojs/core";
 
 function fakeChatStore() {
   const events: TranscriptEventInput[] = [];

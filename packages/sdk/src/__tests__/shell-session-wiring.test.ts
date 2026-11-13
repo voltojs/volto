@@ -4,9 +4,9 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { Shell } from "@volto/core";
-import type { SessionSpawnHandle } from "@volto/runtime-node";
+} from "@voltojs/core";
+import type { Shell } from "@voltojs/core";
+import type { SessionSpawnHandle } from "@voltojs/runtime-node";
 import { spawn, type ChildProcess } from "node:child_process";
 
 /**

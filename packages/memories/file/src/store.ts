@@ -20,11 +20,11 @@ import type {
   MemoryQueryFilter,
   MemoryScope,
   MemoryStore,
-} from "@volto/core";
+} from "@voltojs/core";
 import {
   scoreMemoryText,
   DEFAULT_MEMORY_MAX_ENTRIES,
-} from "@volto/memory-common";
+} from "@voltojs/memory-common";
 
 const ROW_VERSION = 1;
 /** A missing tier normalizes to this default (core MemoryEntry contract). */

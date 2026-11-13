@@ -59,8 +59,8 @@ describe("background registry", () => {
 // ──────────────────────────────────────────────
 
 import { createAgent } from "../create-agent.js";
-import { toolCallScript, textScript } from "@volto/core";
-import type { ModelPort, ModelRequest, TranscriptEventInput } from "@volto/core";
+import { toolCallScript, textScript } from "@voltojs/core";
+import type { ModelPort, ModelRequest, TranscriptEventInput } from "@voltojs/core";
 
 /**
  * Content-routed mock: the sub-agent's request carries its dispatch message

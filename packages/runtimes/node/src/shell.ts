@@ -10,7 +10,7 @@
  * command produces large amounts on both streams simultaneously.
  */
 
-import type { Shell, ShellExecOptions, ShellEvent } from "@volto/core";
+import type { Shell, ShellExecOptions, ShellEvent } from "@voltojs/core";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createProcessRegistry, type ProcessRegistry } from "./process-registry.js";
 

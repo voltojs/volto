@@ -6,9 +6,9 @@ import type {
   ModelEvent,
   ToolDefinition,
   ToolResult,
-} from "@volto/core";
-import type { Tool } from "@volto/tools-common";
-import { createMockModelPort, textScript, toolCallScript, CAP_AGENT_DEPTH_AVAILABLE } from "@volto/core";
+} from "@voltojs/core";
+import type { Tool } from "@voltojs/tools-common";
+import { createMockModelPort, textScript, toolCallScript, CAP_AGENT_DEPTH_AVAILABLE } from "@voltojs/core";
 
 /** Wrap a mock model port so each request's visible tool names are recorded. */
 function recordingModelPort(script: ModelEvent[][]) {

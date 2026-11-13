@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import type { StoreApi, UseBoundStore } from 'zustand';
-import type { RowRefSet } from '@volto/sdk/file-refs';
+import type { RowRefSet } from '@voltojs/sdk/file-refs';
 
 interface FileRefsState {
   bySession: Record<string, RowRefSet[]>;

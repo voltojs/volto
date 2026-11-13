@@ -4,17 +4,17 @@
  */
 
 import * as os from "node:os";
-import { createAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "@volto/sdk";
-import type { ApprovalGate, EventSink, Message, PermissionConfig } from "@volto/core";
-import { createPiAiModelPort } from "@volto/provider-pi-ai";
+import { createAgent, DEFAULT_SESSION_SECRET_ENV_PATTERNS } from "@voltojs/sdk";
+import type { ApprovalGate, EventSink, Message, PermissionConfig } from "@voltojs/core";
+import { createPiAiModelPort } from "@voltojs/provider-pi-ai";
 import {
   createNodeFileSystem,
   createNodeShell,
   createNodeNetwork,
   createNodeScheduler,
   createSandboxedFileSystem,
-} from "@volto/runtime-node";
-import type { SandboxConfig } from "@volto/runtime-node";
+} from "@voltojs/runtime-node";
+import type { SandboxConfig } from "@voltojs/runtime-node";
 import { getStore } from "../store/index.js";
 import type { StoreSchema } from "../store/schema.js";
 

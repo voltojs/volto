@@ -6,9 +6,9 @@ import {
   createMockModelPort,
   textScript,
   toolCallScript,
-} from "@volto/core";
-import type { ModelEvent, ModelPort, ModelRequest } from "@volto/core";
-import type { AgentSpec } from "@volto/sdk";
+} from "@voltojs/core";
+import type { ModelEvent, ModelPort, ModelRequest } from "@voltojs/core";
+import type { AgentSpec } from "@voltojs/sdk";
 import { createWiredAgent } from "../wiring.js";
 
 /**

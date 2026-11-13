@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createTranscriptRecorder } from "../transcript-recorder.js";
-import type { TranscriptEventInput } from "@volto/core";
+import type { TranscriptEventInput } from "@voltojs/core";
 
 function fakeStore() {
   const batches: TranscriptEventInput[][] = [];

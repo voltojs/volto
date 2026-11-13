@@ -27,7 +27,7 @@ import type {
   ToolResult,
   ModelEvent,
   EventSink,
-} from "@volto/core";
+} from "@voltojs/core";
 import {
   createMockModelPort,
   toolCallScript,
@@ -35,7 +35,7 @@ import {
   toolUseStart,
   toolUseDelta,
   modelDone,
-} from "@volto/core";
+} from "@voltojs/core";
 
 // ──────────────────────────────────────────────
 // Fixtures

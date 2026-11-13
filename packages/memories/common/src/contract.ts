@@ -1,6 +1,6 @@
 /**
  * Shared behavioral contract for MemoryStore implementations
- * (@volto/memory-file and @volto/memory-inmemory).
+ * (@voltojs/memory-file and @voltojs/memory-inmemory).
  *
  * Test-only: this module imports vitest and must never be reachable from the
  * package's runtime entry point. It pins the query-filter truth table from
@@ -10,7 +10,7 @@
  * break silently in one implementation.
  */
 import { describe, expect, it } from "vitest";
-import type { MemoryEntry, MemoryStore } from "@volto/core";
+import type { MemoryEntry, MemoryStore } from "@voltojs/core";
 
 const PROJECT_A = { kind: "project", projectId: "contract-a" } as const;
 const PROJECT_B = { kind: "project", projectId: "contract-b" } as const;
