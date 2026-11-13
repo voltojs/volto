@@ -66,6 +66,38 @@ export function createTrajectory(
   };
 }
 
+/** The slice of reducer state exposed by the legacy `expected.state` projection */
+export type StateProjection = Partial<Pick<AgentState, "status" | "messages" | "pendingTools">>;
+
+/**
+ * Build the recorded form of a single step from a live reducer result.
+ *
+ * This is the single source of truth for "what a recorded step looks like",
+ * shared by the recorder (live capture) and the replay CLI (--record). Every
+ * record path must go through it so that recording and strict comparison stay
+ * consistent.
+ *
+ * The snapshots are structured-cloned so later mutation of the live state /
+ * effects cannot corrupt the recording. Fields that serialize to `undefined`
+ * are dropped so the result round-trips through JSON unchanged.
+ */
+export function toExpectedStep(
+  state: StateProjection,
+  effectTypes: string[],
+  fullState?: Record<string, unknown>,
+  fullEffects?: Array<Record<string, unknown>>,
+): ExpectedStep {
+  const expected: ExpectedStep = {
+    state: {
+      status: state.status,
+    },
+    effects: [...effectTypes],
+  };
+  if (fullState !== undefined) expected.fullState = structuredClone(fullState);
+  if (fullEffects !== undefined) expected.fullEffects = structuredClone(fullEffects);
+  return expected;
+}
+
 /**
  * Add a step to a trajectory (mutates the trajectory).
  */
