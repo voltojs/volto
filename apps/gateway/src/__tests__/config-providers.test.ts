@@ -796,4 +796,38 @@ describe("thinkingLevelMap", () => {
       }),
     ).rejects.toThrow(/model m-code/);
   });
+
+  it("ignores prototype-inherited level keys instead of half-applying them", async () => {
+    // Boundary discipline (same standard as permission-modes.ts's hasOwn
+    // guard): pi-ai-side reads are prototype-chain sensitive, so a level
+    // readable only through the chain must not be half-applied —
+    // normalization keeps own keys only. JSON-style sources keep
+    // `__proto__` as an own key and stay covered by the whitelist reject;
+    // this is the in-memory path: a record whose sole readable level sits on
+    // its prototype chain stores with no thinkingLevelMap at all.
+    const proto = { low: "inherited" };
+    const poisoned = Object.create(proto) as Record<string, string | null>;
+    expect(Object.keys(poisoned)).toEqual([]);
+    expect(poisoned["low"]).toBe("inherited"); // prototype-chain read, pre-normalization
+
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [{ code: "gpt-5", thinkingLevelMap: poisoned }],
+    });
+    if (created.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(Object.keys(created.models[0]!)).toEqual(["code"]);
+
+    // Own keys still pass; a mix keeps only the own one.
+    const mixed = Object.create(proto) as Record<string, string | null>;
+    mixed["high"] = "own";
+    const updated = await store.update(created.id, {
+      kind: "catalog",
+      models: [{ code: "gpt-5", thinkingLevelMap: mixed }],
+    });
+    if (updated?.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(updated.models[0]).toEqual({ code: "gpt-5", thinkingLevelMap: { high: "own" } });
+  });
 });

@@ -326,6 +326,14 @@ export function createProviderStore(dir: string = getConfigDir()) {
    * value) or null (level unsupported). An empty object means "no overrides"
    * and is normalized away, same as undefined, so it never shadows the
    * catalog on read. Only explicit keys survive.
+   *
+   * Own keys only: pi-ai-side reads (`model.thinkingLevelMap?.[level]`) are
+   * prototype-chain sensitive while `Object.entries` is not, so an inherited
+   * level would be half-applied — readable downstream yet skipped here. The
+   * hasOwn filter makes both sides agree on the same key set, same boundary
+   * discipline as permission-modes.ts's `Object.hasOwn` guard. A JSON source
+   * keeps `__proto__` as an own enumerable key, which the whitelist below
+   * still rejects.
    */
   function normalizeThinkingLevelMap(
     value: ThinkingLevelMapOverride | undefined,
@@ -337,6 +345,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
     }
     const out: ThinkingLevelMapOverride = {};
     for (const [key, levelValue] of Object.entries(value)) {
+      if (!Object.hasOwn(value, key)) continue;
       if (!(THINKING_LEVELS as readonly string[]).includes(key)) {
         throw new Error(`unknown thinking level "${key}" for model ${modelCode}`);
       }
