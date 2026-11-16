@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ModelTable, type DraftModel } from '../ModelTable';
+import {
+  emptyDraftModel,
+  ModelTable,
+  toCatalogDrafts,
+  toDraftModels,
+  type DraftModel,
+} from '../ModelTable';
+import type { CatalogProviderModel, Model } from '@/lib/config-api';
 
 function row(overrides: Partial<DraftModel> = {}): DraftModel {
   return {
@@ -126,5 +133,58 @@ describe('ModelTable input expand row', () => {
     const seeded = changes.at(-1)?.[0];
     expect(seeded?.input).toEqual(['text', 'image']);
     expect(seeded?.inputLimits).toEqual(flashLimits);
+  });
+});
+
+/** A resolved `reasoning.levels` array as `GET /providers` sends it (7 entries, display order). */
+const levelsSeed = [
+  { id: 'off', supported: true, overridden: false },
+  { id: 'minimal', supported: false, overridden: false },
+  { id: 'low', supported: true, value: 'low', overridden: false },
+  { id: 'medium', supported: false, value: undefined, overridden: true },
+  { id: 'high', supported: true, value: 'high', overridden: false },
+  { id: 'xhigh', supported: false, overridden: false },
+  { id: 'max', supported: false, overridden: false },
+];
+
+const mapSeed = { medium: null, high: 'maximum' };
+
+describe('thinking level draft seeding', () => {
+  it('toCatalogDrafts seeds thinkingLevelMap and thinkingLevels from the wire model', () => {
+    const wire: CatalogProviderModel = {
+      code: 'claude-x',
+      reasoning: { efforts: [{ id: 'high', name: 'High' }], levels: levelsSeed },
+      thinkingLevelMap: mapSeed,
+    };
+    const draft = toCatalogDrafts([wire])[0]!;
+    // The stored map is the editable draft; the resolved levels are the
+    // read-only display seed — both ride in on GET /providers.
+    expect(draft.thinkingLevelMap).toEqual(mapSeed);
+    expect(draft.thinkingLevels).toEqual(levelsSeed);
+  });
+
+  it('toCatalogDrafts leaves both fields undefined when the wire carries neither', () => {
+    const draft = toCatalogDrafts([{ code: 'plain' }])[0]!;
+    expect(draft.thinkingLevelMap).toBeUndefined();
+    expect(draft.thinkingLevels).toBeUndefined();
+  });
+
+  it('toDraftModels seeds thinkingLevelMap and thinkingLevels for a custom wire model', () => {
+    const wire: Model = {
+      id: 'm1',
+      name: 'MiMo',
+      code: 'mimo-v2.5',
+      reasoning: { efforts: [{ id: 'high', name: 'High' }], levels: levelsSeed },
+      thinkingLevelMap: mapSeed,
+    };
+    const draft = toDraftModels([wire])[0]!;
+    expect(draft.thinkingLevelMap).toEqual(mapSeed);
+    expect(draft.thinkingLevels).toEqual(levelsSeed);
+  });
+
+  it('emptyDraftModel starts with no thinking level fields', () => {
+    const draft = emptyDraftModel();
+    expect(draft.thinkingLevelMap).toBeUndefined();
+    expect(draft.thinkingLevels).toBeUndefined();
   });
 });

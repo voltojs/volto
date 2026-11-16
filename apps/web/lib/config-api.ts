@@ -34,6 +34,43 @@ export interface ReasoningEffort {
 /** Input modalities a model accepts (wire shape of core's ModelInputValue). */
 export type ModelInputValue = ('text' | 'image')[];
 
+/**
+ * The seven thinking levels in display order — mirror of the gateway's
+ * `THINKING_LEVELS` (packages/providers pi-ai collection), which mirrors
+ * pi-ai's extended set including `"off"`.
+ */
+export type ThinkingLevelId =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
+/**
+ * Per-level override of a model's thinking mapping, as stored and exchanged
+ * with the gateway (`GET /providers` model records and `ProviderInput` model
+ * entries). A string marks the level supported and sent on the wire as that
+ * value; null marks it unsupported; an absent key inherits the catalog. An
+ * absent field or `{}` both mean "no override".
+ */
+export type ThinkingLevelMap = Partial<Record<ThinkingLevelId, string | null>>;
+
+/**
+ * One resolved thinking level as `GET /providers` reports it inside
+ * `reasoning.levels`: all seven levels in display order, each saying whether
+ * it is usable, its effective wire value (absent when the dialect omits it),
+ * and whether a user override decided it. Read-only display truth — never
+ * written back by the settings forms.
+ */
+export interface ThinkingLevelInfo {
+  id: string;
+  supported: boolean;
+  value?: string;
+  overridden: boolean;
+}
+
 /** Provider input limits, read-only directory fact (wire shape of core's ModelInputLimits). */
 export interface ModelInputLimits {
   maxRequestBytes?: number;
@@ -67,6 +104,8 @@ export interface Model {
   reasoning?: {
     efforts: ReasoningEffort[];
     defaultEffort?: string;
+    /** Resolved thinking levels, same contract as `CatalogProviderModel['reasoning']`. */
+    levels?: ThinkingLevelInfo[];
   };
   /**
    * Input modalities, three-state. Absent means UNKNOWN (a gateway that
@@ -75,6 +114,13 @@ export interface Model {
    * entry off (spec D2 — vision retired into this single source).
    */
   input?: ModelInputValue;
+  /**
+   * Stored per-level thinking override map, the draft seed the settings
+   * form edits and sends back verbatim (wire source: `GET /providers`
+   * custom model records; accepted again on `POST/PUT /providers`).
+   * Absent or `{}` means "no override".
+   */
+  thinkingLevelMap?: ThinkingLevelMap;
 }
 
 /**
@@ -109,6 +155,12 @@ export interface CatalogProviderModel {
    * never written back by the settings forms.
    */
   inputLimits?: ModelInputLimits;
+  /**
+   * Stored per-level thinking override map (the draft seed the settings form
+   * edits), same contract as `Model['thinkingLevelMap']`. The resolved truth
+   * for display arrives separately as `reasoning.levels`.
+   */
+  thinkingLevelMap?: ThinkingLevelMap;
 }
 
 /** One catalog-provider model entry, as sent in a create/update request body. */
@@ -126,6 +178,12 @@ export interface CatalogModelInput {
   reasoning?: boolean;
   /** Per-model input override/declaration; omitted = follow catalog / UNKNOWN. */
   input?: ModelInputValue;
+  /**
+   * Per-level thinking override map to store; mirrors the draft verbatim.
+   * Omitted or `{}` means "no override" — the settings form drops an empty
+   * map rather than sending it, so a toggled-off editor never persists `{}`.
+   */
+  thinkingLevelMap?: ThinkingLevelMap;
 }
 
 /**
@@ -172,6 +230,11 @@ export interface CustomModelInput {
   reasoning?: boolean;
   /** Per-model input override/declaration; omitted = follow catalog / UNKNOWN. */
   input?: ModelInputValue;
+  /**
+   * Per-level thinking override map to store; same contract and empty-map
+   * ruling as `CatalogModelInput.thinkingLevelMap`.
+   */
+  thinkingLevelMap?: ThinkingLevelMap;
 }
 
 export type ProviderInput =

@@ -19,6 +19,8 @@ import type {
   ModelInputLimits,
   ModelInputValue,
   ProviderProtocol,
+  ThinkingLevelInfo,
+  ThinkingLevelMap,
 } from '@/lib/config-api';
 import { AvailableModelsDialog } from './AvailableModelsDialog';
 
@@ -49,6 +51,18 @@ export interface DraftModel {
   input?: ModelInputValue;
   /** 仅展示种子（目录事实），custom 行恒无。 */
   inputLimits?: ModelInputLimits;
+  /**
+   * Editable per-level thinking override map, seeded from the stored wire
+   * map. Cleared (undefined or `{}`) means "no override" — the submit
+   * conversion drops an empty map so the key is never sent.
+   */
+  thinkingLevelMap?: ThinkingLevelMap;
+  /**
+   * Read-only display seed: the gateway-resolved seven levels
+   * (`reasoning.levels` on `GET /providers`), exactly like `inputLimits` —
+   * shown by the row editor, never written back to the submit payload.
+   */
+  thinkingLevels?: ThinkingLevelInfo[];
 }
 
 export function toDraftModels(models: Model[]): DraftModel[] {
@@ -63,6 +77,8 @@ export function toDraftModels(models: Model[]): DraftModel[] {
     reasoning: Boolean(m.reasoning),
     input: m.input,
     inputLimits: undefined, // config-store `Model` has no limits; explicit keeps both converters shape-identical
+    thinkingLevelMap: m.thinkingLevelMap,
+    thinkingLevels: m.reasoning?.levels,
   }));
 }
 
@@ -83,6 +99,8 @@ export function toCatalogDrafts(models: CatalogProviderModel[]): DraftModel[] {
     reasoning: Boolean(m.reasoning),
     input: m.input,
     inputLimits: m.inputLimits,
+    thinkingLevelMap: m.thinkingLevelMap,
+    thinkingLevels: m.reasoning?.levels,
   }));
 }
 

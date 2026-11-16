@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CatalogProviderSection } from '@/components/settings/CatalogProviderForm';
 import { useConfigStore } from '@/stores/config-store';
@@ -285,5 +285,87 @@ describe('CatalogProviderSection', () => {
         },
       ],
     });
+  });
+
+  it('submits a seeded thinkingLevelMap verbatim and omits the key when the map is empty', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      async (input: string | URL, init?: { method?: string; body?: string }) => {
+        const url = String(input);
+        if (new URL(url).pathname === '/catalog/providers') {
+          return { ok: true, json: async () => CATALOG } as Response;
+        }
+        if (init?.method === 'PUT') {
+          const parsed = JSON.parse(init.body ?? '{}') as Record<string, unknown>;
+          bodies.push(parsed);
+          return { ok: true, json: async () => ({}) } as Response;
+        }
+        throw new Error(`Unstubbed route: ${url}`);
+      },
+    );
+
+    // GET /providers shape: the stored map rides along as the draft seed and
+    // the resolved levels arrive inside `reasoning`.
+    const provider = {
+      kind: 'catalog' as const,
+      id: 'v10',
+      name: 'Anthropic',
+      piProvider: 'anthropic',
+      baseURL: null,
+      apiKeyMasked: 'sk-…abcd',
+      models: [
+        {
+          code: 'claude-x',
+          reasoning: {
+            efforts: [{ id: 'high', name: 'High' }],
+            levels: [
+              { id: 'off', supported: true, overridden: false },
+              { id: 'high', supported: true, value: 'high', overridden: true },
+            ],
+          },
+          thinkingLevelMap: { high: 'highest' },
+        },
+        { code: 'claude-y' },
+      ],
+    };
+    useConfigStore.setState({ providers: [provider] });
+
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<CatalogProviderSection providers={[provider]} />);
+    await user.click(await screen.findByRole('button', { name: '编辑供应商' }));
+    await user.click(screen.getByRole('button', { name: /保存/ }));
+
+    await waitFor(() => expect(bodies[0]).toBeDefined());
+    // The untouched stored map round-trips verbatim on its row.
+    const savedModels = bodies[0]!.models as Array<Record<string, unknown>>;
+    expect(savedModels[0]).toMatchObject({
+      code: 'claude-x',
+      thinkingLevelMap: { high: 'highest' },
+    });
+    // A row that never had a map submits no thinkingLevelMap key at all —
+    // an absent map means "no override", same ruling as an empty one.
+    expect(savedModels[1]).not.toHaveProperty('thinkingLevelMap');
+
+    // Turning the toggle off clears the draft's map (Task 6 owns that UI);
+    // from here the submit conversion must drop the key entirely. Simulate
+    // the cleared wire record in a fresh render.
+    useConfigStore.setState({ providers: [] });
+    cleanup();
+    const cleared = {
+      ...provider,
+      models: [
+        { ...provider.models[0]!, thinkingLevelMap: {} },
+        provider.models[1]!,
+      ],
+    };
+    const user2 = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<CatalogProviderSection providers={[cleared]} />);
+    await user2.click(await screen.findByRole('button', { name: '编辑供应商' }));
+    await user2.click(screen.getByRole('button', { name: /保存/ }));
+
+    await waitFor(() => expect(bodies[1]).toBeDefined());
+    const clearedModels = bodies[1]!.models as Array<Record<string, unknown>>;
+    expect(clearedModels[0]).not.toHaveProperty('thinkingLevelMap');
   });
 });
