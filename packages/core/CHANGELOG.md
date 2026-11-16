@@ -1,5 +1,11 @@
 # @voltojs/core
 
+## 0.2.1
+
+### Patch Changes
+
+- Validate npm trusted publishing (OIDC) across every published package.
+
 ## 0.2.0
 
 ### Minor Changes
