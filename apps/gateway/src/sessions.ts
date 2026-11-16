@@ -138,7 +138,7 @@ export type ResolvedCredentials =
       reasoning?: boolean;
       /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
       input?: ModelInputValue;
-      /** Per-level thinking override map; forwarded to pi-ai's config by a later task. */
+      /** Per-level thinking override map; forwarded to pi-ai's config when present. */
       thinkingLevelMap?: ThinkingLevelMapOverride;
     }
   | {
@@ -155,7 +155,7 @@ export type ResolvedCredentials =
       reasoning?: boolean;
       /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
       input?: ModelInputValue;
-      /** Per-level thinking override map; forwarded to pi-ai's config by a later task. */
+      /** Per-level thinking override map; forwarded to pi-ai's config when present. */
       thinkingLevelMap?: ThinkingLevelMapOverride;
     };
 
@@ -238,6 +238,11 @@ export function buildProviderConfig(providerId: string | undefined, credentials:
         ...(credentials.input !== undefined
           ? { inputOverrides: { [credentials.code]: credentials.input } }
           : {}),
+        // Same for the per-level thinking map: only a stored override is
+        // forwarded, so an untouched model keeps pi-ai's catalog map.
+        ...(credentials.thinkingLevelMap === undefined
+          ? {}
+          : { thinkingLevelMapOverrides: { [credentials.code]: credentials.thinkingLevelMap } }),
       }
     : {
         kind: "custom",
@@ -253,6 +258,9 @@ export function buildProviderConfig(providerId: string | undefined, credentials:
             code: credentials.code,
             reasoning: credentials.reasoning,
             ...(credentials.input === undefined ? {} : { input: credentials.input }),
+            ...(credentials.thinkingLevelMap === undefined
+              ? {}
+              : { thinkingLevelMap: credentials.thinkingLevelMap }),
           },
         ],
       };

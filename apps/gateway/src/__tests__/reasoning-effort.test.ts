@@ -10,8 +10,9 @@ import * as http from "node:http";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createSessionRegistry } from "../sessions.js";
+import { buildProviderConfig, createSessionRegistry, type ResolvedCredentials } from "../sessions.js";
 import { createServer, type HeadlessServer } from "../server.js";
+import { createPiAiModelPort } from "@voltojs/providers/pi-ai";
 import { createStore as createJsonlStore } from "@voltojs/stores/jsonl";
 import type { ReducerState, Message, ModelPort } from "@voltojs/core";
 
@@ -179,6 +180,117 @@ describe("reasoningEffort — session-level unit tests (createSessionRegistry)",
     await registry.runTurn("s1", "two", { ...baseConfig, reasoningEffort: "low" });
 
     expect(builds).toHaveLength(1);
+  });
+
+});
+
+// -- buildProviderConfig forwarding of thinkingLevelMap (Task 4 wiring) ------
+// -- These assert the projection itself AND its end-to-end effect through a   --
+// -- real pi-ai ModelPort: an overridden effort leaves `efforts`, every        --
+// -- level still reports in `levels`, and a stale session effort is refused    --
+// -- with a readable error instead of a crash.                                 --
+
+describe("buildProviderConfig — thinkingLevelMap forwarding", () => {
+  it("catalog branch forwards a stored map as a per-code override entry", async () => {
+    const credentials: ResolvedCredentials = {
+      kind: "catalog",
+      piProvider: "openrouter",
+      baseURL: null,
+      apiKey: null,
+      code: "some-model",
+      thinkingLevelMap: { medium: null },
+    };
+    const config = buildProviderConfig("v1", credentials);
+    if (config.kind !== "catalog") throw new Error("expected catalog config");
+    expect(config.thinkingLevelMapOverrides).toEqual({ "some-model": { medium: null } });
+    // The projection must land on a real ModelPort too: an unknown catalog
+    // code with a stored map is synthesized so effort validation keeps
+    // seeing the user's declared intent (collection.ts).
+    const port = createPiAiModelPort({ providers: [config], defaultProviderId: "v1" });
+    const info = await port.describeModel!("some-model");
+    const effortIds = (info.reasoning?.efforts ?? []).map((e) => e.id as string);
+    expect(effortIds).not.toContain("medium");
+    expect(effortIds.length).toBeGreaterThan(0);
+  });
+
+  it("catalog branch omits thinkingLevelMapOverrides when no map is stored", () => {
+    const credentials: ResolvedCredentials = {
+      kind: "catalog",
+      piProvider: "openrouter",
+      baseURL: null,
+      apiKey: null,
+      code: "some-model",
+    };
+    const config = buildProviderConfig("v1", credentials);
+    if (config.kind !== "catalog") throw new Error("expected catalog config");
+    expect("thinkingLevelMapOverrides" in config).toBe(false);
+  });
+
+  it("custom branch puts the stored map on the model entry", () => {
+    const credentials: ResolvedCredentials = {
+      kind: "custom",
+      baseURL: "https://example.com/v1",
+      apiKey: null,
+      code: "m1",
+      reasoning: true,
+      thinkingLevelMap: { medium: null },
+    };
+    const config = buildProviderConfig("v1", credentials);
+    if (config.kind !== "custom") throw new Error("expected custom config");
+    expect(config.models[0]!.thinkingLevelMap).toEqual({ medium: null });
+  });
+
+  it("a stored medium:null override drops medium from efforts while levels keeps all seven", async () => {
+    const credentials: ResolvedCredentials = {
+      kind: "custom",
+      baseURL: "https://example.com/v1",
+      apiKey: null,
+      code: "m1",
+      reasoning: true,
+      thinkingLevelMap: { medium: null },
+    };
+    const config = buildProviderConfig("v1", credentials);
+    const port = createPiAiModelPort({ providers: [config], defaultProviderId: "v1" });
+    const info = await port.describeModel!("m1");
+    const effortIds = (info.reasoning?.efforts ?? []).map((e) => e.id as string);
+    expect(effortIds).not.toContain("medium");
+    expect(effortIds).toContain("low");
+    const levels = info.reasoning?.levels;
+    expect(levels).toBeDefined();
+    expect(levels!.map((l) => l.id)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    const medium = levels!.find((l) => l.id === "medium");
+    expect(medium).toEqual({ id: "medium", supported: false, overridden: true });
+    const low = levels!.find((l) => l.id === "low");
+    expect(low!.supported).toBe(true);
+    expect(low!.overridden).toBe(false);
+  });
+
+  it("resolveConfig rejects an effort a later override removed, with a readable error, not a crash", async () => {
+    // The session already selected "medium"; then the user saved
+    // thinkingLevelMap {medium:null}. The next turn must be refused by
+    // assertSupportedReasoningEffort — which sees the merged effort list only
+    // once buildProviderConfig forwards the map.
+    const { factory, builds } = makeFactory();
+    const registry = createSessionRegistry({
+      agentFactory: factory as never,
+      projectStore: { findById: async (id: string) => ({ id, name: id, path: "/tmp", createdAt: 0 }) } as never,
+      providerStore: {
+        resolveModel: async () => ({
+          kind: "custom" as const,
+          baseURL: null,
+          apiKey: "sk-secret",
+          code: "m1",
+          reasoning: true,
+          thinkingLevelMap: { medium: null },
+        }),
+      } as never,
+    });
+    created.push(registry);
+
+    await expect(
+      registry.resolveConfig({ ...baseConfig, reasoningEffort: "medium" }),
+    ).rejects.toThrow(/Unsupported reasoningEffort "medium"/);
+    expect(builds).toHaveLength(0);
   });
 
 });

@@ -2066,6 +2066,109 @@ describe("Headless server", () => {
     expect("contextWindow" in model!).toBe(false);
   });
 
+  it("GET /providers reports the resolved thinking levels a stored map override decided", async () => {
+    // The settings editor reads `reasoning.levels` — all seven levels with
+    // who decided each one. This asserts the whole wire path: the stored
+    // map reaches the ModelPort (server.ts's catalog config), and the
+    // resolved info lands on the response while the stored draft seed
+    // (`thinkingLevelMap`) keeps riding along via `...rest`.
+    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
+
+    const created = await post("/providers", {
+      name: "Thinking levels provider",
+      kind: "catalog",
+      piProvider: target.piProvider,
+      models: [{ code: target.code, thinkingLevelMap: { medium: null } }],
+    });
+    expect(created.status).toBe(201);
+
+    const { data } = await getJson("/providers");
+    const providers = data as Array<{
+      name: string;
+      models: Array<{
+        code: string;
+        thinkingLevelMap?: Record<string, string | null>;
+        reasoning?: {
+          efforts: Array<{ id: string }>;
+          levels?: Array<{ id: string; supported: boolean; value?: string; overridden: boolean }>;
+        };
+      }>;
+    }>;
+    const model = providers.find((p) => p.name === "Thinking levels provider")!
+      .models.find((m) => m.code === target.code)!;
+
+    // Draft seed for the form: the stored map survives on the wire verbatim.
+    expect(model.thinkingLevelMap).toEqual({ medium: null });
+    // Resolved truth: medium left the selectable list; low did not.
+    const effortIds = (model.reasoning?.efforts ?? []).map((e) => e.id);
+    expect(effortIds).not.toContain("medium");
+    expect(effortIds).toContain("low");
+    const levels = model.reasoning?.levels;
+    expect(levels).toBeDefined();
+    expect(levels!.map((l) => l.id)).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    const medium = levels!.find((l) => l.id === "medium");
+    expect(medium!.supported).toBe(false);
+    expect(medium!.overridden).toBe(true);
+    const low = levels!.find((l) => l.id === "low");
+    expect(low!.supported).toBe(true);
+    expect(low!.overridden).toBe(false);
+  });
+
+  it("GET /providers keeps full default levels for an untouched reasoning model", async () => {
+    // Regression: a model nobody configured must look exactly like before
+    // this wiring existed — same efforts, seven levels, nothing overridden.
+    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
+
+    await post("/providers", {
+      name: "Untouched levels provider",
+      kind: "catalog",
+      piProvider: target.piProvider,
+      models: [{ code: target.code }],
+    });
+
+    const { data } = await getJson("/providers");
+    const providers = data as Array<{
+      name: string;
+      models: Array<{
+        code: string;
+        reasoning?: {
+          efforts: Array<{ id: string }>;
+          levels?: Array<{ id: string; supported: boolean; overridden: boolean }>;
+        };
+      }>;
+    }>;
+    const model = providers.find((p) => p.name === "Untouched levels provider")!
+      .models.find((m) => m.code === target.code)!;
+
+    expect("thinkingLevelMap" in model).toBe(false);
+    expect(model.reasoning!.efforts.length).toBeGreaterThan(0);
+    const levels = model.reasoning!.levels!;
+    expect(levels.map((l) => l.id)).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(levels.every((l) => l.overridden === false)).toBe(true);
+    // With no override the supported set is pi-ai's own answer, so the
+    // efforts list and the supported flags agree exactly.
+    for (const level of levels) {
+      if (level.id === "off") continue;
+      expect(level.supported).toBe(model.reasoning!.efforts.some((e) => e.id === level.id));
+    }
+  });
+
   it("GET /providers omits the reasoning key entirely for a model with no reasoning capability", async () => {
     await post("/providers", {
       name: "No-reasoning provider",
