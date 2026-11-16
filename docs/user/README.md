@@ -49,7 +49,6 @@ Lookup:
 - [Tool contract](integrating/reference/tool-contract.md) — write a tool that can be dispatched correctly
 - [SDK exports](integrating/reference/sdk-exports.md) — the complete list of public exports
 - [Gateway HTTP API](integrating/reference/gateway-api.md) — the contract a custom frontend can integrate with
-- [Publishing and installation](integrating/guides/publishing.md) — where packages are published, who can install them, how to ship a version
 
 ## I want the concepts first
 

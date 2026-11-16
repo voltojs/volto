@@ -25,6 +25,7 @@ disagree, the code wins — fix the page.
 | [observability-and-cost.md](observability-and-cost.md) | Events, cost accounting, debug views |
 | [security.md](security.md) | Threat model, boundary implementation, known gaps |
 | [docs-system.md](docs-system.md) | The documentation toolchain: generation, surfaces, checks |
+| [release-and-publishing.md](release-and-publishing.md) | Maintainer-only: versioning groups, the OIDC publish workflow, failure modes |
 
 ## Writing rules
 

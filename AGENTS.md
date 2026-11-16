@@ -173,6 +173,9 @@ in `docs/user/WRITING.md`.
   details (reducer / port / Effect) in `using/`. Those belong in `integrating/`.
 - Every new page must be linked from `docs/user/README.md`, or the orphan-page check
   fails.
+- **Release instructions never go in `docs/user/`.** Publishing is maintainer-only and is
+  documented in `docs/dev/release-and-publishing.md`; `docs/user/` is the public manual,
+  so it covers installing packages, not shipping them.
 
 ---
 

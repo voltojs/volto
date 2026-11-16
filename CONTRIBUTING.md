@@ -82,3 +82,9 @@ A change is ready when:
 
 By contributing you agree that your contributions are licensed under the MIT License
 (see [LICENSE](LICENSE)).
+
+## Releases
+
+Releases are maintainer-only. Version bumps and `v*` tags are cut by the maintainer;
+there is no npm credential to request and nothing in a normal contribution needs one.
+The mechanics live in `docs/dev/release-and-publishing.md`.
