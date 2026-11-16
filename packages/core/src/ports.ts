@@ -82,12 +82,25 @@ export interface ReasoningEffortInfo {
   description?: string;
 }
 
+/** Effective thinking-level mapping for one exact model. */
+export interface ModelThinkingLevelInfo {
+  id: ReasoningEffortId;
+  /** Whether the merged map leaves this level usable. */
+  supported: boolean;
+  /** Effective wire value after pi-ai's fallback; absent when the dialect omits it (off). */
+  value?: string;
+  /** True when a user override decided this level. */
+  overridden: boolean;
+}
+
 /** Selectable reasoning efforts for one exact model. */
 export interface ModelReasoningInfo {
   /** Non-empty, in adapter-preferred display order. */
   efforts: readonly ReasoningEffortInfo[];
   /** Absent preserves the provider's own default. */
   defaultEffort?: ReasoningEffortId;
+  /** All seven levels in THINKING_LEVELS order, for the settings editor. */
+  levels?: readonly ModelThinkingLevelInfo[];
 }
 
 /**
