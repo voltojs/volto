@@ -10,7 +10,7 @@
 
 import * as crypto from "node:crypto";
 import type { ModelInputValue } from "@voltojs/core";
-import { isProviderProtocol, type ConfiguredProtocol, type ProviderAuth, type ProviderProtocol } from "@voltojs/providers/pi-ai";
+import { isProviderProtocol, THINKING_LEVELS, type ConfiguredProtocol, type ProviderAuth, type ProviderProtocol, type ThinkingLevelId, type ThinkingLevelMapOverride } from "@voltojs/providers/pi-ai";
 import { createCipher } from "./crypto.js";
 import { getConfigDir } from "./paths.js";
 import { getConfigStore } from "./store.js";
@@ -29,6 +29,8 @@ export interface Model {
   reasoning?: boolean;
   /** Declared input modalities; absent = UNKNOWN (spec §6). */
   input?: ModelInputValue;
+  /** Per-level override of the model's thinking levels; absent = follow defaults. */
+  thinkingLevelMap?: ThinkingLevelMapOverride;
 }
 
 /**
@@ -56,6 +58,13 @@ export interface CatalogModel {
    * follow the catalog. Valid: ["text"] / ["text","image"] (spec D1).
    */
   input?: ModelInputValue;
+  /**
+   * Per-level override of pi-ai's catalog `thinkingLevelMap`. A string marks
+   * the level supported and sent on the wire as that value; null marks it
+   * unsupported; an absent key inherits the catalog. Absent field = follow
+   * the catalog entirely.
+   */
+  thinkingLevelMap?: ThinkingLevelMapOverride;
 }
 
 /**
@@ -149,6 +158,8 @@ export type ProviderInput =
         reasoning?: boolean;
         /** Declared input modalities; absent = UNKNOWN (spec §6). */
         input?: ModelInputValue;
+        /** Per-level thinking override map; absent or {} = unset. */
+        thinkingLevelMap?: ThinkingLevelMapOverride;
       }>;
     };
 
@@ -234,6 +245,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         throw new Error(`maxOutputTokens must be a positive integer (got ${m.maxOutputTokens})`);
       }
       const normalizedInput = normalizeInput(m.input);
+      const normalizedThinkingLevelMap = normalizeThinkingLevelMap(m.thinkingLevelMap, m.code);
       return {
         id: m.id || crypto.randomUUID(),
         name: m.name,
@@ -243,6 +255,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
         ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
         ...(normalizedInput === undefined ? {} : { input: normalizedInput }),
+        ...(normalizedThinkingLevelMap === undefined ? {} : { thinkingLevelMap: normalizedThinkingLevelMap }),
       };
     });
   }
@@ -308,6 +321,36 @@ export function createProviderStore(dir: string = getConfigDir()) {
   }
 
   /**
+   * Validates a model's per-level thinking override map. Keys must be one of
+   * the seven THINKING_LEVELS ids; values must be a string (send this wire
+   * value) or null (level unsupported). An empty object means "no overrides"
+   * and is normalized away, same as undefined, so it never shadows the
+   * catalog on read. Only explicit keys survive.
+   */
+  function normalizeThinkingLevelMap(
+    value: ThinkingLevelMapOverride | undefined,
+    modelCode: string,
+  ): ThinkingLevelMapOverride | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error(`thinkingLevelMap for model ${modelCode} must be an object`);
+    }
+    const out: ThinkingLevelMapOverride = {};
+    for (const [key, levelValue] of Object.entries(value)) {
+      if (!(THINKING_LEVELS as readonly string[]).includes(key)) {
+        throw new Error(`unknown thinking level "${key}" for model ${modelCode}`);
+      }
+      if (levelValue !== null && typeof levelValue !== "string") {
+        throw new Error(
+          `thinking level "${key}" for model ${modelCode} must be a string or null (got ${JSON.stringify(levelValue)})`,
+        );
+      }
+      out[key as ThinkingLevelId] = levelValue;
+    }
+    return Object.keys(out).length === 0 ? undefined : out;
+  }
+
+  /**
    * Catalog models carry only overrides, so the two token caps get the same
    * positive-integer check as custom models while `name` stays free-form and
    * an omitted field stays omitted (rather than becoming an explicit
@@ -329,6 +372,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         throw new Error(`maxOutputTokens must be a positive integer (got ${m.maxOutputTokens})`);
       }
       const normalizedInput = normalizeInput(m.input);
+      const normalizedThinkingLevelMap = normalizeThinkingLevelMap(m.thinkingLevelMap, m.code);
       return {
         code: m.code,
         ...(m.protocol === undefined ? {} : { protocol: normalizeProtocol(m.protocol, m.code) }),
@@ -337,6 +381,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         ...(m.maxOutputTokens === undefined ? {} : { maxOutputTokens: m.maxOutputTokens }),
         ...(m.reasoning === undefined ? {} : { reasoning: m.reasoning }),
         ...(normalizedInput === undefined ? {} : { input: normalizedInput }),
+        ...(normalizedThinkingLevelMap === undefined ? {} : { thinkingLevelMap: normalizedThinkingLevelMap }),
       };
     });
   }
@@ -511,6 +556,8 @@ export function createProviderStore(dir: string = getConfigDir()) {
           /** User override of pi-ai's catalog reasoning flag; absent = follow catalog. */
           reasoning?: boolean;
           input?: ModelInputValue;
+          /** Per-level thinking override map; absent = follow the catalog / defaults. */
+          thinkingLevelMap?: ThinkingLevelMapOverride;
         }
       | {
           kind: "custom";
@@ -525,6 +572,8 @@ export function createProviderStore(dir: string = getConfigDir()) {
           contextWindow?: number;
           reasoning?: boolean;
           input?: ModelInputValue;
+          /** Per-level thinking override map; absent = follow the defaults. */
+          thinkingLevelMap?: ThinkingLevelMapOverride;
         }
       | null
     > {
@@ -554,6 +603,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
           ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
           ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
           ...(model.input === undefined ? {} : { input: model.input }),
+          ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
         };
       }
 
@@ -574,6 +624,7 @@ export function createProviderStore(dir: string = getConfigDir()) {
         ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
         ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         ...(model.input === undefined ? {} : { input: model.input }),
+        ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
       };
     },
   };

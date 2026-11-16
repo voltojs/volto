@@ -15,7 +15,7 @@ import type { Message, ModelPort, TranscriptEvent, TranscriptEventInput, Compact
 import { projectMessages, isPermissionReminder, tokenizeCommand, isMatchableCommandToken, pendingSteeredMessages } from "@voltojs/core";
 import type { JsonlSessionStore, ChatSessionRecord } from "@voltojs/stores/jsonl";
 import { scopeToWorkspace } from "@voltojs/stores/jsonl";
-import { createPiAiModelPort, type ConfiguredProtocol, type PiAiProviderConfig, type ProviderAuth, type ProviderProtocol } from "@voltojs/providers/pi-ai";
+import { createPiAiModelPort, type ConfiguredProtocol, type PiAiProviderConfig, type ProviderAuth, type ProviderProtocol, type ThinkingLevelMapOverride } from "@voltojs/providers/pi-ai";
 import { t } from "@voltojs/sdk/i18n";
 import { createWiredAgent, type WiringOptions } from "./wiring.js";
 import { buildPermissionConfig, sandboxModeFor, type UiPermissionMode } from "./permission-modes.js";
@@ -138,6 +138,8 @@ export type ResolvedCredentials =
       reasoning?: boolean;
       /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
       input?: ModelInputValue;
+      /** Per-level thinking override map; forwarded to pi-ai's config by a later task. */
+      thinkingLevelMap?: ThinkingLevelMapOverride;
     }
   | {
       kind: "custom";
@@ -153,6 +155,8 @@ export type ResolvedCredentials =
       reasoning?: boolean;
       /** User input-modalities override/declaration; absent = follow catalog / UNKNOWN. */
       input?: ModelInputValue;
+      /** Per-level thinking override map; forwarded to pi-ai's config by a later task. */
+      thinkingLevelMap?: ThinkingLevelMapOverride;
     };
 
 /**
