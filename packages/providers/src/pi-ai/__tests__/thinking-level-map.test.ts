@@ -203,6 +203,32 @@ describe("custom provider: per-model thinkingLevelMap", () => {
     expect(effortIds(info)).toEqual(["low", "medium", "high", "xhigh"]);
   });
 
+  it("pins the full levels payload for a custom model with no map at all", () => {
+    // The levels array is new visible payload on GET /providers (the gateway
+    // inlines info.reasoning wholesale) — intentional per spec, so pin its
+    // exact content for the default case: non-off levels fall back to their
+    // id as the effective wire value, off reports none, nothing overridden.
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "gw",
+        baseURL: "https://gateway.example/v1",
+        apiKey: "k",
+        models: [{ code: "m", reasoning: true }],
+      },
+    ]);
+
+    expect(describeModelInfo(models, "gw", "m").reasoning?.levels).toEqual([
+      { id: "off", supported: true, overridden: false },
+      { id: "minimal", supported: true, value: "minimal", overridden: false },
+      { id: "low", supported: true, value: "low", overridden: false },
+      { id: "medium", supported: true, value: "medium", overridden: false },
+      { id: "high", supported: true, value: "high", overridden: false },
+      { id: "xhigh", supported: false, overridden: false },
+      { id: "max", supported: false, overridden: false },
+    ]);
+  });
+
   it("without a map the behavior is byte-identical to before this feature", () => {
     // Regression: no levels array pressure on existing fields — efforts,
     // wire model shape and baseUrl normalization stay exactly as they were.

@@ -248,6 +248,14 @@ type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
  * are authoritative from their (possibly overridden) `Model.input`; custom
  * and synthesized models are registered here so `describeModelInfo` can
  * leave `input` absent when the config never said.
+ *
+ * Registration contract — coupled with {@link levelOverrides}: exactly the
+ * custom + synthesized build paths register BOTH maps; the known-catalog
+ * path registers only `levelOverrides`. `describeModelInfo` relies on this
+ * asymmetry twice — `inputDeclarations.has(model)` as the "no catalog map
+ * baseline" discriminator for level value fallback, `levelOverrides.get`
+ * for per-level `overridden` — so any new build path must keep the pair in
+ * sync (see the comments at each registration site).
  */
 const inputDeclarations = new WeakMap<object, ModelInputValue | undefined>();
 
@@ -256,9 +264,11 @@ const inputDeclarations = new WeakMap<object, ModelInputValue | undefined>();
  * each registered override map. `describeModelInfo` reads this to fill
  * `ModelThinkingLevelInfo.overridden`: the merged `Model.thinkingLevelMap`
  * alone cannot tell a catalog fact from a user decision. All three config
- * build paths (custom, known-catalog, synthesized) register here, exactly
- * like {@link inputDeclarations}; a test-injected model stays unregistered
- * and reports every level as not overridden.
+ * build paths (custom, known-catalog, synthesized) register here; a
+ * test-injected model stays unregistered and reports every level as not
+ * overridden. Registration contract is coupled with {@link
+ * inputDeclarations} — see its doc block for the asymmetry describeModelInfo
+ * depends on; keep both maps in sync when adding a build path.
  */
 const levelOverrides = new WeakMap<object, ThinkingLevelMapOverride>();
 
@@ -309,7 +319,13 @@ function buildModel(
     model.thinkingLevelMap = { ...entry.thinkingLevelMap };
   }
   inputDeclarations.set(model, entry.input);
-  levelOverrides.set(model, entry.thinkingLevelMap ?? {});
+  // Snapshot copy, same reason as the thinkingLevelMap spread above: holding
+  // the caller's config object would let a later in-place mutation change the
+  // reported `overridden` flags without touching the wire map.
+  levelOverrides.set(
+    model,
+    entry.thinkingLevelMap !== undefined ? { ...entry.thinkingLevelMap } : {},
+  );
   return model;
 }
 
@@ -467,7 +483,12 @@ function synthesizeUnknownCatalogModel(
     // unknown code — leave input UNKNOWN rather than trusting the template,
     // unless the user explicitly declared one (which must stick everywhere).
     inputDeclarations.set(synthesized, inputOverride);
-    levelOverrides.set(synthesized, mapOverride ?? {});
+    // Snapshot copy (see buildModel): the override must not stay aliased to
+    // the caller's config object.
+    levelOverrides.set(
+      synthesized,
+      mapOverride !== undefined ? { ...mapOverride } : {},
+    );
     return synthesized;
   }
 
@@ -491,7 +512,8 @@ function synthesizeUnknownCatalogModel(
     maxTokens: DEFAULT_MAX_TOKENS,
   } as Model<Api>;
   inputDeclarations.set(stub, inputOverride);
-  levelOverrides.set(stub, mapOverride ?? {});
+  // Snapshot copy (see buildModel).
+  levelOverrides.set(stub, mapOverride !== undefined ? { ...mapOverride } : {});
   return stub;
 }
 
@@ -576,7 +598,7 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
       // reads overridden false while the merged map still carries the
       // catalog values; still register it so every config path is treated
       // alike.
-      levelOverrides.set(mapped, mapOverride ?? {});
+      levelOverrides.set(mapped, mapOverride !== undefined ? { ...mapOverride } : {});
       return mapped;
     });
 
@@ -803,10 +825,16 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     // only gets a reported value when the map explicitly maps it to one.
     const mergedMap = model.thinkingLevelMap;
     // Whether this model's map is a full declaration rather than a catalog
-    // baseline: config-built models (custom, synthesized) never inherit a
-    // provider's own map wholesale, so an unmapped level falls back to pi-ai's
-    // wire rule — the level id itself. Catalog models keep the catalog's
-    // answer: a level absent from the (merged) map has no reported value.
+    // baseline: custom and synthesized models never inherit a provider's own
+    // map wholesale, so an unmapped level falls back to pi-ai's wire rule —
+    // the level id itself. Catalog models (even with a merged override) keep
+    // the catalog's answer: a level absent from the map has no reported
+    // value. The discriminator is the inputDeclarations registration, which
+    // marks EXACTLY the custom + synthesized paths — the known-catalog path
+    // deliberately does not register there, so switching this to
+    // levelOverrides.has() would misreport id-fallback values for unmapped
+    // levels of overridden catalog models. See the coupled registration
+    // contracts on inputDeclarations/levelOverrides.
     const customBaseline = inputDeclarations.has(model);
     // Seam shared with inputDeclarations: every config-built model registers
     // its user-decided keys here so `overridden` can be answered per level.
@@ -815,11 +843,18 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     const declared = levelOverrides.get(model);
     const levels: ModelThinkingLevelInfo[] = THINKING_LEVELS.map((id) => {
       const mapped = mergedMap?.[id];
+      // The id fallback is only meaningful for a level pi-ai can actually
+      // send: an UNSUPPORTED level never reaches the wire (its map value is
+      // null or, for xhigh/max, absent), so reporting one would fabricate a
+      // parameter that does not exist. An explicitly string-mapped level is
+      // reported even when unsupported — it documents what the map says.
       const value = typeof mapped === "string"
         ? mapped
-        : customBaseline && id !== "off"
-          ? id
-          : undefined;
+        : customBaseline
+          && id !== "off"
+          && supportedLevels.includes(id as ModelThinkingLevel)
+            ? id
+            : undefined;
       return {
         id: id as ReasoningEffortId, // branded type: same verbatim publication as efforts below
         supported: supportedLevels.includes(id as ModelThinkingLevel),
