@@ -3,6 +3,11 @@
 # Triggered manually or by pushing a `v*` tag. The version bump itself is still
 # done locally with changesets (see docs/user/integrating/guides/publishing.md):
 # this workflow only packs, gates and publishes what is already on the ref.
+#
+# Authentication is npm trusted publishing (OIDC): there is no long-lived token
+# in this repository. The `id-token: write` permission below lets the npm CLI
+# exchange a short-lived workflow identity for publish rights, so each package
+# must have a trusted publisher configured on npmjs.com pointing at this file.
 name: Release
 
 on:
@@ -18,6 +23,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      # Required for trusted publishing: npm mints its OIDC token from this.
+      id-token: write
     steps:
       - uses: actions/checkout@v5
 
@@ -28,8 +37,18 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # Configures the runner for `npm publish`; the token is passed below.
-          registry-url: https://registry.npmjs.org
+          # Deliberately no `registry-url`: it makes setup-node write an
+          # `_authToken` line into .npmrc, and any configured token — even an
+          # empty one — makes npm skip the OIDC exchange and fail with a
+          # misleading E403.
+
+      # Trusted publishing needs npm >= 11.5.1; the npm bundled with Node 22 is
+      # older, and an out-of-date CLI reports the misleading "cannot publish over
+      # the previously published versions" error instead of engaging OIDC.
+      - name: Upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -49,10 +68,8 @@ jobs:
 
       # Publish only the versions the registry does not have yet: each fixed group
       # bumps independently, and a rerun after a partial failure must skip what
-      # already shipped instead of failing on an existing version.
-      # `publishConfig.access: public` is what makes the scoped packages installable
-      # by anyone; npm rejects a scoped publish that does not opt in.
+      # already shipped instead of failing on an existing version. The script packs
+      # with pnpm (rewrites `workspace:^`) and publishes the tarball with npm, so
+      # the OIDC exchange happens in the CLI that supports it.
       - name: Publish to npm
         run: node scripts/publish-missing.mjs
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
