@@ -672,3 +672,162 @@ describe("concurrent provider creates", () => {
     expect((await store.listPublic()).map((p) => p.name).sort()).toEqual(["p1", "p2"]);
   });
 });
+
+describe("thinkingLevelMap", () => {
+  it("round-trips a catalog model's thinkingLevelMap through store, public record and resolveModel", async () => {
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [
+        { code: "gpt-5", thinkingLevelMap: { low: "custom", medium: null } },
+        // Absent stays absent — same contract as the other catalog overrides.
+        { code: "gpt-5-mini" },
+      ],
+    });
+    if (created.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(created.models[0]).toEqual({
+      code: "gpt-5",
+      thinkingLevelMap: { low: "custom", medium: null },
+    });
+    expect(Object.keys(created.models[1]!)).toEqual(["code"]);
+
+    const [listed] = await store.listPublic();
+    if (listed?.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(listed.models[0]).toEqual({ code: "gpt-5", thinkingLevelMap: { low: "custom", medium: null } });
+
+    const resolved = await store.resolveModel(created.id, "gpt-5");
+    expect(resolved).toMatchObject({
+      kind: "catalog",
+      code: "gpt-5",
+      thinkingLevelMap: { low: "custom", medium: null },
+    });
+    const bare = await store.resolveModel(created.id, "gpt-5-mini");
+    expect(bare).toBeDefined();
+    expect("thinkingLevelMap" in bare!).toBe(false);
+  });
+
+  it("round-trips a custom model's thinkingLevelMap through store, public record and resolveModel", async () => {
+    const store = createProviderStore(dir);
+    const created = asCustom(
+      await store.create({
+        name: "Gateway",
+        kind: "custom",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        models: [
+          { name: "m", code: "m", thinkingLevelMap: { high: "maximum" } },
+          { name: "bare", code: "bare" },
+        ],
+      }),
+    );
+    expect(created.models[0]).toMatchObject({ thinkingLevelMap: { high: "maximum" } });
+    expect(Object.keys(created.models[1]!)).not.toContain("thinkingLevelMap");
+
+    const resolved = await store.resolveModel(created.id, created.models[0]!.id);
+    expect(resolved).toMatchObject({ kind: "custom", thinkingLevelMap: { high: "maximum" } });
+    const bare = await store.resolveModel(created.id, created.models[1]!.id);
+    expect(bare).toBeDefined();
+    expect("thinkingLevelMap" in bare!).toBe(false);
+  });
+
+  it("treats an empty object as absent on both paths", async () => {
+    const store = createProviderStore(dir);
+    const catalog = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [{ code: "gpt-5", thinkingLevelMap: {} }],
+    });
+    if (catalog.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(Object.keys(catalog.models[0]!)).toEqual(["code"]);
+
+    const custom = asCustom(
+      await store.create({
+        name: "Gateway",
+        kind: "custom",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        models: [{ name: "m", code: "m", thinkingLevelMap: {} }],
+      }),
+    );
+    expect(custom.models[0]).not.toHaveProperty("thinkingLevelMap");
+
+    const resolved = await store.resolveModel(custom.id, custom.models[0]!.id);
+    expect(resolved).toBeDefined();
+    expect("thinkingLevelMap" in resolved!).toBe(false);
+  });
+
+  it("rejects an unknown level key with the model code in the message", async () => {
+    const store = createProviderStore(dir);
+    await expect(
+      store.create({
+        name: "OpenAI",
+        kind: "catalog",
+        piProvider: "openai",
+        models: [{ code: "gpt-5", thinkingLevelMap: { ultra: "x" } as never }],
+      }),
+    ).rejects.toThrow('unknown thinking level "ultra" for model gpt-5');
+  });
+
+  it("rejects a non-string/null value with the model code in the message", async () => {
+    const store = createProviderStore(dir);
+    await expect(
+      store.create({
+        name: "Gateway",
+        kind: "custom",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        models: [{ name: "m", code: "m-code", thinkingLevelMap: { low: 3 } as never }],
+      }),
+    ).rejects.toThrow(/model m-code/);
+  });
+
+  it("rejects a non-object thinkingLevelMap with the model code in the message", async () => {
+    const store = createProviderStore(dir);
+    await expect(
+      store.create({
+        name: "Gateway",
+        kind: "custom",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        models: [{ name: "m", code: "m-code", thinkingLevelMap: "low=3" as never }],
+      }),
+    ).rejects.toThrow(/model m-code/);
+  });
+
+  it("ignores prototype-inherited level keys instead of half-applying them", async () => {
+    // Boundary discipline (same standard as permission-modes.ts's hasOwn
+    // guard): pi-ai-side reads are prototype-chain sensitive, so a level
+    // readable only through the chain must not be half-applied —
+    // normalization keeps own keys only. JSON-style sources keep
+    // `__proto__` as an own key and stay covered by the whitelist reject;
+    // this is the in-memory path: a record whose sole readable level sits on
+    // its prototype chain stores with no thinkingLevelMap at all.
+    const proto = { low: "inherited" };
+    const poisoned = Object.create(proto) as Record<string, string | null>;
+    expect(Object.keys(poisoned)).toEqual([]);
+    expect(poisoned["low"]).toBe("inherited"); // prototype-chain read, pre-normalization
+
+    const store = createProviderStore(dir);
+    const created = await store.create({
+      name: "OpenAI",
+      kind: "catalog",
+      piProvider: "openai",
+      models: [{ code: "gpt-5", thinkingLevelMap: poisoned }],
+    });
+    if (created.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(Object.keys(created.models[0]!)).toEqual(["code"]);
+
+    // Own keys still pass; a mix keeps only the own one.
+    const mixed = Object.create(proto) as Record<string, string | null>;
+    mixed["high"] = "own";
+    const updated = await store.update(created.id, {
+      kind: "catalog",
+      models: [{ code: "gpt-5", thinkingLevelMap: mixed }],
+    });
+    if (updated?.kind !== "catalog") throw new Error("expected a catalog provider");
+    expect(updated.models[0]).toEqual({ code: "gpt-5", thinkingLevelMap: { high: "own" } });
+  });
+});

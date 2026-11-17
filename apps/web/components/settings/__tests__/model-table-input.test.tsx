@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ModelTable, type DraftModel } from '../ModelTable';
+import {
+  emptyDraftModel,
+  ModelTable,
+  toCatalogDrafts,
+  toDraftModels,
+  type DraftModel,
+} from '../ModelTable';
+import type { CatalogProviderModel, Model } from '@/lib/config-api';
 
 function row(overrides: Partial<DraftModel> = {}): DraftModel {
   return {
@@ -126,5 +133,204 @@ describe('ModelTable input expand row', () => {
     const seeded = changes.at(-1)?.[0];
     expect(seeded?.input).toEqual(['text', 'image']);
     expect(seeded?.inputLimits).toEqual(flashLimits);
+  });
+});
+
+/** A resolved `reasoning.levels` array as `GET /providers` sends it (7 entries, display order). */
+const levelsSeed = [
+  { id: 'off', supported: true, overridden: false },
+  { id: 'minimal', supported: false, overridden: false },
+  { id: 'low', supported: true, value: 'low', overridden: false },
+  { id: 'medium', supported: true, value: 'medium', overridden: false },
+  { id: 'high', supported: true, value: 'high', overridden: false },
+  { id: 'xhigh', supported: false, overridden: false },
+  { id: 'max', supported: false, overridden: false },
+];
+
+const mapSeed = { medium: null, high: 'maximum' };
+
+describe('thinking level draft seeding', () => {
+  it('toCatalogDrafts seeds thinkingLevelMap and thinkingLevels from the wire model', () => {
+    const wire: CatalogProviderModel = {
+      code: 'claude-x',
+      reasoning: { efforts: [{ id: 'high', name: 'High' }], levels: levelsSeed },
+      thinkingLevelMap: mapSeed,
+    };
+    const draft = toCatalogDrafts([wire])[0]!;
+    // The stored map is the editable draft; the resolved levels are the
+    // read-only display seed — both ride in on GET /providers.
+    expect(draft.thinkingLevelMap).toEqual(mapSeed);
+    expect(draft.thinkingLevels).toEqual(levelsSeed);
+  });
+
+  it('toCatalogDrafts leaves both fields undefined when the wire carries neither', () => {
+    const draft = toCatalogDrafts([{ code: 'plain' }])[0]!;
+    expect(draft.thinkingLevelMap).toBeUndefined();
+    expect(draft.thinkingLevels).toBeUndefined();
+  });
+
+  it('toDraftModels seeds thinkingLevelMap and thinkingLevels for a custom wire model', () => {
+    const wire: Model = {
+      id: 'm1',
+      name: 'MiMo',
+      code: 'mimo-v2.5',
+      reasoning: { efforts: [{ id: 'high', name: 'High' }], levels: levelsSeed },
+      thinkingLevelMap: mapSeed,
+    };
+    const draft = toDraftModels([wire])[0]!;
+    expect(draft.thinkingLevelMap).toEqual(mapSeed);
+    expect(draft.thinkingLevels).toEqual(levelsSeed);
+  });
+
+  it('emptyDraftModel starts with no thinking level fields', () => {
+    const draft = emptyDraftModel();
+    expect(draft.thinkingLevelMap).toBeUndefined();
+    expect(draft.thinkingLevels).toBeUndefined();
+  });
+});
+
+// jsdom lacks the pointer-capture / scroll APIs Base UI's Select uses — same
+// shims as thinking-levels-editor.test.tsx, needed once a spec opens a dropdown.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
+/** A row whose reasoning model reports low/medium/high as offered tiers. */
+const editorRow = () => row({ reasoning: true, thinkingLevels: levelsSeed });
+
+const disabledSentence = '该模型未启用推理，以下档位不会生效';
+
+describe('thinking levels editor mounted in the expand area', () => {
+  it('renders the editor for an expanded row and hides it while collapsed', () => {
+    render(<ModelTable models={[editorRow()]} onChange={() => {}} />);
+    expect(screen.queryByText('推理等级')).toBeNull();
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    expect(screen.getByText('推理等级')).toBeTruthy();
+    // The seeded rows carry the real wire values — no placeholders.
+    expect(screen.getByLabelText('API 参数值 1')).toHaveValue('low');
+    expect(screen.getByLabelText('API 参数值 2')).toHaveValue('medium');
+    expect(screen.getByLabelText('API 参数值 3')).toHaveValue('high');
+  });
+
+  it('emits no override when the table is neither edited nor pruned', () => {
+    const changes: DraftModel[][] = [];
+    render(
+      <ModelTable models={[editorRow()]} onChange={(next) => changes.push(next)} />,
+    );
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    // Seeding is not an edit: the draft keeps thinkingLevelMap undefined, so
+    // pi-ai's defaults stay in force.
+    expect(changes).toHaveLength(0);
+    expect(changes.at(-1)?.[0]?.thinkingLevelMap).toBeUndefined();
+  });
+
+  it('deletes a listed tier as null in the draft map without touching reasoning', () => {
+    const changes: DraftModel[][] = [];
+    function Harness() {
+      const [models, setModels] = useState([editorRow()]);
+      return (
+        <ModelTable
+          models={models}
+          onChange={(next) => {
+            changes.push(next);
+            setModels(next);
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    // Rows: low / medium / high — delete medium.
+    fireEvent.click(screen.getByRole('button', { name: '删除推理等级行 2' }));
+    const patched = changes.at(-1)?.[0];
+    expect(patched?.thinkingLevelMap).toMatchObject({
+      low: 'low',
+      high: 'high',
+      medium: null,
+    });
+    expect(patched?.reasoning).toBe(true);
+  });
+
+  it('editing the table does NOT flip the reasoning flag', () => {
+    const changes: DraftModel[][] = [];
+    render(
+      <ModelTable
+        models={[row({ reasoning: false, thinkingLevels: levelsSeed })]}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    fireEvent.change(screen.getByLabelText('API 参数值 1'), {
+      target: { value: 'lowX' },
+    });
+    const patched = changes.at(-1)?.[0];
+    expect(patched?.reasoning).toBe(false);
+    expect(patched?.thinkingLevelMap).toMatchObject({ low: 'lowX' });
+  });
+
+  it('renders the disabled-reasoning sentence exactly when reasoning is false', () => {
+    // Two tables in one render: index 0 = reasoning off, index 1 = on.
+    render(
+      <div>
+        <ModelTable
+          models={[row({ reasoning: false, thinkingLevels: levelsSeed })]}
+          onChange={() => {}}
+        />
+        <ModelTable
+          models={[row({ clientKey: 'k2', reasoning: true, thinkingLevels: levelsSeed })]}
+          onChange={() => {}}
+        />
+      </div>,
+    );
+    const expandButtons = screen.getAllByLabelText('展开模型 1');
+    fireEvent.click(expandButtons[0]!);
+    fireEvent.click(expandButtons[1]!);
+    // One plain sentence, no greyed wrapper, no aria-disabled: the editor
+    // stays fully interactive either way.
+    const sentences = screen.getAllByText(disabledSentence);
+    expect(sentences).toHaveLength(1);
+    for (const button of screen.getAllByRole('button', { name: /删除推理等级行/ })) {
+      expect(button).not.toHaveAttribute('aria-disabled');
+    }
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it("clears the previous code's thinking level seeds when the code changes", () => {
+    // The resolved levels and the stored map describe the OLD code. Keeping
+    // them makes the editor show values that will not be sent for the new one;
+    // clearing both remounts the editor with no seeds.
+    const changes: DraftModel[][] = [];
+    const { rerender } = render(
+      <ModelTable
+        models={[
+          row({
+            reasoning: true,
+            thinkingLevelMap: { low: 'custom' },
+            thinkingLevels: [
+              { id: 'low', supported: true, value: 'custom', overridden: true },
+            ],
+          }),
+        ]}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('模型 ID 1'), {
+      target: { value: 'another-model' },
+    });
+    const patched = changes.at(-1)?.[0];
+    expect(patched?.code).toBe('another-model');
+    expect(patched?.thinkingLevelMap).toBeUndefined();
+    expect(patched?.thinkingLevels).toBeUndefined();
+    // Feeding the patched draft back remounts the keyed editor with no seeds,
+    // so the old model's rows are gone rather than silently editable.
+    rerender(
+      <ModelTable
+        models={changes.at(-1)!}
+        onChange={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    expect(screen.queryByLabelText('API 参数值 1')).toBeNull();
   });
 });

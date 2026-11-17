@@ -128,7 +128,14 @@
     "catalogSelect": "选择 {code}",
     "catalogReasoning": " · 推理",
     "cancel": "取消",
-    "addCount": "添加 {count} 个"
+    "addCount": "添加 {count} 个",
+    "thinkingLevels": "推理等级",
+    "levelsHint": "列出即该模型提供的档位，删除即不再提供；参数值是实际发送给端点的字符串。",
+    "reasoningDisabled": "该模型未启用推理，以下档位不会生效",
+    "colLevel": "档位",
+    "colApiValue": "API 参数值",
+    "addLevel": "添加档位",
+    "deleteLevel": "删除推理等级行 {n}"
   },
   "routing": {
     "loading": "正在加载模型路由档位…",

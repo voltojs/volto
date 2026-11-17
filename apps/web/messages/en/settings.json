@@ -128,7 +128,14 @@
     "catalogSelect": "Select {code}",
     "catalogReasoning": " · reasoning",
     "cancel": "Cancel",
-    "addCount": "Add {count}"
+    "addCount": "Add {count}",
+    "thinkingLevels": "Reasoning levels",
+    "levelsHint": "Listed tiers are the ones this model offers; deleting one removes it. The value is exactly the string sent to the endpoint.",
+    "reasoningDisabled": "This model has reasoning disabled, so these tiers have no effect.",
+    "colLevel": "Tier",
+    "colApiValue": "API parameter value",
+    "addLevel": "Add tier",
+    "deleteLevel": "Delete reasoning level row {n}"
   },
   "routing": {
     "loading": "Loading model routing tiers…",

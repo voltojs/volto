@@ -19,8 +19,11 @@ import type {
   ModelInputLimits,
   ModelInputValue,
   ProviderProtocol,
+  ThinkingLevelInfo,
+  ThinkingLevelMap,
 } from '@/lib/config-api';
 import { AvailableModelsDialog } from './AvailableModelsDialog';
+import { ThinkingLevelsEditor } from './ThinkingLevelsEditor';
 
 /**
  * A draft model row needs a React key that stays stable for the row's whole
@@ -49,6 +52,18 @@ export interface DraftModel {
   input?: ModelInputValue;
   /** 仅展示种子（目录事实），custom 行恒无。 */
   inputLimits?: ModelInputLimits;
+  /**
+   * Editable per-level thinking override map, seeded from the stored wire
+   * map. Cleared (undefined or `{}`) means "no override" — the submit
+   * conversion drops an empty map so the key is never sent.
+   */
+  thinkingLevelMap?: ThinkingLevelMap;
+  /**
+   * Read-only display seed: the gateway-resolved seven levels
+   * (`reasoning.levels` on `GET /providers`), exactly like `inputLimits` —
+   * shown by the row editor, never written back to the submit payload.
+   */
+  thinkingLevels?: ThinkingLevelInfo[];
 }
 
 export function toDraftModels(models: Model[]): DraftModel[] {
@@ -63,6 +78,8 @@ export function toDraftModels(models: Model[]): DraftModel[] {
     reasoning: Boolean(m.reasoning),
     input: m.input,
     inputLimits: undefined, // config-store `Model` has no limits; explicit keeps both converters shape-identical
+    thinkingLevelMap: m.thinkingLevelMap,
+    thinkingLevels: m.reasoning?.levels,
   }));
 }
 
@@ -83,6 +100,8 @@ export function toCatalogDrafts(models: CatalogProviderModel[]): DraftModel[] {
     reasoning: Boolean(m.reasoning),
     input: m.input,
     inputLimits: m.inputLimits,
+    thinkingLevelMap: m.thinkingLevelMap,
+    thinkingLevels: m.reasoning?.levels,
   }));
 }
 
@@ -242,6 +261,14 @@ export function ModelTable({
                     ...(match !== undefined
                       ? { inputLimits: match.inputLimits }
                       : {}),
+                    // The thinking-level seeds describe the PREVIOUS code:
+                    // its resolved levels and stored map are not facts about
+                    // the new one. Keeping them would show the old model's
+                    // effective values ("a value that will not be sent");
+                    // clearing both degrades the editor to the documented
+                    // all-seven-tier fallback.
+                    thinkingLevelMap: undefined,
+                    thinkingLevels: undefined,
                   });
                 }}
               />
@@ -395,6 +422,27 @@ export function ModelTable({
                     </p>
                   </div>
                 )}
+                {/* The tier table is the single source of which tiers this
+                model offers. It stays fully editable at all times: no
+                auto-enabling of the reasoning flag, no muting. A model whose
+                reasoning is off just gets one plain sentence, because pi-ai
+                ignores the map for such a model. The editor is keyed by the
+                model code so switching codes remounts it and discards the
+                previous code's seeds (the draft fields are cleared in the
+                code input's onChange). */}
+                <div className="space-y-1.5">
+                  <ThinkingLevelsEditor
+                    key={model.code}
+                    value={model.thinkingLevelMap}
+                    levels={model.thinkingLevels}
+                    onChange={(next) => patch(index, { thinkingLevelMap: next })}
+                  />
+                  {!model.reasoning && (
+                    <p className="text-muted-foreground text-xs">
+                      {t('models.reasoningDisabled')}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </Fragment>

@@ -429,6 +429,11 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
               m.input === undefined ? [] : [[m.code, m.input] as const],
             ),
           ),
+          thinkingLevelMapOverrides: Object.fromEntries(
+            provider.models.flatMap((m) =>
+              m.thinkingLevelMap === undefined ? [] : [[m.code, m.thinkingLevelMap] as const],
+            ),
+          ),
         };
         // Building the ModelPort can itself throw (e.g. an unknown
         // piProvider — collection.ts's buildCatalogProvider). Isolate that
@@ -514,6 +519,10 @@ async function withReasoningCapability(providers: PublicProvider[]): Promise<unk
           // custom branch) so `info` and `rest` below derive input from one
           // source instead of the wire key surviving only via `...rest`.
           ...(m.input === undefined ? {} : { input: m.input }),
+          // Same single-source style for the thinking map: describeModel's
+          // `levels`/`efforts` must see the stored override, not just the
+          // record riding along in `...rest`.
+          ...(m.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: m.thinkingLevelMap }),
         })),
       };
       let port;

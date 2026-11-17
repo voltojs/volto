@@ -106,7 +106,7 @@ Model providers and their respective model lists. apiKey is stored encrypted in 
 | `id` | Unique id of the provider on this machine. |
 | `kind` | `catalog` (built-in catalog, choose by model code) or `custom` (a custom OpenAI-compatible endpoint); early records may lack this field and are treated as `custom` when read. |
 | `modelCodes` | Older form: an array holding only model codes. Converted to `models` on read; new writes use `models`. |
-| `models` | Model list: each item has `code`, and optionally `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol`. |
+| `models` | Model list: each item has `code`, and optionally `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol` / `thinkingLevelMap`. The last one maps a reasoning tier (`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`) to the value sent to the endpoint; null marks the tier unsupported, an absent key inherits the default. Edit it in the UI; see [Models and providers](../../using/guides/models-and-providers.md). |
 | `name` | Display name. |
 | `piProvider` | The built-in catalog identifier for a catalog provider. |
 | `protocol` | Default wire protocol for this provider (can be overridden per model). |

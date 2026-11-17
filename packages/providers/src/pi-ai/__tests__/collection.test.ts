@@ -430,6 +430,43 @@ describe("catalog provider registration", () => {
     );
   });
 
+  it("keeps an unknown catalog code non-reasoning when reasoning:false meets a stored map", () => {
+    // Review fix A1: a stored map must still materialize the entry (the user
+    // enabled the code and saved tiers for it), but an explicit
+    // `reasoning: false` suppresses reasoning entirely — the map stays stored
+    // and inert instead of resurrecting a capability the user turned off.
+    const models = buildModels([
+      catalogConfig({
+        modelCodes: ["deepseek-fantasy", "deepseek-flash"],
+        reasoningOverrides: { "deepseek-fantasy": false },
+        thinkingLevelMapOverrides: { "deepseek-fantasy": { low: "low" } },
+      }),
+    ]);
+
+    expect(models.getModel("deepseek", "deepseek-fantasy")).toBeDefined();
+    expect(
+      describeModelInfo(models, "deepseek", "deepseek-fantasy").reasoning,
+    ).toBeUndefined();
+  });
+
+  it("keeps an input-only synthesized unknown code non-reasoning with reasoning:false", () => {
+    // Same A1 rule on the pre-existing input-only synthesis path: an input
+    // declaration alone used to force `reasoning: true`, contradicting the
+    // stored false override.
+    const models = buildModels([
+      catalogConfig({
+        modelCodes: ["deepseek-fantasy"],
+        reasoningOverrides: { "deepseek-fantasy": false },
+        inputOverrides: { "deepseek-fantasy": ["text"] },
+      }),
+    ]);
+
+    expect(models.getModel("deepseek", "deepseek-fantasy")).toBeDefined();
+    expect(
+      describeModelInfo(models, "deepseek", "deepseek-fantasy").reasoning,
+    ).toBeUndefined();
+  });
+
   it("does not synthesize an unknown catalog code without a reasoning override", () => {
     const models = buildModels([
       {

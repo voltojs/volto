@@ -106,7 +106,7 @@ Agent 内置浏览器。它跑在网关所在机器上，用你本机安装的 C
 | `id` | 供应商在本机的唯一 id。 |
 | `kind` | `catalog`（内置目录，按模型 code 选）或 `custom`（自定义 OpenAI 兼容端点）；早期记录可能没有这个字段，读时按 `custom` 处理。 |
 | `modelCodes` | 早期写法：只存模型 code 的数组。读取时会转成 `models`，新写入用 `models`。 |
-| `models` | 模型清单：每项有 `code`，可选 `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol`。 |
+| `models` | 模型清单：每项有 `code`，可选 `name` / `contextWindow` / `maxOutputTokens` / `reasoning` / `input` / `protocol` / `thinkingLevelMap`。最后这个把推理档位（`off` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`）映射成发给端点的参数值；null 表示该档位不支持，缺少的键继承默认。请在界面里编辑，见[模型与供应商](../../using/guides/models-and-providers.md)。 |
 | `name` | 显示名。 |
 | `piProvider` | catalog 供应商对应的内置目录标识。 |
 | `protocol` | 该供应商默认的线上协议（可被单个模型覆盖）。 |

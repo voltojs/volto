@@ -77,6 +77,7 @@ export type {
 export { ReasoningEffortId } from "./ports.js";
 export type {
   ReasoningEffortInfo,
+  ModelThinkingLevelInfo,
   ModelReasoningInfo,
   ResolvedModelInfo,
   ModelInputValue,

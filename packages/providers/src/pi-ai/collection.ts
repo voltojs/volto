@@ -5,6 +5,7 @@ import {
   type Api,
   type ApiKeyAuth,
   type Model,
+  type ModelThinkingLevel,
   type Models,
   type MutableModels,
   type Provider,
@@ -18,9 +19,39 @@ import type {
   ModelCacheCapability,
   ModelInputValue,
   ModelReasoningInfo,
+  ModelThinkingLevelInfo,
   ReasoningEffortId,
   ResolvedModelInfo,
 } from "@voltojs/core";
+
+/**
+ * The seven thinking levels in display order — the full set pi-ai can map a
+ * model's reasoning onto. Mirrors pi-ai's `MODEL_THINKING_LEVELS` (from
+ * `providers/model-schema`, which includes `"off"`; pi-ai's other constant
+ * `THINKING_LEVELS` excludes `"off"` and is the request-side effort enum).
+ * Kept as this package's own literal so consumers (settings editor) do not
+ * reach into pi-ai internals; must stay in sync with pi-ai's extended set.
+ */
+export const THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+/** One thinking-level id, e.g. "low" or "xhigh". */
+export type ThinkingLevelId = (typeof THINKING_LEVELS)[number];
+
+/**
+ * User's per-level override of one model's `thinkingLevelMap`. A string
+ * value marks the level supported and sent on the wire as that value;
+ * `null` marks it unsupported; an absent key inherits the catalog (or, for
+ * custom models, pi-ai's default support rule).
+ */
+export type ThinkingLevelMapOverride = Partial<Record<ThinkingLevelId, string | null>>;
 
 /** The three protocols Volto exposes as first-class routes. */
 export type ProviderProtocol =
@@ -125,6 +156,12 @@ export type PiAiProviderConfig =
        * (the store validates before this layer).
        */
       inputOverrides?: Record<string, ModelInputValue>;
+      /**
+       * Per-model user override of pi-ai's catalog `thinkingLevelMap`,
+       * merged key-by-key over the catalog's own map. Same value semantics
+       * as {@link ThinkingLevelMapOverride}.
+       */
+      thinkingLevelMapOverrides?: Record<string, ThinkingLevelMapOverride>;
     }
   | {
       kind: "custom";
@@ -153,6 +190,13 @@ export type PiAiProviderConfig =
          * provider 400. Only an explicit `["text"]` gates them off.
          */
         input?: ModelInputValue;
+        /**
+         * Per-level thinking API parameter values for a hand-declared
+         * gateway model. There is no catalog map to merge with, so this
+         * replaces the whole declaration (absent keys fall back to pi-ai's
+         * default support rule). Only meaningful with `reasoning: true`.
+         */
+        thinkingLevelMap?: ThinkingLevelMapOverride;
       }>;
     };
 
@@ -204,18 +248,39 @@ type CatalogProviderConfig = Extract<PiAiProviderConfig, { kind: "catalog" }>;
  * are authoritative from their (possibly overridden) `Model.input`; custom
  * and synthesized models are registered here so `describeModelInfo` can
  * leave `input` absent when the config never said.
+ *
+ * Registration contract — coupled with {@link levelOverrides}: exactly the
+ * custom + synthesized build paths register BOTH maps; the known-catalog
+ * path registers only `levelOverrides`. `describeModelInfo` relies on this
+ * asymmetry twice — `inputDeclarations.has(model)` as the "no catalog map
+ * baseline" discriminator for level value fallback, `levelOverrides.get`
+ * for per-level `overridden` — so any new build path must keep the pair in
+ * sync (see the comments at each registration site).
  */
 const inputDeclarations = new WeakMap<object, ModelInputValue | undefined>();
 
 /**
+ * Which thinking levels the USER decided for one exact model — the keys of
+ * each registered override map. `describeModelInfo` reads this to fill
+ * `ModelThinkingLevelInfo.overridden`: the merged `Model.thinkingLevelMap`
+ * alone cannot tell a catalog fact from a user decision. All three config
+ * build paths (custom, known-catalog, synthesized) register here; a
+ * test-injected model stays unregistered and reports every level as not
+ * overridden. Registration contract is coupled with {@link
+ * inputDeclarations} — see its doc block for the asymmetry describeModelInfo
+ * depends on; keep both maps in sync when adding a build path.
+ */
+const levelOverrides = new WeakMap<object, ThinkingLevelMapOverride>();
+
+/**
  * Build the pi-ai `Model` for one hand-declared config entry. `reasoning`
  * comes straight from the config flag (default `false`, unchanged from phase
- * two); `thinkingLevelMap` is deliberately left unset even when
- * `reasoning: true` — `getSupportedThinkingLevels()` already yields a
- * sensible default level set (off/minimal/low/medium/high, `xhigh`/`max`
- * excluded) for a `reasoning: true` model with no explicit map
- * (dist/models.js:551-562), which is the best a generic hand-declared
- * OpenAI-completions gateway can claim without per-model level metadata.
+ * two). A custom model has no catalog map to merge with, so an explicit
+ * `entry.thinkingLevelMap` replaces the whole declaration; without one it
+ * stays unset and `getSupportedThinkingLevels()` yields its default level
+ * set (off/minimal/low/medium/high, `xhigh`/`max` excluded), which is the
+ * best a generic hand-declared OpenAI-completions gateway can claim without
+ * per-model level metadata.
  *
  * `baseUrl` must be set here, on the model itself: pi-ai only ever rewrites a
  * model's base URL from `auth.baseUrl` inside `applyAuth`
@@ -248,7 +313,19 @@ function buildModel(
     contextWindow: entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: entry.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
   };
+  // A declared map replaces the (absent) catalog baseline wholesale; spread
+  // copy so later mutation of the config object cannot leak into the model.
+  if (entry.thinkingLevelMap !== undefined) {
+    model.thinkingLevelMap = { ...entry.thinkingLevelMap };
+  }
   inputDeclarations.set(model, entry.input);
+  // Snapshot copy, same reason as the thinkingLevelMap spread above: holding
+  // the caller's config object would let a later in-place mutation change the
+  // reported `overridden` flags without touching the wire map.
+  levelOverrides.set(
+    model,
+    entry.thinkingLevelMap !== undefined ? { ...entry.thinkingLevelMap } : {},
+  );
   return model;
 }
 
@@ -329,8 +406,9 @@ function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
 /**
  * One catalog model entry the user enabled whose code is not in this build's
  * pi-ai catalog (a newly released model, or a typo). Synthesized only when
- * the user also declared `reasoning: true` or a per-model `input` override —
- * otherwise the code simply is not in the Models collection, same as before.
+ * the user also declared `reasoning: true`, a per-model `input` override or
+ * a per-model thinking-level map override — otherwise the code simply is not
+ * in the Models collection, same as before.
  *
  * `inputOverride`, when present, is the user's stored input declaration: it
  * lands on the synthesized `Model.input` (so pi-ai's transformMessages honors
@@ -339,13 +417,24 @@ function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
  * declaration map records `undefined` (UNKNOWN) and the template/stub's own
  * `input` stands on the wire.
  *
+ * `mapOverride`, when present, is merged over whatever thinking-level map
+ * the synthesis baseline provides (the reasoning template's inherited map,
+ * or nothing at all for the no-template stub branch) and registered in
+ * `levelOverrides` so `describeModelInfo` reports the decided levels.
+ * An explicit `false` `reasoningOverride` suppresses the capability even
+ * when a stored map or input declaration is what triggered the synthesis:
+ * the map stays stored (and registered) but pi-ai ignores it entirely while
+ * `reasoning` is false, so the settings switch cannot bounce back on.
+ *
  * Template choice:
  * - First reasoning-capable catalog model → inherit its thinkingLevelMap
  *   (real efforts for that provider family).
  * - No reasoning model in the catalog at all → take any catalog model as a
- *   structural template, force `reasoning: true` and drop `thinkingLevelMap`
- *   so `getSupportedThinkingLevels` yields the same default level set a
- *   hand-declared custom model gets (minimal/low/medium/high).
+ *   structural template, default `reasoning` to true and drop
+ *   `thinkingLevelMap` so `getSupportedThinkingLevels` yields the same
+ *   default level set a hand-declared custom model gets
+ *   (minimal/low/medium/high), unless the override supplies one to stand in
+ *   its place.
  */
 function synthesizeUnknownCatalogModel(
   source: Provider,
@@ -353,6 +442,8 @@ function synthesizeUnknownCatalogModel(
   piProvider: string,
   baseURL: string | undefined,
   inputOverride: ModelInputValue | undefined,
+  mapOverride: ThinkingLevelMapOverride | undefined,
+  reasoningOverride: boolean | undefined,
   protocol: ProviderProtocol,
 ): Model<Api> {
   const catalogModels = source.getModels();
@@ -360,17 +451,27 @@ function synthesizeUnknownCatalogModel(
   const structural = reasoningTemplate ?? catalogModels[0];
 
   if (structural) {
+    // Merge over the template's own map when there is a reasoning template.
+    // With no reasoning template the structural branch drops the inherited
+    // map anyway (default level set), so the baseline there is empty too and
+    // the override becomes the whole declaration.
+    const thinkingLevelMap = mapOverride !== undefined
+      ? { ...(reasoningTemplate?.thinkingLevelMap ?? {}), ...mapOverride }
+      : undefined;
     const synthesized = {
       ...structural,
       id: code,
       name: code,
       api: protocol,
       ...(protocol !== structural.api ? { compat: undefined } : {}),
-      reasoning: true,
-      // No reasoning template: drop any inherited map so the default level
-      // set applies. `undefined` is equivalent to absent for the optional
-      // access in getSupportedThinkingLevels.
-      ...(reasoningTemplate ? {} : { thinkingLevelMap: undefined }),
+      reasoning: reasoningOverride ?? true,
+      // No reasoning template and no override: drop any inherited map so the
+      // default level set applies. `undefined` is equivalent to absent for
+      // the optional access in getSupportedThinkingLevels. With an override,
+      // the merged map replaces the (absent or inherited) baseline.
+      ...(reasoningTemplate
+        ? thinkingLevelMap !== undefined ? { thinkingLevelMap } : {}
+        : { thinkingLevelMap }),
       ...(baseURL ? { baseUrl: baseURL } : {}),
       // Same reasoning as inputDeclarations below: the template's
       // inputLimits are directory facts about the TEMPLATE, not about a
@@ -388,6 +489,12 @@ function synthesizeUnknownCatalogModel(
     // unknown code — leave input UNKNOWN rather than trusting the template,
     // unless the user explicitly declared one (which must stick everywhere).
     inputDeclarations.set(synthesized, inputOverride);
+    // Snapshot copy (see buildModel): the override must not stay aliased to
+    // the caller's config object.
+    levelOverrides.set(
+      synthesized,
+      mapOverride !== undefined ? { ...mapOverride } : {},
+    );
     return synthesized;
   }
 
@@ -398,16 +505,21 @@ function synthesizeUnknownCatalogModel(
     api: protocol,
     provider: piProvider,
     baseUrl: baseURL ?? source.baseUrl ?? "https://api.openai.com",
-    reasoning: true,
+    reasoning: reasoningOverride ?? true,
     // Same override semantics as the structural branch above: a stored
     // declaration replaces the stub default, absence keeps UNKNOWN via the
     // declaration map while the wire value stays the stub's `["text"]`.
     input: inputOverride !== undefined ? [...inputOverride] : ["text"],
+    // No template exists here, so the stub has no baseline map: the
+    // override, when present, is the whole declaration.
+    ...(mapOverride !== undefined ? { thinkingLevelMap: { ...mapOverride } } : {}),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxTokens: DEFAULT_MAX_TOKENS,
   } as Model<Api>;
   inputDeclarations.set(stub, inputOverride);
+  // Snapshot copy (see buildModel).
+  levelOverrides.set(stub, mapOverride !== undefined ? { ...mapOverride } : {});
   return stub;
 }
 
@@ -444,8 +556,10 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
       // Local so `!== undefined` narrows the possibly-undefined indexed
       // read (noUncheckedIndexedAccess does not narrow element access).
       const inputOverride = config.inputOverrides?.[model.id];
+      // Local for the same narrowing reason as inputOverride above.
+      const mapOverride = config.thinkingLevelMapOverrides?.[model.id];
       const protocol = resolveProviderProtocol(config, model.id, model.api);
-      return {
+      const mapped: Model<Api> = {
         ...model,
         ...(protocol !== undefined ? { api: protocol } : {}),
         // A protocol override invalidates the catalog model's compat shape:
@@ -473,18 +587,41 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
         // the wire, not just in describeModelInfo. Spread copies: core's
         // ModelInputValue is readonly, pi-ai's Model.input is mutable.
         ...(inputOverride !== undefined ? { input: [...inputOverride] } : {}),
+        // Per-level merge over the catalog's own map: an explicit `null`
+        // value in the override still lands (JSON round-trips preserve it),
+        // so `{ ...model.thinkingLevelMap, ...mapOverride }` is enough —
+        // undefined-valued keys never exist in a parsed override. Absent
+        // keys keep the catalog's answer. Spread copy either way.
+        ...(mapOverride !== undefined
+          ? { thinkingLevelMap: { ...model.thinkingLevelMap, ...mapOverride } }
+          : {}),
         ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
       };
+      // Register the user's per-level decisions for describeModelInfo's
+      // `overridden` flag, keyed on the NEW object the spread above produced
+      // — that same object is what `models.getModel` hands back. An empty
+      // override map means "the catalog decided everything": every key
+      // reads overridden false while the merged map still carries the
+      // catalog values; still register it so every config path is treated
+      // alike.
+      levelOverrides.set(mapped, mapOverride !== undefined ? { ...mapOverride } : {});
+      return mapped;
     });
 
   // Enabled codes the catalog does not know: synthesize an entry when the
   // user declared anything about it (forced reasoning OR a stored input
-  // override) so describeModel / effort validation / the input backstop keep
-  // working instead of dropping the user's declared intent on the floor.
+  // override OR a stored thinking-level map override) so describeModel /
+  // effort validation / the input backstop keep working instead of dropping
+  // the user's declared intent on the floor.
   for (const code of config.modelCodes) {
     if (knownIds.has(code)) continue;
     const inputOverride = config.inputOverrides?.[code];
-    if (config.reasoningOverrides?.[code] !== true && inputOverride === undefined) continue;
+    const mapOverride = config.thinkingLevelMapOverrides?.[code];
+    if (
+      config.reasoningOverrides?.[code] !== true
+      && inputOverride === undefined
+      && mapOverride === undefined
+    ) continue;
     models.push(
       synthesizeUnknownCatalogModel(
         source,
@@ -492,6 +629,8 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
         config.piProvider,
         config.baseURL,
         inputOverride,
+        mapOverride,
+        config.reasoningOverrides?.[code],
         resolveProviderProtocol(config, code, source.getModels()[0]?.api) ?? "openai-completions",
       ),
     );
@@ -662,6 +801,10 @@ export function cacheCapability(model: Model<Api>): ModelCacheCapability {
  * synthesized off-only list (an off-only control would be byte-identical to
  * omitting the option entirely).
  *
+ * `reasoning.levels` reports all seven thinking levels in THINKING_LEVELS
+ * order whenever a reasoning block exists, so the settings editor can show
+ * each level's effective value and who decided it.
+ *
  * `input` is a tri-state: catalog models publish the catalog's own
  * `input` modalities (a fact either way); custom and synthesized models
  * publish only an explicit config declaration — absence stays UNKNOWN.
@@ -680,13 +823,72 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
   };
 
   if (model.reasoning) {
-    const levels = getSupportedThinkingLevels(model).filter((level) => level !== "off");
-    if (levels.length > 0) {
+    const supportedLevels = getSupportedThinkingLevels(model);
+    // pi-ai's per-request fallback (`model.thinkingLevelMap?.[level] ??
+    // level`, e.g. dist/api/openai-completions.js:621): a level with no map
+    // entry is sent on the wire as its id. Reported values follow the same
+    // rule. `off` differs: every dialect treats an absent or null `off` as
+    // "no reasoning parameter at all" (openai-completions.js:647+), so it
+    // only gets a reported value when the map explicitly maps it to one.
+    const mergedMap = model.thinkingLevelMap;
+    // Whether this model's map is a full declaration rather than a catalog
+    // baseline: custom and synthesized models never inherit a provider's own
+    // map wholesale, so an unmapped level falls back to pi-ai's wire rule —
+    // the level id itself. Catalog models (even with a merged override) keep
+    // the catalog's answer: a level absent from the map has no reported
+    // value. The discriminator is the inputDeclarations registration, which
+    // marks EXACTLY the custom + synthesized paths — the known-catalog path
+    // deliberately does not register there, so switching this to
+    // levelOverrides.has() would misreport id-fallback values for unmapped
+    // levels of overridden catalog models. See the coupled registration
+    // contracts on inputDeclarations/levelOverrides.
+    const customBaseline = inputDeclarations.has(model);
+    // The id fallback is only truthful for the OpenAI-style dialects, whose
+    // wire code is `map[level] ?? level` (openai-completions.js:621,
+    // openai-responses.js:88). pi-ai's Anthropic path is the exception:
+    // anthropic-messages.js:716-730 maps `minimal` AND `low` to `"low"`
+    // (`medium`/`high` to themselves, anything else to `"high"`), so
+    // reporting the level id there would promise a value the dialect never
+    // sends. An explicit map value still wins on every dialect, including
+    // Anthropic, because pi-ai reads the map first.
+    const openAiStyleDialect =
+      model.api === "openai-completions" || model.api === "openai-responses";
+    // Seam shared with inputDeclarations: every config-built model registers
+    // its user-decided keys here so `overridden` can be answered per level.
+    // Catalog and test-injected models are unregistered — without an
+    // override source every level reads overridden: false.
+    const declared = levelOverrides.get(model);
+    const levels: ModelThinkingLevelInfo[] = THINKING_LEVELS.map((id) => {
+      const mapped = mergedMap?.[id];
+      // The id fallback is only meaningful for a level pi-ai can actually
+      // send: an UNSUPPORTED level never reaches the wire (its map value is
+      // null or, for xhigh/max, absent), so reporting one would fabricate a
+      // parameter that does not exist. An explicitly string-mapped level is
+      // reported even when unsupported — it documents what the map says.
+      const value = typeof mapped === "string"
+        ? mapped
+        : customBaseline
+          && openAiStyleDialect
+          && id !== "off"
+          && supportedLevels.includes(id as ModelThinkingLevel)
+            ? id
+            : undefined;
+      return {
+        id: id as ReasoningEffortId, // branded type: same verbatim publication as efforts below
+        supported: supportedLevels.includes(id as ModelThinkingLevel),
+        ...(value !== undefined ? { value } : {}),
+        overridden: declared?.[id] !== undefined,
+      };
+    });
+
+    const efforts = supportedLevels.filter((level) => level !== "off");
+    if (efforts.length > 0) {
       const reasoning: ModelReasoningInfo = {
-        efforts: levels.map((level) => ({
+        efforts: efforts.map((level) => ({
           id: level as ReasoningEffortId, // branded type: effort id is published verbatim from pi-ai; core never interprets it
           name: displayName(level),
         })),
+        levels,
       };
       info.reasoning = reasoning;
     }

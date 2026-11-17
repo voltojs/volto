@@ -6,7 +6,7 @@ source:
   - apps/gateway/src/config/routing-tiers.ts
   - apps/web/components/settings*
 generated: false
-verified: 2026-11-11
+verified: 2026-11-17
 ---
 
 # Models and providers
@@ -37,6 +37,33 @@ For the custom type the model ID is exactly the string your endpoint accepts; wi
 | `reasoning` | Whether this model supports reasoning/thinking | Built-in catalog providers: follows the catalog; custom providers: treated as unsupported |
 | `input` | Input modalities, for example text only | Built-in catalog providers: follows the catalog; custom providers: unknown (images are still let through, letting the vendor report the error rather than making the tool disappear) |
 | `protocol` | Which wire protocol this model uses | Follows the provider's default |
+| `thinkingLevelMap` | Per-tier mapping from a reasoning tier to the value sent to the endpoint (see "Reasoning levels" below) | Follows the catalog; for a custom provider, an unmapped tier sends its own name |
+
+## Reasoning levels
+
+Expand a model row in "Settings → Models": the "Reasoning levels" section is the one place that decides which reasoning tiers this model offers and which string each tier sends to the endpoint. The reasoning picker in the chat composer reads the same list, so the two always agree.
+
+- **Listed = offered.** Every row is a tier the model offers. The rows start from what pi-ai reports for the model, and each value box is prefilled with the real wire value: a stored value first, then the model's reported value, then the tier's own name.
+- **Deleted = removed.** Deleting a row removes that tier from this model, and it disappears from the chat picker too.
+- **The value is what is sent.** Whatever the value box contains is the string sent to the endpoint for that tier (`high`, or a vendor-specific `enabled`, and so on) — with the Anthropic-protocol exception below. Editing the box changes what is sent; emptying it immediately refills the tier's name, so the box never hides the value.
+- **Add tier** appends a row for the first effort tier that is not listed yet (falling back to `off` only when all the others are listed), with the tier's name as its value; use the "Tier" column to pick a different tier.
+
+The tiers are seven: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+
+On Anthropic-protocol models, pi-ai translates a tier to its own effort name (for example, `minimal` and `low` both become `low`), so the value shown names the tier the request asks for, not the literal string transmitted.
+
+If the gateway cannot describe the model at all, the table starts empty; tiers you do not add are left as they are rather than removed.
+
+The table is editable at all times. If the model's "Reasoning" checkbox is off, the section only adds one sentence saying the tiers do not take effect: nothing is greyed out, and editing the table does not turn reasoning on for you.
+
+This is what you need when a compatible endpoint does not accept the standard tier names — for example one that wants `enabled` / `disabled` instead of `high` / `off`, or a tier the built-in catalog does not list for that model.
+
+Collapsing and reopening the model row reads the form draft, so ordinary edits survive the round-trip; they are still only written to the server when you press Save.
+
+Two boundaries worth knowing:
+
+- **You change the value, not the field.** The value goes into whichever reasoning parameter your endpoint's protocol already uses (`reasoning_effort`, `thinking`, `reasoning.effort`, and so on); you cannot rename that field or restructure it here.
+- **A numeric token budget is not a tier value.** Tiers map to text values only; capping reasoning tokens is not configurable in this section.
 
 ## Model routing tiers
 
@@ -59,5 +86,6 @@ Provider cards have a "Test route" button: it checks the current configuration (
 - **404 / model does not exist** → the custom provider's model ID is misspelled, or that model code changed in the built-in catalog.
 - **Replies are very slow or cut off immediately** → check whether `contextWindow` and `maxOutputTokens` are set lower than reality.
 - **Images cannot be sent / the model says it cannot see the image** → the model's `input` does not declare images, or is explicitly declared text-only.
+- **The reasoning tier you set has no effect** → check that the model's "Reasoning" checkbox is on and that the tier is not ticked "Unsupported"; an unsupported tier is refused by name in the error rather than replaced.
 
 For the full set of fields see [Configuration file reference](../reference/config.md).

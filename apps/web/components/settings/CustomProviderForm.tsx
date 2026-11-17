@@ -212,6 +212,11 @@ function CustomProviderCard({
             : { maxOutputTokens: m.maxOutputTokens }),
           reasoning: m.reasoning,
           ...(m.input === undefined ? {} : { input: m.input }),
+          // Empty/absent map = "no override": drop the key entirely rather
+          // than persisting `{}`, so a toggled-off editor stores nothing.
+          ...(m.thinkingLevelMap && Object.keys(m.thinkingLevelMap).length > 0
+            ? { thinkingLevelMap: m.thinkingLevelMap }
+            : {}),
         })),
       });
       setApiKey('');
