@@ -14,7 +14,7 @@ import { useEffect } from 'react';
 import { useLocalePreference } from '@/components/i18n-provider';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
-export function LocalePreferenceSync() {
+export function LocalePreferenceSync({ lockLocale = false }: { lockLocale?: boolean }) {
   const { locale, setLocale } = useLocalePreference();
   const stored = usePreferencesStore((s) => s.preferences.locale);
   const load = usePreferencesStore((s) => s.load);
@@ -24,9 +24,9 @@ export function LocalePreferenceSync() {
   }, [load]);
 
   useEffect(() => {
-    if (stored === undefined || stored === locale) return;
+    if (lockLocale || stored === undefined || stored === locale) return;
     setLocale(stored);
-  }, [stored, locale, setLocale]);
+  }, [lockLocale, stored, locale, setLocale]);
 
   return null;
 }

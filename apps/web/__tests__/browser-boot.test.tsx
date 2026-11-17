@@ -8,8 +8,10 @@ import {
   browserBootScript,
   LOCALE_ATTRIBUTE,
   readBrowserBoot,
+  LOCALE_FORCED_ATTRIBUTE,
   PLATFORM_ATTRIBUTE,
   SHELL_ATTRIBUTE,
+  THEME_FORCED_ATTRIBUTE,
   THEME_ATTRIBUTE,
 } from '@/lib/browser-boot';
 
@@ -43,6 +45,8 @@ afterEach(() => {
   document.documentElement.removeAttribute(LOCALE_ATTRIBUTE);
   document.documentElement.removeAttribute(SHELL_ATTRIBUTE);
   document.documentElement.removeAttribute(PLATFORM_ATTRIBUTE);
+  document.documentElement.removeAttribute(THEME_FORCED_ATTRIBUTE);
+  document.documentElement.removeAttribute(LOCALE_FORCED_ATTRIBUTE);
 });
 
 describe('browserBootScript', () => {
@@ -95,6 +99,8 @@ describe('browserBootScript', () => {
     expect(root.getAttribute(LOCALE_ATTRIBUTE)).toBe('en');
     expect(root.getAttribute(SHELL_ATTRIBUTE)).toBe('desktop');
     expect(root.getAttribute(PLATFORM_ATTRIBUTE)).toBe('darwin');
+    expect(root.getAttribute(THEME_FORCED_ATTRIBUTE)).toBe('true');
+    expect(root.getAttribute(LOCALE_FORCED_ATTRIBUTE)).toBe('true');
     expect(root.getAttribute('lang')).toBe('en');
     expect(root.classList.contains('dark')).toBe(true);
   });
@@ -108,6 +114,8 @@ describe('browserBootScript', () => {
     expect(root.getAttribute(LOCALE_ATTRIBUTE)).toBe('zh');
     expect(root.getAttribute(SHELL_ATTRIBUTE)).toBe('web');
     expect(root.getAttribute(PLATFORM_ATTRIBUTE)).toBe('web');
+    expect(root.getAttribute(THEME_FORCED_ATTRIBUTE)).toBe('false');
+    expect(root.getAttribute(LOCALE_FORCED_ATTRIBUTE)).toBe('false');
   });
 
   it('defines the runtime config default without overriding an injected one', () => {
@@ -141,11 +149,15 @@ describe('readBrowserBoot', () => {
 
     document.documentElement.setAttribute(SHELL_ATTRIBUTE, 'desktop');
     document.documentElement.setAttribute(PLATFORM_ATTRIBUTE, 'darwin');
+    document.documentElement.setAttribute(THEME_FORCED_ATTRIBUTE, 'true');
+    document.documentElement.setAttribute(LOCALE_FORCED_ATTRIBUTE, 'true');
     expect(readBrowserBoot()).toEqual({
       locale: 'en',
       theme: 'dark',
       shell: 'desktop',
       platform: 'darwin',
+      forcedTheme: true,
+      forcedLocale: true,
     });
   });
 
@@ -155,6 +167,8 @@ describe('readBrowserBoot', () => {
       theme: 'system',
       shell: 'web',
       platform: 'web',
+      forcedTheme: false,
+      forcedLocale: false,
     });
   });
 });

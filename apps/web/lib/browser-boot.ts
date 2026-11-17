@@ -36,6 +36,9 @@ export const THEME_ATTRIBUTE = 'data-volto-theme';
 export const LOCALE_ATTRIBUTE = 'data-volto-locale';
 /** `<html data-volto-shell>` — `desktop` inside the Tauri host, else `web`. */
 export const SHELL_ATTRIBUTE = 'data-volto-shell';
+/** Set when the desktop passed a theme/locale query parameter. */
+export const THEME_FORCED_ATTRIBUTE = 'data-volto-theme-forced';
+export const LOCALE_FORCED_ATTRIBUTE = 'data-volto-locale-forced';
 /** `<html data-volto-platform>` — the desktop host's OS (`web` in a browser). */
 export const PLATFORM_ATTRIBUTE = 'data-volto-platform';
 
@@ -49,6 +52,9 @@ export interface BrowserBoot {
   theme: ThemePreference;
   shell: ShellSurface;
   platform: ShellPlatform;
+  /** URL parameter won over the cookie; gateway preferences must not override. */
+  forcedTheme: boolean;
+  forcedLocale: boolean;
 }
 
 function isShellPlatform(value: string | null): ShellPlatform {
@@ -78,6 +84,8 @@ export function readBrowserBoot(
       locale: resolveInitialLocale({}),
       shell: 'web',
       platform: 'web',
+      forcedTheme: false,
+      forcedLocale: false,
     };
   }
   const theme = root.getAttribute(THEME_ATTRIBUTE);
@@ -88,6 +96,8 @@ export function readBrowserBoot(
     }),
     shell: root.getAttribute(SHELL_ATTRIBUTE) === 'desktop' ? 'desktop' : 'web',
     platform: isShellPlatform(root.getAttribute(PLATFORM_ATTRIBUTE)),
+    forcedTheme: root.getAttribute(THEME_FORCED_ATTRIBUTE) === 'true',
+    forcedLocale: root.getAttribute(LOCALE_FORCED_ATTRIBUTE) === 'true',
   };
 }
 
@@ -130,7 +140,9 @@ export function browserBootScript(): string {
     `if(!locale)locale='${DEFAULT_LOCALE}';` +
     `var root=document.documentElement;` +
     `root.setAttribute('${THEME_ATTRIBUTE}',theme);` +
+    `root.setAttribute('${THEME_FORCED_ATTRIBUTE}',paramTheme?'true':'false');` +
     `root.setAttribute('${LOCALE_ATTRIBUTE}',locale);` +
+    `root.setAttribute('${LOCALE_FORCED_ATTRIBUTE}',paramLocale?'true':'false');` +
     `root.setAttribute('${SHELL_ATTRIBUTE}',params.get('volto_shell')==='desktop'?'desktop':'web');` +
     `root.setAttribute('${PLATFORM_ATTRIBUTE}',params.get('volto_platform')||'web');` +
     `root.setAttribute('lang',${localeTags}[locale]);` +

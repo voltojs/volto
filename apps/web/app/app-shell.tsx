@@ -26,9 +26,9 @@ export default function AppShell() {
 
   return (
     <I18nProvider locale={boot.locale}>
-      <LocalePreferenceSync />
+      <LocalePreferenceSync lockLocale={boot.forcedLocale} />
       <CapabilitiesBoot />
-      <ThemeProvider initialTheme={boot.theme}>
+      <ThemeProvider initialTheme={boot.theme} lockTheme={boot.forcedTheme}>
         <TooltipProvider>
           <div className="bg-background flex h-screen">
             <Sidebar

@@ -275,3 +275,22 @@
   pointer-events: none;
   white-space: normal;
 }
+
+/* Desktop host (macOS overlay title bar). The sidebar reserves the traffic
+   lights' corner; in fullscreen the native controls are gone, so the space
+   collapses and the expanded sidebar moves up. */
+.desktop-traffic-strip {
+  height: 44px;
+}
+
+html[data-volto-fullscreen] .desktop-traffic-strip {
+  display: none;
+}
+
+.desktop-traffic-pad {
+  padding-left: 76px;
+}
+
+html[data-volto-fullscreen] .desktop-traffic-pad {
+  padding-left: 0.75rem;
+}

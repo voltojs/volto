@@ -17,10 +17,13 @@ export {
 function ThemeProvider({
   children,
   initialTheme = 'system',
+  lockTheme = false,
   ...props
 }: React.ComponentProps<typeof NextThemesProvider> & {
   /** Preference the page booted with (from the `volto_theme` cookie). */
   initialTheme?: ThemePreference;
+  /** The desktop host passed the theme in the URL; gateway prefs must not win. */
+  lockTheme?: boolean;
 }) {
   return (
     <NextThemesProvider
@@ -40,7 +43,7 @@ function ThemeProvider({
       scriptProps={{ type: 'application/json' }}
       {...props}
     >
-      <ThemePreferenceSync />
+      <ThemePreferenceSync lock={lockTheme} />
       <ThemeHotkey />
       {children}
     </NextThemesProvider>
@@ -77,14 +80,14 @@ export function useThemePreference(): readonly [
  * rendered class in step. Once the preferences arrive (Sidebar loads them),
  * a value that disagrees with the cached one wins.
  */
-function ThemePreferenceSync() {
+function ThemePreferenceSync({ lock }: { lock: boolean }) {
   const { theme, setTheme } = useTheme();
   const stored = usePreferencesStore((s) => s.preferences.theme);
 
   React.useEffect(() => {
-    if (stored === undefined || stored === theme) return;
+    if (lock || stored === undefined || stored === theme) return;
     setTheme(stored);
-  }, [stored, theme, setTheme]);
+  }, [lock, stored, theme, setTheme]);
 
   return null;
 }
