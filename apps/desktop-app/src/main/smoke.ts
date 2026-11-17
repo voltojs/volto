@@ -14,6 +14,8 @@ import { app, type WebContents } from "electron";
 import { mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
+import type { ProfileDraft } from "@shared/gateway";
+
 import type { GatewayController } from "./gateway/controller";
 import type { ShellWindow } from "./shell/window";
 
@@ -22,6 +24,16 @@ const PAINT_SETTLE_MS = 2_000;
 
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTerminal(controller: GatewayController, timeoutMs: number): Promise<void> {
+  const started = Date.now();
+  for (;;) {
+    const state = controller.getState().status.state;
+    if (state === "online" || state === "offline") return;
+    if (Date.now() - started > timeoutMs) throw new Error("smoke: switch did not settle");
+    await wait(250);
+  }
 }
 
 async function capture(contents: WebContents, file: string): Promise<void> {
@@ -80,6 +92,46 @@ export async function runSmoke(options: {
     options.shell.contentView.webContents,
     path.join(options.outputDir, "content.png"),
   );
+
+  const profileJson = process.env["VOLTO_DESKTOP_SMOKE_PROFILE"];
+  if (profileJson !== undefined && profileJson !== "") {
+    const draft = JSON.parse(profileJson) as ProfileDraft;
+    const saved = await options.controller.saveProfile(draft);
+    if (!saved.ok) throw new Error(`smoke: cannot save the extra profile: ${saved.error}`);
+    const profile = saved.state.profiles.find(
+      (entry) => entry.label === draft.label && entry.kind === draft.kind,
+    );
+    if (profile === undefined) throw new Error("smoke: saved profile is missing");
+    await options.controller.switchProfile(profile.id);
+    await waitForTerminal(options.controller, 60_000);
+    await wait(1_500);
+    const switched = options.controller.getState();
+    await writeFile(
+      path.join(options.outputDir, "switch.json"),
+      `${JSON.stringify(
+        {
+          wanted: draft,
+          activeProfileId: switched.activeProfileId,
+          status: switched.status,
+          contentUrl: options.shell.contentView.webContents.getURL(),
+          contentTitle: options.shell.contentView.webContents.getTitle(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await capture(
+      options.shell.contentView.webContents,
+      path.join(options.outputDir, "switched.png"),
+    );
+    options.controller.setSheetOpen(true);
+    await wait(600);
+    await capture(
+      options.shell.shellView.webContents,
+      path.join(options.outputDir, "switched-sheet.png"),
+    );
+  }
 
   if (process.env["VOLTO_DESKTOP_SMOKE_SHEET"] === "1") {
     options.controller.setSheetOpen(true);

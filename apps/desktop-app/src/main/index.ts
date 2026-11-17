@@ -22,6 +22,13 @@ import { installAppMenu, type ShellMenuActions } from "./shell/menu";
 import { createShellWindow, type ShellWindow } from "./shell/window";
 import { runSmoke } from "./smoke";
 
+// Smoke runs get their own userData (profiles, cookies, cache) so a harness can
+// never read or mutate the real profile store, and repeated runs start clean.
+const smokeDir = process.env["VOLTO_DESKTOP_SMOKE"];
+if (smokeDir !== undefined && smokeDir !== "") {
+  app.setPath("userData", path.join(smokeDir, "user-data"));
+}
+
 let controller: GatewayController | undefined;
 let shell: ShellWindow | undefined;
 let quitting = false;
