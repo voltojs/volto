@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -6,6 +7,11 @@ import { defineConfig } from "vitest/config";
  * required, so this suite runs on plain Node.
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@shared": resolve(__dirname, "src/shared"),
+    },
+  },
   test: {
     environment: "node",
     include: ["src/**/__tests__/**/*.test.ts"],
