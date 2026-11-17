@@ -28,6 +28,16 @@ function ThemeProvider({
       defaultTheme={initialTheme}
       enableSystem
       disableTransitionOnChange
+      // The shell mounts client-only (`ssr: false` in `app/page.tsx`), so
+      // next-themes' pre-paint script is created by a client render — where
+      // React never executes it, and 19.2 logs "Encountered a script tag
+      // while rendering React component" (upstream pacocoursey/next-themes
+      // #385, unfixed as of 0.4.6). Here the script is dead weight either
+      // way: the boot script already applied the theme before paint, and the
+      // provider's effect keeps the class in sync afterwards. Declaring it a
+      // data block says so explicitly — React exempts non-JS `type`s from
+      // the warning and the inert JSON node changes nothing.
+      scriptProps={{ type: 'application/json' }}
       {...props}
     >
       <ThemePreferenceSync />
