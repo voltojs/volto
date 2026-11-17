@@ -1,7 +1,7 @@
 'use client';
 
 import { SidebarToggle } from '@/components/sidebar/SidebarToggle';
-import { isDesktopShell } from '@/lib/desktop-shell';
+import { hasTrafficLightChrome } from '@/lib/desktop-shell';
 import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
 import { startNewSession } from '@/lib/new-session';
@@ -69,16 +69,16 @@ interface ChatHeaderProps {
 export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewindAction, exportAction }: ChatHeaderProps) {
   const t = useTranslations('chat');
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
-  const desktop = isDesktopShell();
+  const trafficLights = hasTrafficLightChrome();
   return (
     <header
       // The overlay title bar has no native drag strip; an empty header area
       // drags the window, and the collapsed sidebar leaves room for the
       // traffic lights on the left.
-      data-tauri-drag-region={desktop ? '' : undefined}
+      data-tauri-drag-region={trafficLights ? '' : undefined}
       className={cn(
         'flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5',
-        desktop && !sidebarOpen && 'pl-[76px]',
+        trafficLights && !sidebarOpen && 'pl-[76px]',
       )}
     >
       {/* The collapse toggle lives in the sidebar nameplate; when the sidebar

@@ -36,8 +36,11 @@ export const THEME_ATTRIBUTE = 'data-volto-theme';
 export const LOCALE_ATTRIBUTE = 'data-volto-locale';
 /** `<html data-volto-shell>` — `desktop` inside the Tauri host, else `web`. */
 export const SHELL_ATTRIBUTE = 'data-volto-shell';
+/** `<html data-volto-platform>` — the desktop host's OS (`web` in a browser). */
+export const PLATFORM_ATTRIBUTE = 'data-volto-platform';
 
 export type ShellSurface = 'desktop' | 'web';
+export type ShellPlatform = 'darwin' | 'win32' | 'linux' | 'web';
 /** Where `public/volto-config.js` is served from. */
 export const CONFIG_SCRIPT_URL = '/volto-config.js';
 
@@ -45,6 +48,13 @@ export interface BrowserBoot {
   locale: Locale;
   theme: ThemePreference;
   shell: ShellSurface;
+  platform: ShellPlatform;
+}
+
+function isShellPlatform(value: string | null): ShellPlatform {
+  return value === 'darwin' || value === 'win32' || value === 'linux'
+    ? value
+    : 'web';
 }
 
 /** `["a", "b"]` — a JavaScript array literal inside the inline script. */
@@ -67,6 +77,7 @@ export function readBrowserBoot(
       theme: 'system',
       locale: resolveInitialLocale({}),
       shell: 'web',
+      platform: 'web',
     };
   }
   const theme = root.getAttribute(THEME_ATTRIBUTE);
@@ -76,6 +87,7 @@ export function readBrowserBoot(
       cookie: root.getAttribute(LOCALE_ATTRIBUTE) ?? undefined,
     }),
     shell: root.getAttribute(SHELL_ATTRIBUTE) === 'desktop' ? 'desktop' : 'web',
+    platform: isShellPlatform(root.getAttribute(PLATFORM_ATTRIBUTE)),
   };
 }
 
@@ -120,6 +132,7 @@ export function browserBootScript(): string {
     `root.setAttribute('${THEME_ATTRIBUTE}',theme);` +
     `root.setAttribute('${LOCALE_ATTRIBUTE}',locale);` +
     `root.setAttribute('${SHELL_ATTRIBUTE}',params.get('volto_shell')==='desktop'?'desktop':'web');` +
+    `root.setAttribute('${PLATFORM_ATTRIBUTE}',params.get('volto_platform')||'web');` +
     `root.setAttribute('lang',${localeTags}[locale]);` +
     `var dark=theme==='system'` +
     `?!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)` +

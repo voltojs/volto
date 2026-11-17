@@ -57,7 +57,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-export function Sidebar({ desktop = false }: { desktop?: boolean }) {
+export function Sidebar({
+  trafficLights = false,
+}: {
+  trafficLights?: boolean;
+}) {
   const t = useTranslations('sidebar');
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
@@ -156,7 +160,7 @@ export function Sidebar({ desktop = false }: { desktop?: boolean }) {
       >
         {/* Desktop traffic lights float over this corner; the strip also
             provides a drag handle for the overlay title bar. */}
-        {desktop ? (
+        {trafficLights ? (
           <div data-tauri-drag-region className="h-11 shrink-0" />
         ) : null}
 

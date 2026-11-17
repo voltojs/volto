@@ -338,10 +338,10 @@ Rust modules (all free of Tauri types, so `cargo test` runs them directly):
   `RunEvent::Exit` shutdown.
 
 **Presentation contract.** The main window's entry URL carries
-`volto_shell=desktop&volto_theme=…&volto_locale=…`; the web boot script (which already
+`volto_shell=desktop&volto_platform=…&volto_theme=…&volto_locale=…`; the web boot script (which already
 decides theme/language before paint from cookies) gives these query parameters precedence.
 It publishes `data-volto-shell="desktop"` on `<html>`, and the exported UI uses that for the
-desktop-only chrome: the sidebar reserves a 44px top strip (traffic lights + drag), and the
+desktop-only chrome on macOS (`volto_platform=darwin`): the sidebar reserves a 44px top strip (traffic lights + drag), and the
 right header exposes a drag region and, while the sidebar is collapsed, left padding for the
 traffic lights. The preference itself lives in the desktop's profile store (same file as the
 profiles, 0600), so it survives switches and restarts; the View menu updates it, persists it,

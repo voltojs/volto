@@ -8,6 +8,7 @@ import {
   browserBootScript,
   LOCALE_ATTRIBUTE,
   readBrowserBoot,
+  PLATFORM_ATTRIBUTE,
   SHELL_ATTRIBUTE,
   THEME_ATTRIBUTE,
 } from '@/lib/browser-boot';
@@ -41,6 +42,7 @@ afterEach(() => {
   document.documentElement.removeAttribute(THEME_ATTRIBUTE);
   document.documentElement.removeAttribute(LOCALE_ATTRIBUTE);
   document.documentElement.removeAttribute(SHELL_ATTRIBUTE);
+  document.documentElement.removeAttribute(PLATFORM_ATTRIBUTE);
 });
 
 describe('browserBootScript', () => {
@@ -85,12 +87,14 @@ describe('browserBootScript', () => {
     const { root } = runBoot({
       cookie: 'volto_locale=zh; volto_theme=light',
       languages: ['zh-CN'],
-      search: '?volto_shell=desktop&volto_theme=dark&volto_locale=en',
+      search:
+        '?volto_shell=desktop&volto_platform=darwin&volto_theme=dark&volto_locale=en',
     });
 
     expect(root.getAttribute(THEME_ATTRIBUTE)).toBe('dark');
     expect(root.getAttribute(LOCALE_ATTRIBUTE)).toBe('en');
     expect(root.getAttribute(SHELL_ATTRIBUTE)).toBe('desktop');
+    expect(root.getAttribute(PLATFORM_ATTRIBUTE)).toBe('darwin');
     expect(root.getAttribute('lang')).toBe('en');
     expect(root.classList.contains('dark')).toBe(true);
   });
@@ -103,6 +107,7 @@ describe('browserBootScript', () => {
     expect(root.getAttribute(THEME_ATTRIBUTE)).toBe('system');
     expect(root.getAttribute(LOCALE_ATTRIBUTE)).toBe('zh');
     expect(root.getAttribute(SHELL_ATTRIBUTE)).toBe('web');
+    expect(root.getAttribute(PLATFORM_ATTRIBUTE)).toBe('web');
   });
 
   it('defines the runtime config default without overriding an injected one', () => {
@@ -135,10 +140,12 @@ describe('readBrowserBoot', () => {
     document.documentElement.setAttribute(THEME_ATTRIBUTE, 'dark');
 
     document.documentElement.setAttribute(SHELL_ATTRIBUTE, 'desktop');
+    document.documentElement.setAttribute(PLATFORM_ATTRIBUTE, 'darwin');
     expect(readBrowserBoot()).toEqual({
       locale: 'en',
       theme: 'dark',
       shell: 'desktop',
+      platform: 'darwin',
     });
   });
 
@@ -147,6 +154,7 @@ describe('readBrowserBoot', () => {
       locale: 'zh',
       theme: 'system',
       shell: 'web',
+      platform: 'web',
     });
   });
 });

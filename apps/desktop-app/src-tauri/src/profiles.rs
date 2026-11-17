@@ -434,14 +434,19 @@ pub fn entry_url(url: &str, token: Option<&str>) -> Result<String, String> {
 
 /// Add the desktop presentation contract to an entry URL. The web boot script
 /// reads these before paint; replacing (not appending) keeps reloads stable.
-pub fn with_preferences(url: &str, theme: &str, locale: &str) -> Result<String, String> {
+pub fn with_preferences(
+    url: &str,
+    theme: &str,
+    locale: &str,
+    platform: &str,
+) -> Result<String, String> {
     let mut parsed = Url::parse(url).map_err(|error| error.to_string())?;
     let kept: Vec<(String, String)> = parsed
         .query_pairs()
         .filter(|(key, _)| {
             !matches!(
                 key.as_ref(),
-                "volto_shell" | "volto_theme" | "volto_locale"
+                "volto_shell" | "volto_theme" | "volto_locale" | "volto_platform"
             )
         })
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
@@ -455,6 +460,7 @@ pub fn with_preferences(url: &str, theme: &str, locale: &str) -> Result<String, 
         query.append_pair("volto_shell", "desktop");
         query.append_pair("volto_theme", &normalize_theme(theme));
         query.append_pair("volto_locale", &normalize_locale(locale));
+        query.append_pair("volto_platform", platform);
     }
     Ok(parsed.to_string())
 }
@@ -619,13 +625,14 @@ mod tests {
     #[test]
     fn adds_preferences_without_dropping_the_token() {
         let entry = entry_url("http://127.0.0.1:3000", Some("tok")).unwrap();
-        let first = with_preferences(&entry, "dark", "en").unwrap();
+        let first = with_preferences(&entry, "dark", "en", "darwin").unwrap();
         assert!(first.contains("token=tok"));
         assert!(first.contains("volto_shell=desktop"));
         assert!(first.contains("volto_theme=dark"));
         assert!(first.contains("volto_locale=en"));
+        assert!(first.contains("volto_platform=darwin"));
 
-        let second = with_preferences(&first, "light", "zh").unwrap();
+        let second = with_preferences(&first, "light", "zh", "darwin").unwrap();
         assert_eq!(second.matches("volto_theme=").count(), 1);
         assert!(second.contains("volto_theme=light"));
         assert!(second.contains("volto_locale=zh"));

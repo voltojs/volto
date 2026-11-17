@@ -307,7 +307,7 @@ mod tests {
             },
             theme: persisted.theme,
             locale: persisted.locale,
-            platform: "macos".into(),
+            platform: "darwin".into(),
             app_version: "0.0.1".into(),
         }
     }

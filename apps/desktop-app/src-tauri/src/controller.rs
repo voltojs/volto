@@ -160,7 +160,9 @@ impl Core {
 
     fn rebuilt_entry_url(&self) -> Result<Option<String>, String> {
         match self.last_entry_url.as_deref() {
-            Some(url) => profiles::with_preferences(url, &self.theme, &self.locale).map(Some),
+            Some(url) => {
+                profiles::with_preferences(url, &self.theme, &self.locale, &self.platform).map(Some)
+            }
             None => Ok(None),
         }
     }
@@ -329,7 +331,9 @@ impl Core {
                 self.status = status;
                 self.emit();
                 match entry_url(&url, Some(&token))
-                    .and_then(|entry| profiles::with_preferences(&entry, &self.theme, &self.locale))
+                    .and_then(|entry| {
+                    profiles::with_preferences(&entry, &self.theme, &self.locale, &self.platform)
+                })
                 {
                     Ok(entry) => {
                         self.last_entry_url = Some(entry.clone());
@@ -458,7 +462,7 @@ mod tests {
             default_persisted(),
             store.clone(),
             Arc::new(RecordingNotifier(Arc::clone(&notifier))),
-            "macos".into(),
+            "darwin".into(),
             "0.0.1".into(),
         );
         Harness {
@@ -497,7 +501,7 @@ mod tests {
         let entry = h.core.finish_connect(generation, online()).unwrap();
         assert_eq!(
             entry,
-            "http://127.0.0.1:5555/?token=local-token&volto_shell=desktop&volto_theme=system&volto_locale=zh"
+            "http://127.0.0.1:5555/?token=local-token&volto_shell=desktop&volto_theme=system&volto_locale=zh&volto_platform=darwin"
         );
         let state = h.core.state();
         assert_eq!(state.status.state, "online");
@@ -506,7 +510,7 @@ mod tests {
         assert_eq!(
             h.notifier.lock().unwrap().navigations,
             vec![
-                "http://127.0.0.1:5555/?token=local-token&volto_shell=desktop&volto_theme=system&volto_locale=zh"
+                "http://127.0.0.1:5555/?token=local-token&volto_shell=desktop&volto_theme=system&volto_locale=zh&volto_platform=darwin"
                     .to_string()
             ]
         );
