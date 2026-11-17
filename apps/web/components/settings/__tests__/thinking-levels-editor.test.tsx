@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { StrictMode } from 'react';
+import { StrictMode, useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThinkingLevelsEditor } from '../ThinkingLevelsEditor';
@@ -222,6 +222,51 @@ describe('ThinkingLevelsEditor row semantics', () => {
       low: 'low',
       medium: 'medium',
       high: 'high',
+    });
+  });
+
+  it('nulls a deleted row whose stored value was a string', async () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    const user = userEvent.setup();
+    render(
+      <ThinkingLevelsEditor
+        value={{ low: 'custom' }}
+        levels={undefined}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    // low is seeded from its stored string; deleting it must record the
+    // removal even though levels cannot say whether the tier was supported.
+    await user.click(screen.getByRole('button', { name: '删除推理等级行 1' }));
+    expect(changes.at(-1)).toEqual({ low: null });
+  });
+
+  it('nulls a tier re-added then deleted before saving', async () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    function Harness() {
+      const [value, setValue] = useState<ThinkingLevelMap>({ medium: null });
+      return (
+        <ThinkingLevelsEditor
+          value={value}
+          levels={levelsAfterRemoval}
+          onChange={(next) => {
+            changes.push(next);
+            setValue(next ?? {});
+          }}
+        />
+      );
+    }
+    const user = userEvent.setup();
+    render(<Harness />);
+    // Add medium back (rows: minimal/low/high → the new row is 4), so the
+    // parent echo now holds medium: 'medium' before it is deleted again.
+    await user.click(screen.getByRole('button', { name: '添加档位' }));
+    await user.click(screen.getByRole('button', { name: '删除推理等级行 4' }));
+    expect(changes.at(-1)).toEqual({
+      minimal: 'minimal',
+      low: 'low',
+      high: 'high',
+      medium: null,
     });
   });
 

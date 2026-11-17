@@ -100,15 +100,16 @@ function seedRows(
 /**
  * The map a row set emits. Every listed tier contributes its value. A
  * default-supported tier that is not listed contributes `null` when `levels`
- * reports it supported OR the incoming map already stored `null` for it: a
- * deliberate removal must survive a reload, after which pi-ai reports the
- * tier as unsupported and `levels` alone can no longer distinguish "removed
- * by the user" from "never supported". An absent `levels` still means "the
- * gateway could not describe this model", not "the vendor does not support
- * the tier", so it never invents nulls. `off`, `xhigh` and `max` are never
- * nulled when unlisted — they are already not offered by default. An empty
- * map means "no stored override" → `undefined`, which lets pi-ai report its
- * defaults untouched.
+ * reports it supported OR the incoming map already carries any value for it
+ * (a string or an explicit `null`): deleting a row — including one seeded
+ * from a stored string, or one re-added and deleted again before saving —
+ * must record the removal. After a reload pi-ai reports the tier as
+ * unsupported, so `levels` alone can no longer tell "removed by the user"
+ * from "never supported". An absent `levels` and an absent stored value
+ * still mean "unknown", so no nulls are invented. `off`, `xhigh` and `max`
+ * are never nulled when unlisted — they are already not offered by default.
+ * An empty map means "no stored override" → `undefined`, which lets pi-ai
+ * report its defaults untouched.
  */
 function mapFromRows(
   rows: LevelRow[],
@@ -121,7 +122,7 @@ function mapFromRows(
   for (const level of DEFAULT_SUPPORTED) {
     if (listed.has(level)) continue;
     if (
-      stored?.[level] === null ||
+      stored?.[level] !== undefined ||
       levels?.some((info) => info.id === level && info.supported)
     ) {
       map[level] = null;
