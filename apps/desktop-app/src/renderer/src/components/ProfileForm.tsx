@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import type { ProfileDraft } from "@shared/gateway";
-import { normalizeProfileDraft } from "@shared/profiles";
 
 import { Button } from "@/renderer/src/components/ui/button";
 import { Input } from "@/renderer/src/components/ui/input";
@@ -35,9 +34,13 @@ export function ProfileForm(props: ProfileFormProps) {
   };
 
   const submit = async (): Promise<void> => {
-    const normalized = normalizeProfileDraft(draft);
-    if (!normalized.ok) {
-      setError(normalized.error);
+    if (draft.label.trim() === "") {
+      setError("名称不能为空");
+      return;
+    }
+    const needsUrl = draft.kind === "remote" || draft.managed === false;
+    if (needsUrl && (draft.url ?? "").trim() === "") {
+      setError("网关地址不能为空");
       return;
     }
     setBusy(true);

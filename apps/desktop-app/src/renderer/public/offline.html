@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volto Desktop · 未连接</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+        background: light-dark(#fafafa, #0b0b0c);
+        color: light-dark(#18181b, #e4e4e7);
+      }
+      main { max-width: 460px; padding: 32px; text-align: left; }
+      .mark { font-weight: 700; font-size: 28px; letter-spacing: -0.02em; }
+      .mark span { color: #d65a28; }
+      h1 { margin: 18px 0 8px; font-size: 18px; }
+      p { margin: 6px 0 0; font-size: 14px; line-height: 1.6; color: light-dark(#52525b, #a1a1aa); }
+      code { padding: 2px 6px; border-radius: 6px; background: light-dark(#f4f4f5, #242427); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">Volto<span>.</span></div>
+      <h1>还没有连上网关</h1>
+      <p>设置窗口已经打开。选择一个网关、修正地址或填入访问令牌后点「重试」。</p>
+      <p>也可以从菜单「网关 → 管理网关…」打开设置，或选择另一个网关。</p>
+      <p>远程网关的令牌在网关机器上用 <code>volto token</code> 获取；本机网关需要系统安装 Node ≥ 22。</p>
+    </main>
+  </body>
+</html>

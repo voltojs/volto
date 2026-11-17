@@ -4,9 +4,6 @@
  * the renderer can reuse the same types and pure rules.
  */
 
-/** Height of the always-visible native shell bar, in CSS pixels. */
-export const BAR_HEIGHT = 44;
-
 /** Label of the profile the app creates on first launch. */
 export const DEFAULT_PROFILE_LABEL = "本机网关";
 
@@ -61,7 +58,6 @@ export interface ShellState {
   profiles: PublicGatewayProfile[];
   activeProfileId: string;
   status: GatewayStatus;
-  sheetOpen: boolean;
   platform: ShellPlatform;
   appVersion: string;
 }
@@ -90,17 +86,7 @@ export interface ShellApi {
   removeProfile(id: string): Promise<ActionResult>;
   restart(): Promise<void>;
   retry(): Promise<void>;
-  setSheetOpen(open: boolean): Promise<void>;
+  closeSettings(): Promise<void>;
   reload(): Promise<void>;
   openInBrowser(): Promise<void>;
-}
-
-/**
- * URL to hand the content view. A token is exchanged for a cookie by the
- * gateway on this first navigation; later requests ride the cookie.
- */
-export function buildGatewayEntryUrl(url: string, token?: string): string {
-  const entry = new URL(url);
-  if (token !== undefined && token !== "") entry.searchParams.set("token", token);
-  return entry.toString();
 }

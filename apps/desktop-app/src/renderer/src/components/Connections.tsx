@@ -40,7 +40,7 @@ export function Connections({ state }: { state: ShellState }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== "Escape" || editing !== null) return;
-      void api.setSheetOpen(false);
+      void api.closeSettings();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -69,18 +69,18 @@ export function Connections({ state }: { state: ShellState }) {
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold">网关</h1>
+            <h1 className="text-lg font-semibold">网关设置</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              桌面端只是 gateway 的原生外壳：界面由当前网关托管，切换后立即重载。
+              主窗口始终显示当前网关自己的界面；切换后主窗口立即重载。
             </p>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="关闭"
-            title="关闭（Esc）"
-            onClick={() => void api.setSheetOpen(false)}
+            aria-label="关闭窗口"
+            title="关闭窗口（Esc）"
+            onClick={() => void api.closeSettings()}
           >
             <X className="size-4" />
           </Button>
@@ -296,7 +296,7 @@ export function Connections({ state }: { state: ShellState }) {
             <code className="rounded bg-secondary px-1 py-0.5">~/.volto</code>
             （供应商、工作区、会话都在那里）。
           </p>
-          <p>切换网关会重新加载界面；未完成的对话留在各自网关的会话里，不会丢失。</p>
+          <p>切换网关只会重载主窗口；未完成的对话留在各自网关的会话里，不会丢失。</p>
         </div>
       </div>
     </section>

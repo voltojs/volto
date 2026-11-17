@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Only the local settings webview gets IPC; the main window shows remote content.",
+  "webviews": ["settings"],
+  "permissions": ["core:default"]
+}

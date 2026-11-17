@@ -5,6 +5,10 @@ node_modules/
 dist/
 .turbo/
 
+# Rust / Tauri build output
+apps/desktop-app/src-tauri/target/
+apps/desktop-app/src-tauri/gen/
+
 # IDE
 .vscode/
 .idea/
