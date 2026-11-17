@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Volto Desktop</title>
+    <script>
+      // The Tauri init script fills __VOLTO_BOOT__ before this runs; the
+      // fallback keeps `pnpm dev:web` sensible in a plain browser.
+      (function () {
+        var boot = window.__VOLTO_BOOT__ || {};
+        var theme = boot.theme || "system";
+        var dark =
+          theme === "dark" ||
+          (theme === "system" &&
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        root.classList.toggle("dark", dark);
+        root.style.colorScheme = dark ? "dark" : "light";
+        root.lang = boot.locale === "en" ? "en" : "zh-CN";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

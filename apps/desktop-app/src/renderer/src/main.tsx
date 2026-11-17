@@ -28,6 +28,8 @@ if (isTauri) {
         invoke("report_ui", {
           report: {
             title: document.title,
+            theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
+            lang: document.documentElement.lang,
             text: document.body.innerText.slice(0, 800),
             buttons: [...document.querySelectorAll("button")]
               .map((button) => (button.textContent ?? "").trim())

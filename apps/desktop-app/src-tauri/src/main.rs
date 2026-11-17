@@ -76,7 +76,24 @@ fn acquire_instance_lock(dir: &Path) -> Option<PathBuf> {
 fn handle_menu(app: &AppHandle<Wry>, id: &MenuId) {
     let id = id.as_ref();
     if id == menu::MANAGE_ID {
-        windows::open_settings(app);
+        let (locale, theme) = {
+            let state = app.state::<AppState>();
+            let snapshot = state.core.lock().unwrap().state();
+            (snapshot.locale, snapshot.theme)
+        };
+        windows::open_settings(app, &locale, &theme);
+        return;
+    }
+    if let Some(theme) = id.strip_prefix(menu::THEME_PREFIX) {
+        if let Err(error) = commands::apply_theme(app, theme) {
+            eprintln!("theme switch failed: {error}");
+        }
+        return;
+    }
+    if let Some(locale) = id.strip_prefix(menu::LOCALE_PREFIX) {
+        if let Err(error) = commands::apply_locale(app, locale) {
+            eprintln!("locale switch failed: {error}");
+        }
         return;
     }
     if id == menu::RESTART_ID {
@@ -143,8 +160,21 @@ fn setup(app: &mut tauri::App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
         hooks,
         windows: main_windows,
         ui_report: Arc::new(Mutex::new(None)),
+        page_report: Arc::new(Mutex::new(None)),
         lock_path: Some(lock_path),
     });
+
+    // Smoke runs may pin the presentation before connecting, so the entry URL
+    // and the settings page carry it.
+    {
+        let state = app.state::<AppState>();
+        if let Ok(theme) = std::env::var("VOLTO_DESKTOP_SMOKE_THEME") {
+            let _ = state.core.lock().unwrap().set_theme(&theme);
+        }
+        if let Ok(locale) = std::env::var("VOLTO_DESKTOP_SMOKE_LOCALE") {
+            let _ = state.core.lock().unwrap().set_locale(&locale);
+        }
+    }
 
     let initial_state = app.state::<AppState>().core.lock().unwrap().state();
     app.set_menu(menu::build_menu(&handle, &initial_state)?)?;
@@ -203,8 +233,22 @@ fn setup(app: &mut tauri::App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
                     .as_deref()
                     == Ok("1");
                 if wants_settings {
-                    windows::open_settings(&thread_handle);
+                    let (locale, theme) = {
+                        let state = thread_handle.state::<AppState>();
+                        let snapshot = state.core.lock().unwrap().state();
+                        (snapshot.locale, snapshot.theme)
+                    };
+                    windows::open_settings(&thread_handle, &locale, &theme);
                     std::thread::sleep(Duration::from_millis(600));
+                }
+                if std::env::var("VOLTO_DESKTOP_SMOKE_TOGGLE").as_deref() == Ok("1") {
+                    if let Err(error) = commands::apply_theme(&thread_handle, "light") {
+                        eprintln!("smoke toggle theme: {error}");
+                    }
+                    if let Err(error) = commands::apply_locale(&thread_handle, "zh") {
+                        eprintln!("smoke toggle locale: {error}");
+                    }
+                    std::thread::sleep(Duration::from_millis(1200));
                 }
                 if let Err(error) = commands::write_smoke(&thread_handle, &state, &path) {
                     eprintln!("smoke: {error}");
@@ -235,6 +279,8 @@ fn main() {
             commands::open_in_browser,
             commands::open_settings,
             commands::close_settings,
+            commands::set_theme,
+            commands::set_locale,
             commands::report_ui,
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id()))

@@ -10,6 +10,8 @@ export const DEFAULT_PROFILE_LABEL = "本机网关";
 export type GatewayKind = "local" | "remote";
 
 export type ShellPlatform = "darwin" | "win32" | "linux";
+export type ShellTheme = "system" | "light" | "dark";
+export type ShellLocale = "zh" | "en";
 
 /**
  * One gateway the app can connect to.
@@ -58,6 +60,8 @@ export interface ShellState {
   profiles: PublicGatewayProfile[];
   activeProfileId: string;
   status: GatewayStatus;
+  theme: ShellTheme;
+  locale: ShellLocale;
   platform: ShellPlatform;
   appVersion: string;
 }

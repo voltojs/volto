@@ -12,6 +12,8 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBui
 
 pub const CONNECTING_PAGE: &str = "connecting.html";
 pub const OFFLINE_PAGE: &str = "offline.html";
+pub const CONNECTING_EN_PAGE: &str = "connecting.en.html";
+pub const OFFLINE_EN_PAGE: &str = "offline.en.html";
 
 #[derive(Clone)]
 pub struct Windows {
@@ -70,8 +72,6 @@ impl Windows {
         self.current_url.lock().unwrap().clone()
     }
 
-
-
     pub fn navigate_gateway(&self, url: &str) -> Result<(), String> {
         let parsed = Url::parse(url).map_err(|error| error.to_string())?;
         *self.gateway_origin.lock().unwrap() = Some(origin_of(&parsed));
@@ -114,10 +114,20 @@ pub fn create(app: &AppHandle<Wry>) -> tauri::Result<Windows> {
     let policy_app = Arc::clone(&app_origin);
     let policy_gateway = Arc::clone(&gateway_origin);
 
-    let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(CONNECTING_PAGE.into()))
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(CONNECTING_PAGE.into()))
         .title("Volto Desktop")
         .inner_size(1280.0, 820.0)
-        .min_inner_size(720.0, 480.0)
+        .min_inner_size(720.0, 480.0);
+    // The traffic lights float over the web UI so the right pane can use the
+    // full height; the web sidebar reserves their corner.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(18.0, 20.0));
+    }
+    let main = builder
         .on_navigation(move |url| {
             if url.as_str() == "about:blank" {
                 return true;
@@ -155,25 +165,64 @@ pub fn create(app: &AppHandle<Wry>) -> tauri::Result<Windows> {
 ///
 /// Window creation must happen on the main thread: calling it from a worker
 /// thread (the connect worker emits state) crashes inside wry.
-pub fn open_settings(app: &AppHandle<Wry>) {
+pub fn open_settings(app: &AppHandle<Wry>, locale: &str, theme: &str) {
     let handle = app.clone();
-    let _ = app.run_on_main_thread(move || open_settings_on_main(&handle));
+    let locale = locale.to_string();
+    let theme = theme.to_string();
+    let _ = app.run_on_main_thread(move || open_settings_on_main(&handle, &locale, &theme));
 }
 
-fn open_settings_on_main(app: &AppHandle<Wry>) {
+pub fn settings_title(locale: &str) -> &'static str {
+    if locale == crate::profiles::LOCALE_EN {
+        "Gateway Settings"
+    } else {
+        "网关设置"
+    }
+}
+
+fn native_theme(theme: &str) -> Option<tauri::Theme> {
+    match theme {
+        crate::profiles::THEME_LIGHT => Some(tauri::Theme::Light),
+        crate::profiles::THEME_DARK => Some(tauri::Theme::Dark),
+        _ => None,
+    }
+}
+
+/// Keep an open settings window's native chrome and title in step with the
+/// preference, without recreating it.
+pub fn apply_settings_appearance(app: &AppHandle<Wry>, locale: &str, theme: &str) {
+    let handle = app.clone();
+    let locale = locale.to_string();
+    let theme = theme.to_string();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window("settings") {
+            let _ = window.set_title(settings_title(&locale));
+            let _ = window.set_theme(native_theme(&theme));
+        }
+    });
+}
+
+fn open_settings_on_main(app: &AppHandle<Wry>, locale: &str, theme: &str) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
+        let _ = window.set_title(settings_title(locale));
+        let _ = window.set_theme(native_theme(theme));
         let _ = window.set_focus();
         return;
     }
     // Never read the main window's URL here: it may be the gateway, and the
     // settings window must be allowed only on the app's own origin.
     let app_origin = configured_app_origin(app);
+    let boot = serde_json::json!({ "theme": theme, "locale": locale });
+    let boot_script = format!(
+        "window.__VOLTO_SURFACE__ = 'settings'; window.__VOLTO_BOOT__ = {boot};"
+    );
     let builder = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html".into()))
-        .title("网关设置")
+        .title(settings_title(locale))
         .inner_size(780.0, 720.0)
         .min_inner_size(560.0, 420.0)
-        .initialization_script("window.__VOLTO_SURFACE__ = 'settings';")
+        .theme(native_theme(theme))
+        .initialization_script(boot_script)
         .on_page_load(|_window, payload| {
             eprintln!("settings: page load {}", payload.url());
         })

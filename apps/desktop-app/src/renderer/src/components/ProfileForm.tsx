@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 
-import type { ProfileDraft } from "@shared/gateway";
+import type { ProfileDraft, ShellLocale } from "@shared/gateway";
 
 import { Button } from "@/renderer/src/components/ui/button";
 import { Input } from "@/renderer/src/components/ui/input";
 import { Label } from "@/renderer/src/components/ui/label";
 import { Switch } from "@/renderer/src/components/ui/switch";
+import { messages } from "@/renderer/src/lib/i18n";
 import { cn } from "@/renderer/src/lib/utils";
 
 export interface ProfileFormProps {
   initial: ProfileDraft;
+  locale: ShellLocale;
   hasSavedToken: boolean;
   onCancel(): void;
   onSaved(): void;
@@ -17,6 +19,7 @@ export interface ProfileFormProps {
 
 /** Form state is the draft plus the two flags the input boxes need. */
 export function ProfileForm(props: ProfileFormProps) {
+  const t = messages(props.locale);
   const [draft, setDraft] = useState<ProfileDraft>({
     ...props.initial,
     token: props.initial.token ?? "",
@@ -35,12 +38,12 @@ export function ProfileForm(props: ProfileFormProps) {
 
   const submit = async (): Promise<void> => {
     if (draft.label.trim() === "") {
-      setError("名称不能为空");
+      setError(t.errorName);
       return;
     }
     const needsUrl = draft.kind === "remote" || draft.managed === false;
     if (needsUrl && (draft.url ?? "").trim() === "") {
-      setError("网关地址不能为空");
+      setError(t.errorUrl);
       return;
     }
     setBusy(true);
@@ -71,7 +74,9 @@ export function ProfileForm(props: ProfileFormProps) {
       }}
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{props.initial.id === undefined ? "添加网关" : "编辑网关"}</h2>
+        <h2 className="text-sm font-semibold">
+          {props.initial.id === undefined ? t.formAdd : t.formEdit}
+        </h2>
         <div className="inline-flex rounded-md border border-border p-0.5">
           {(["local", "remote"] as const).map((kind) => (
             <button
@@ -80,7 +85,7 @@ export function ProfileForm(props: ProfileFormProps) {
               onClick={() =>
                 update({
                   kind,
-                  managed: kind === "local" ? true : false,
+                  managed: kind === "local",
                 })
               }
               className={cn(
@@ -90,54 +95,50 @@ export function ProfileForm(props: ProfileFormProps) {
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {kind === "local" ? "本机" : "远程"}
+              {kind === "local" ? t.kindLocal : t.kindRemote}
             </button>
           ))}
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="profile-label">名称</Label>
+        <Label htmlFor="profile-label">{t.name}</Label>
         <Input
           id="profile-label"
           value={draft.label}
           maxLength={60}
-          placeholder={isRemote ? "公司构建机" : "本机网关"}
+          placeholder={isRemote ? t.namePlaceholderRemote : t.namePlaceholderLocal}
           onChange={(event) => update({ label: event.target.value })}
         />
       </div>
 
       {isRemote ? (
         <div className="space-y-1.5">
-          <Label htmlFor="profile-url">网关地址</Label>
+          <Label htmlFor="profile-url">{t.gatewayUrl}</Label>
           <Input
             id="profile-url"
             value={draft.url ?? ""}
             placeholder="https://gateway.example.com"
             onChange={(event) => update({ url: event.target.value })}
           />
-          <p className="text-xs text-muted-foreground">
-            填到端口即可，不要带路径；协议默认 http。
-          </p>
+          <p className="text-xs text-muted-foreground">{t.gatewayUrlHint}</p>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5">
             <div>
-              <div className="text-sm">由应用启动</div>
-              <div className="text-xs text-muted-foreground">
-                关闭后连接到已在运行的本机网关。
-              </div>
+              <div className="text-sm">{t.launchedByApp}</div>
+              <div className="text-xs text-muted-foreground">{t.launchedByAppHint}</div>
             </div>
             <Switch
               checked={managed}
               onCheckedChange={(checked) => update({ managed: checked })}
-              aria-label="由应用启动"
+              aria-label={t.launchedByApp}
             />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="profile-local-url">
-              {managed ? "地址（可选，留空自动分配端口）" : "地址"}
+              {managed ? t.addressOptional : t.address}
             </Label>
             <Input
               id="profile-local-url"
@@ -151,19 +152,17 @@ export function ProfileForm(props: ProfileFormProps) {
 
       {needsToken ? (
         <div className="space-y-1.5">
-          <Label htmlFor="profile-token">访问令牌</Label>
+          <Label htmlFor="profile-token">{t.token}</Label>
           <Input
             id="profile-token"
             type="password"
             value={draft.token ?? ""}
             placeholder={
-              props.hasSavedToken ? "已保存（留空则不修改）" : "在网关机器上运行 volto token 获取"
+              props.hasSavedToken ? t.tokenSavedPlaceholder : t.tokenEmptyPlaceholder
             }
             onChange={(event) => update({ token: event.target.value })}
           />
-          <p className="text-xs text-muted-foreground">
-            令牌只交给主进程保存，不会出现在页面或日志里。
-          </p>
+          <p className="text-xs text-muted-foreground">{t.tokenHint}</p>
         </div>
       ) : null}
 
@@ -173,10 +172,10 @@ export function ProfileForm(props: ProfileFormProps) {
 
       <div className="flex items-center justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={props.onCancel} disabled={busy}>
-          取消
+          {t.cancel}
         </Button>
         <Button type="submit" size="sm" disabled={busy}>
-          {busy ? "保存中…" : "保存"}
+          {busy ? t.saving : t.save}
         </Button>
       </div>
     </form>

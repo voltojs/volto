@@ -65,6 +65,8 @@ export function createPreviewApi(): ShellApi {
     ],
     activeProfileId: "local",
     status: { state: "offline", profileId: "local", error: "预览模式：请在 Tauri 中运行" },
+    theme: "system",
+    locale: "zh",
     platform: "darwin",
     appVersion: "preview",
   };

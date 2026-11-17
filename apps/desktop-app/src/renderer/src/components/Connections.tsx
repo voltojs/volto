@@ -6,17 +6,11 @@ import type { ProfileDraft, PublicGatewayProfile, ShellState } from "@shared/gat
 import { Button } from "@/renderer/src/components/ui/button";
 import { ProfileForm } from "@/renderer/src/components/ProfileForm";
 import { StatusBadge } from "@/renderer/src/components/StatusBadge";
+import { format, messages } from "@/renderer/src/lib/i18n";
 import { cn } from "@/renderer/src/lib/utils";
 
-const STATUS_LABEL: Record<ShellState["status"]["state"], string> = {
-  idle: "待连接",
-  starting: "连接中…",
-  online: "已连接",
-  offline: "未连接",
-};
-
-function publicUrl(profile: PublicGatewayProfile): string {
-  if (profile.kind === "local" && profile.managed) return "由应用启动 · 自动分配端口";
+function publicUrl(profile: PublicGatewayProfile, autoPort: string): string {
+  if (profile.kind === "local" && profile.managed) return autoPort;
   return profile.url;
 }
 
@@ -33,6 +27,7 @@ function draftOf(profile: PublicGatewayProfile): ProfileDraft {
 
 export function Connections({ state }: { state: ShellState }) {
   const api = window.voltoShell;
+  const t = messages(state.locale);
   const [editing, setEditing] = useState<ProfileDraft | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -47,8 +42,15 @@ export function Connections({ state }: { state: ShellState }) {
   }, [api, editing]);
 
   const active = state.profiles.find((profile) => profile.id === state.activeProfileId);
-  const activeLabel = active?.label ?? "网关";
+  const activeLabel = active?.label ?? "Gateway";
   const canDelete = state.profiles.length > 1;
+
+  const statusLabel = (status: ShellState["status"]): string => {
+    if (status.state === "online" && status.version !== undefined) {
+      return format(t.connectedVersion, { version: status.version });
+    }
+    return t[status.state];
+  };
 
   const switchTo = async (id: string): Promise<void> => {
     setActionError(null);
@@ -69,17 +71,15 @@ export function Connections({ state }: { state: ShellState }) {
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold">网关设置</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              主窗口始终显示当前网关自己的界面；切换后主窗口立即重载。
-            </p>
+            <h1 className="text-lg font-semibold">{t.settingsTitle}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t.settingsSubtitle}</p>
           </div>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="关闭窗口"
-            title="关闭窗口（Esc）"
+            aria-label={t.closeWindow}
+            title={t.closeWindowHint}
             onClick={() => void api.closeSettings()}
           >
             <X className="size-4" />
@@ -91,7 +91,9 @@ export function Connections({ state }: { state: ShellState }) {
             role="alert"
             className="mt-5 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3"
           >
-            <div className="text-sm font-medium text-destructive">无法连接「{activeLabel}」</div>
+            <div className="text-sm font-medium text-destructive">
+              {format(t.cannotConnect, { label: activeLabel })}
+            </div>
             <div className="mt-1 text-sm text-destructive/90">{state.status.error}</div>
             <Button
               type="button"
@@ -103,7 +105,7 @@ export function Connections({ state }: { state: ShellState }) {
                 void api.retry();
               }}
             >
-              重试
+              {t.retry}
             </Button>
           </div>
         ) : null}
@@ -124,6 +126,7 @@ export function Connections({ state }: { state: ShellState }) {
           <div className="mt-5">
             <ProfileForm
               initial={editing}
+              locale={state.locale}
               hasSavedToken={
                 state.profiles.find((profile) => profile.id === editing.id)?.hasToken ?? false
               }
@@ -134,7 +137,7 @@ export function Connections({ state }: { state: ShellState }) {
         ) : null}
 
         <div className="mt-6 flex items-center justify-between">
-          <h2 className="text-sm font-medium">网关列表</h2>
+          <h2 className="text-sm font-medium">{t.gatewayList}</h2>
           <Button
             type="button"
             size="sm"
@@ -145,7 +148,7 @@ export function Connections({ state }: { state: ShellState }) {
             }}
           >
             <Plus className="size-4" />
-            添加网关
+            {t.addGateway}
           </Button>
         </div>
 
@@ -164,7 +167,7 @@ export function Connections({ state }: { state: ShellState }) {
                 <div className="flex items-start gap-3">
                   <button
                     type="button"
-                    aria-label={`切换到 ${profile.label}`}
+                    aria-label={format(t.switchToProfile, { label: profile.label })}
                     onClick={() => void switchTo(profile.id)}
                     className={cn(
                       "mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full border",
@@ -180,28 +183,21 @@ export function Connections({ state }: { state: ShellState }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate text-sm font-medium">{profile.label}</span>
                       <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                        {profile.kind === "local" ? "本机" : "远程"}
+                        {profile.kind === "local" ? t.kindLocal : t.kindRemote}
                       </span>
                       {profile.hasToken ? (
                         <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                          已保存令牌
+                          {t.savedToken}
                         </span>
                       ) : null}
                       {status !== undefined ? (
-                        <StatusBadge
-                          state={status.state}
-                          label={
-                            status.state === "online" && status.version !== undefined
-                              ? `已连接 · v${status.version}`
-                              : STATUS_LABEL[status.state]
-                          }
-                        />
+                        <StatusBadge state={status.state} label={statusLabel(status)} />
                       ) : null}
                     </div>
                     <div className="mt-1 truncate text-xs text-muted-foreground">
                       {isActive && state.status.url !== undefined
                         ? state.status.url
-                        : publicUrl(profile)}
+                        : publicUrl(profile, t.autoPort)}
                     </div>
                     {isActive && state.status.state === "starting" && state.status.detail !== undefined ? (
                       <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">
@@ -223,7 +219,7 @@ export function Connections({ state }: { state: ShellState }) {
                         }}
                       >
                         <RotateCw className="size-3.5" />
-                        重连
+                        {t.reconnect}
                       </Button>
                     ) : (
                       <Button
@@ -231,15 +227,15 @@ export function Connections({ state }: { state: ShellState }) {
                         size="sm"
                         onClick={() => void switchTo(profile.id)}
                       >
-                        切换
+                        {t.switch}
                       </Button>
                     )}
                     <Button
                       type="button"
                       size="icon-sm"
                       variant="ghost"
-                      aria-label={`编辑 ${profile.label}`}
-                      title="编辑"
+                      aria-label={format(t.editProfile, { label: profile.label })}
+                      title={t.edit}
                       onClick={() => {
                         setActionError(null);
                         setEditing(draftOf(profile));
@@ -255,13 +251,13 @@ export function Connections({ state }: { state: ShellState }) {
                           variant="destructive"
                           onClick={() => void remove(profile.id)}
                         >
-                          确认删除
+                          {t.confirmDelete}
                         </Button>
                         <Button
                           type="button"
                           size="icon-sm"
                           variant="ghost"
-                          aria-label="取消删除"
+                          aria-label={t.cancelDelete}
                           onClick={() => setPendingDelete(null)}
                         >
                           <X className="size-3.5" />
@@ -272,8 +268,8 @@ export function Connections({ state }: { state: ShellState }) {
                         type="button"
                         size="icon-sm"
                         variant="ghost"
-                        aria-label={`删除 ${profile.label}`}
-                        title={canDelete ? "删除" : "至少保留一个网关"}
+                        aria-label={format(t.deleteProfile, { label: profile.label })}
+                        title={canDelete ? t.delete : t.atLeastOne}
                         disabled={!canDelete}
                         onClick={() => setPendingDelete(profile.id)}
                       >
@@ -289,14 +285,18 @@ export function Connections({ state }: { state: ShellState }) {
 
         <div className="mt-6 space-y-1.5 border-t border-border pt-4 text-xs text-muted-foreground">
           <p>
-            远程网关的访问令牌在网关机器上运行 <code className="rounded bg-secondary px-1 py-0.5">volto token</code> 获取。
+            {t.noteToken}{" "}
+            <code className="rounded bg-secondary px-1 py-0.5">volto token</code>
+            {t.noteTokenTail}
           </p>
           <p>
-            本机网关与终端里的 <code className="rounded bg-secondary px-1 py-0.5">volto</code> 共用{" "}
+            {t.noteShared}{" "}
+            <code className="rounded bg-secondary px-1 py-0.5">volto</code>{" "}
+            {t.noteSharedMiddle}{" "}
             <code className="rounded bg-secondary px-1 py-0.5">~/.volto</code>
-            （供应商、工作区、会话都在那里）。
+            {t.noteSharedTail}
           </p>
-          <p>切换网关只会重载主窗口；未完成的对话留在各自网关的会话里，不会丢失。</p>
+          <p>{t.noteSwitch}</p>
         </div>
       </div>
     </section>

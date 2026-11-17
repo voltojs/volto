@@ -126,6 +126,8 @@ mod tests {
                 },
             ],
             active_profile_id: "remote".into(),
+            theme: "dark".into(),
+            locale: "en".into(),
         };
         store.save(&persisted).unwrap();
         assert_eq!(store.load(), persisted);

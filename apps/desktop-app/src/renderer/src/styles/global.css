@@ -23,9 +23,14 @@
   --radius: 0.625rem;
 }
 
-/* The shell follows the system theme; there is no in-app theme switch. */
-@media (prefers-color-scheme: dark) {
-  :root {
+/* The settings window follows the desktop preference: `system` resolves to
+   the OS before paint (index.html) and stays in step through matchMedia. */
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
     --color-background: #0b0b0c;
     --color-foreground: #f5f5f5;
     --color-card: #151517;
@@ -45,7 +50,6 @@
     --color-border: #2a2a2e;
     --color-input: #2a2a2e;
     --color-ring: #d4d4d8;
-  }
 }
 
 html,

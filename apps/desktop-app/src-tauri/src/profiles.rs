@@ -42,11 +42,47 @@ pub struct PublicProfile {
     pub has_token: bool,
 }
 
+pub const THEME_SYSTEM: &str = "system";
+pub const THEME_LIGHT: &str = "light";
+pub const THEME_DARK: &str = "dark";
+pub const LOCALE_ZH: &str = "zh";
+pub const LOCALE_EN: &str = "en";
+
+/// Unknown values fall back to the default instead of failing the whole store.
+pub fn normalize_theme(value: &str) -> String {
+    match value {
+        THEME_LIGHT => THEME_LIGHT,
+        THEME_DARK => THEME_DARK,
+        _ => THEME_SYSTEM,
+    }
+    .to_string()
+}
+
+pub fn normalize_locale(value: &str) -> String {
+    if value.eq_ignore_ascii_case(LOCALE_EN) {
+        LOCALE_EN.to_string()
+    } else {
+        LOCALE_ZH.to_string()
+    }
+}
+
+fn default_theme() -> String {
+    THEME_SYSTEM.to_string()
+}
+
+fn default_locale() -> String {
+    LOCALE_ZH.to_string()
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Persisted {
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    #[serde(default = "default_locale")]
+    pub locale: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -104,6 +140,8 @@ pub struct ShellState {
     pub profiles: Vec<PublicProfile>,
     pub active_profile_id: String,
     pub status: Status,
+    pub theme: String,
+    pub locale: String,
     pub platform: String,
     pub app_version: String,
 }
@@ -134,6 +172,8 @@ pub fn default_persisted() -> Persisted {
             token: None,
         }],
         active_profile_id: DEFAULT_PROFILE_ID.to_string(),
+        theme: default_theme(),
+        locale: default_locale(),
     }
 }
 
@@ -355,6 +395,16 @@ pub fn sanitize(value: &Value) -> Persisted {
     Persisted {
         profiles,
         active_profile_id,
+        theme: value
+            .get("theme")
+            .and_then(Value::as_str)
+            .map(normalize_theme)
+            .unwrap_or_else(default_theme),
+        locale: value
+            .get("locale")
+            .and_then(Value::as_str)
+            .map(normalize_locale)
+            .unwrap_or_else(default_locale),
     }
 }
 
@@ -378,6 +428,33 @@ pub fn entry_url(url: &str, token: Option<&str>) -> Result<String, String> {
     let mut parsed = Url::parse(url).map_err(|error| error.to_string())?;
     if let Some(token) = token.filter(|token| !token.is_empty()) {
         parsed.query_pairs_mut().append_pair("token", token);
+    }
+    Ok(parsed.to_string())
+}
+
+/// Add the desktop presentation contract to an entry URL. The web boot script
+/// reads these before paint; replacing (not appending) keeps reloads stable.
+pub fn with_preferences(url: &str, theme: &str, locale: &str) -> Result<String, String> {
+    let mut parsed = Url::parse(url).map_err(|error| error.to_string())?;
+    let kept: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_ref(),
+                "volto_shell" | "volto_theme" | "volto_locale"
+            )
+        })
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    parsed.set_query(None);
+    {
+        let mut query = parsed.query_pairs_mut();
+        for (key, value) in kept {
+            query.append_pair(&key, &value);
+        }
+        query.append_pair("volto_shell", "desktop");
+        query.append_pair("volto_theme", &normalize_theme(theme));
+        query.append_pair("volto_locale", &normalize_locale(locale));
     }
     Ok(parsed.to_string())
 }
@@ -527,6 +604,32 @@ mod tests {
         assert!(public[0].has_token);
         let json = serde_json::to_string(&public).unwrap();
         assert!(!json.contains("remote-token"));
+    }
+
+    #[test]
+    fn normalizes_presentation_preferences() {
+        assert_eq!(normalize_theme("dark"), "dark");
+        assert_eq!(normalize_theme("light"), "light");
+        assert_eq!(normalize_theme("neon"), "system");
+        assert_eq!(normalize_locale("en"), "en");
+        assert_eq!(normalize_locale("EN"), "en");
+        assert_eq!(normalize_locale("fr"), "zh");
+    }
+
+    #[test]
+    fn adds_preferences_without_dropping_the_token() {
+        let entry = entry_url("http://127.0.0.1:3000", Some("tok")).unwrap();
+        let first = with_preferences(&entry, "dark", "en").unwrap();
+        assert!(first.contains("token=tok"));
+        assert!(first.contains("volto_shell=desktop"));
+        assert!(first.contains("volto_theme=dark"));
+        assert!(first.contains("volto_locale=en"));
+
+        let second = with_preferences(&first, "light", "zh").unwrap();
+        assert_eq!(second.matches("volto_theme=").count(), 1);
+        assert!(second.contains("volto_theme=light"));
+        assert!(second.contains("volto_locale=zh"));
+        assert!(second.contains("token=tok"));
     }
 
     #[test]

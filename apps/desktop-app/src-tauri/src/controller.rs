@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::probe::Probe;
 use crate::profiles::{
-    entry_url, remove, to_public, upsert, validate_draft, Kind, Persisted, Profile, ProfileDraft,
-    ShellState, Status,
+    self, entry_url, remove, to_public, upsert, validate_draft, Kind, Persisted, Profile,
+    ProfileDraft, ShellState, Status,
 };
 
 pub trait StoreLike: Send + Sync {
@@ -81,6 +81,8 @@ pub struct Core {
     platform: String,
     app_version: String,
     last_entry_url: Option<String>,
+    theme: String,
+    locale: String,
 }
 
 fn new_id() -> String {
@@ -111,6 +113,8 @@ impl Core {
             platform,
             app_version,
             last_entry_url: None,
+            theme: persisted.theme,
+            locale: persisted.locale,
         }
     }
 
@@ -118,11 +122,56 @@ impl Core {
         self.last_entry_url.as_deref()
     }
 
+    pub fn record_entry_url(&mut self, url: &str) {
+        self.last_entry_url = Some(url.to_string());
+    }
+
+    /// Persist a presentation preference. Returns the rebuilt entry URL when a
+    /// gateway is already live, so the caller can reload it with the new look.
+    pub fn set_theme(&mut self, theme: &str) -> Result<Option<String>, String> {
+        let theme = profiles::normalize_theme(theme);
+        if theme == self.theme {
+            return Ok(None);
+        }
+        let previous = self.theme.clone();
+        self.theme = theme;
+        if let Err(error) = self.store.save(&self.persisted()) {
+            self.theme = previous;
+            return Err(format!("保存外观设置失败：{error}"));
+        }
+        self.emit();
+        self.rebuilt_entry_url()
+    }
+
+    pub fn set_locale(&mut self, locale: &str) -> Result<Option<String>, String> {
+        let locale = profiles::normalize_locale(locale);
+        if locale == self.locale {
+            return Ok(None);
+        }
+        let previous = self.locale.clone();
+        self.locale = locale;
+        if let Err(error) = self.store.save(&self.persisted()) {
+            self.locale = previous;
+            return Err(format!("保存语言设置失败：{error}"));
+        }
+        self.emit();
+        self.rebuilt_entry_url()
+    }
+
+    fn rebuilt_entry_url(&self) -> Result<Option<String>, String> {
+        match self.last_entry_url.as_deref() {
+            Some(url) => profiles::with_preferences(url, &self.theme, &self.locale).map(Some),
+            None => Ok(None),
+        }
+    }
+
     pub fn state(&self) -> ShellState {
         ShellState {
             profiles: to_public(&self.profiles),
             active_profile_id: self.active_profile_id.clone(),
             status: self.status.clone(),
+            theme: self.theme.clone(),
+            locale: self.locale.clone(),
             platform: self.platform.clone(),
             app_version: self.app_version.clone(),
         }
@@ -132,6 +181,8 @@ impl Core {
         Persisted {
             profiles: self.profiles.clone(),
             active_profile_id: self.active_profile_id.clone(),
+            theme: self.theme.clone(),
+            locale: self.locale.clone(),
         }
     }
 
@@ -277,7 +328,9 @@ impl Core {
                 status.detail = detail;
                 self.status = status;
                 self.emit();
-                match entry_url(&url, Some(&token)) {
+                match entry_url(&url, Some(&token))
+                    .and_then(|entry| profiles::with_preferences(&entry, &self.theme, &self.locale))
+                {
                     Ok(entry) => {
                         self.last_entry_url = Some(entry.clone());
                         self.notifier.navigate(&entry);
@@ -442,15 +495,48 @@ mod tests {
         });
         let (generation, _) = ticket(&mut h);
         let entry = h.core.finish_connect(generation, online()).unwrap();
-        assert_eq!(entry, "http://127.0.0.1:5555/?token=local-token");
+        assert_eq!(
+            entry,
+            "http://127.0.0.1:5555/?token=local-token&volto_shell=desktop&volto_theme=system&volto_locale=zh"
+        );
         let state = h.core.state();
         assert_eq!(state.status.state, "online");
         assert_eq!(state.status.version.as_deref(), Some("0.2.1"));
         assert!(!serde_json::to_string(&state).unwrap().contains("local-token"));
         assert_eq!(
             h.notifier.lock().unwrap().navigations,
-            vec!["http://127.0.0.1:5555/?token=local-token".to_string()]
+            vec![
+                "http://127.0.0.1:5555/?token=local-token&volto_shell=desktop&volto_theme=system&volto_locale=zh"
+                    .to_string()
+            ]
         );
+    }
+
+    #[test]
+    fn persists_presentation_preferences_and_rebuilds_the_entry_url() {
+        let mut h = harness(Probe::Online {
+            version: None,
+            mode: None,
+        });
+        let (generation, _) = ticket(&mut h);
+        h.core.finish_connect(generation, online());
+
+        let rebuilt = h.core.set_theme("dark").unwrap().unwrap();
+        assert!(rebuilt.contains("volto_theme=dark"));
+        assert!(rebuilt.contains("volto_locale=zh"));
+        assert!(rebuilt.contains("token=local-token"));
+        assert_eq!(h.core.state().theme, "dark");
+        assert_eq!(
+            h.store.saved.lock().unwrap().last().unwrap().theme,
+            "dark"
+        );
+
+        let rebuilt = h.core.set_locale("en").unwrap().unwrap();
+        assert!(rebuilt.contains("volto_locale=en"));
+        assert_eq!(h.core.state().locale, "en");
+        assert!(h.core.set_locale("en").unwrap().is_none());
+        assert!(h.core.set_theme("dark").unwrap().is_none());
+        assert_eq!(h.store.saved.lock().unwrap().len(), 2);
     }
 
     #[test]

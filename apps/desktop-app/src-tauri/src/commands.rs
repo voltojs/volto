@@ -23,6 +23,7 @@ pub struct AppState {
     pub hooks: Arc<Hooks>,
     pub windows: Windows,
     pub ui_report: Arc<Mutex<Option<Value>>>,
+    pub page_report: Arc<Mutex<Option<Value>>>,
     pub lock_path: Option<PathBuf>,
 }
 
@@ -45,11 +46,12 @@ fn title_for(state: &ShellState) -> String {
         .find(|profile| profile.id == state.active_profile_id)
         .map(|profile| profile.label.as_str())
         .unwrap_or("Volto");
+    let en = state.locale == crate::profiles::LOCALE_EN;
     let status = match state.status.state.as_str() {
-        "online" => "已连接",
-        "starting" => "连接中…",
-        "offline" => "未连接",
-        _ => "准备中",
+        "online" => if en { "Connected" } else { "已连接" },
+        "starting" => if en { "Connecting…" } else { "连接中…" },
+        "offline" => if en { "Offline" } else { "未连接" },
+        _ => if en { "Ready" } else { "准备中" },
     };
     format!("Volto Desktop · {label} · {status}")
 }
@@ -63,14 +65,16 @@ impl Notifier for AppNotifier {
     fn state(&self, state: &ShellState) {
         let _ = self.app.emit("shell:state", state);
         self.windows.set_title(&title_for(state));
+        let en = state.locale == crate::profiles::LOCALE_EN;
         match state.status.state.as_str() {
-            "starting" => self.windows.show_page(windows::CONNECTING_PAGE),
+            "starting" => self.windows.show_page(page_for(windows::CONNECTING_PAGE, en)),
             "offline" => {
-                self.windows.show_page(windows::OFFLINE_PAGE);
-                windows::open_settings(&self.app);
+                self.windows.show_page(page_for(windows::OFFLINE_PAGE, en));
+                windows::open_settings(&self.app, &state.locale, &state.theme);
             }
             _ => {}
         }
+        windows::apply_settings_appearance(&self.app, &state.locale, &state.theme);
         if let Ok(menu) = menu::build_menu(&self.app, state) {
             let _ = self.app.set_menu(menu);
         }
@@ -78,6 +82,19 @@ impl Notifier for AppNotifier {
 
     fn navigate(&self, url: &str) {
         let _ = self.windows.navigate_gateway(url);
+    }
+}
+
+fn page_for(base: &str, english: bool) -> &'static str {
+    if !english {
+        return match base {
+            windows::CONNECTING_PAGE => windows::CONNECTING_PAGE,
+            _ => windows::OFFLINE_PAGE,
+        };
+    }
+    match base {
+        windows::CONNECTING_PAGE => windows::CONNECTING_EN_PAGE,
+        _ => windows::OFFLINE_EN_PAGE,
     }
 }
 
@@ -325,7 +342,57 @@ pub fn open_in_browser(webview: Webview<Wry>, state: State<'_, AppState>) -> Res
 #[tauri::command]
 pub fn open_settings(app: AppHandle<Wry>, webview: Webview<Wry>) -> Result<(), String> {
     ensure_settings(&webview)?;
-    windows::open_settings(&app);
+    let (locale, theme) = {
+        let state = app.state::<AppState>();
+        let snapshot = state.core.lock().unwrap().state();
+        (snapshot.locale, snapshot.theme)
+    };
+    windows::open_settings(&app, &locale, &theme);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_theme(
+    app: AppHandle<Wry>,
+    webview: Webview<Wry>,
+    theme: String,
+) -> Result<(), String> {
+    ensure_settings(&webview)?;
+    apply_theme(&app, &theme)
+}
+
+#[tauri::command]
+pub fn set_locale(
+    app: AppHandle<Wry>,
+    webview: Webview<Wry>,
+    locale: String,
+) -> Result<(), String> {
+    ensure_settings(&webview)?;
+    apply_locale(&app, &locale)
+}
+
+/// Apply a presentation switch from the settings window or the native menu.
+pub fn apply_theme(app: &AppHandle<Wry>, theme: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let next = state.core.lock().unwrap().set_theme(theme)?;
+    if let Some(url) = next {
+        state.core.lock().unwrap().record_entry_url(&url);
+        state.windows.navigate_gateway(&url)?;
+    }
+    let snapshot = state.core.lock().unwrap().state();
+    windows::apply_settings_appearance(app, &snapshot.locale, &snapshot.theme);
+    Ok(())
+}
+
+pub fn apply_locale(app: &AppHandle<Wry>, locale: &str) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let next = state.core.lock().unwrap().set_locale(locale)?;
+    if let Some(url) = next {
+        state.core.lock().unwrap().record_entry_url(&url);
+        state.windows.navigate_gateway(&url)?;
+    }
+    let snapshot = state.core.lock().unwrap().state();
+    windows::apply_settings_appearance(app, &snapshot.locale, &snapshot.theme);
     Ok(())
 }
 
@@ -351,8 +418,23 @@ pub fn report_ui(
 fn redact_url(value: &str) -> String {
     match url::Url::parse(value) {
         Ok(mut parsed) => {
-            if parsed.query_pairs().any(|(key, _)| key == "token") {
-                parsed.query_pairs_mut().clear().append_pair("token", "redacted");
+            let pairs: Vec<(String, String)> = parsed
+                .query_pairs()
+                .map(|(key, value)| {
+                    let value = if key == "token" {
+                        "redacted".to_string()
+                    } else {
+                        value.into_owned()
+                    };
+                    (key.into_owned(), value)
+                })
+                .collect();
+            parsed.set_query(None);
+            if !pairs.is_empty() {
+                let mut query = parsed.query_pairs_mut();
+                for (key, value) in pairs {
+                    query.append_pair(&key, &value);
+                }
             }
             parsed.to_string()
         }
@@ -364,21 +446,31 @@ pub fn smoke_context(app: &AppHandle<Wry>, state: &AppState) -> Value {
     let snapshot = state.core.lock().unwrap().state();
     let main_url = redact_url(&state.windows.current_url().unwrap_or_default());
     let main_title = state.windows.main.title().unwrap_or_default();
-    let settings_url = if app.get_webview_window("settings").is_some() {
+    let settings_window = app.get_webview_window("settings");
+    let settings_url = if settings_window.is_some() {
         format!("{}/index.html", state.windows.app_origin.trim_end_matches('/'))
     } else {
         String::new()
     };
+    let settings_title = settings_window
+        .as_ref()
+        .and_then(|window| window.title().ok())
+        .unwrap_or_default();
     let ui_report = state.ui_report.lock().unwrap().clone();
+    let page_report = state.page_report.lock().unwrap().clone();
     json!({
         "status": snapshot.status,
+        "theme": snapshot.theme,
+        "locale": snapshot.locale,
         "profiles": snapshot.profiles,
         "activeProfileId": snapshot.active_profile_id,
         "appVersion": snapshot.app_version,
         "mainUrl": main_url,
         "mainTitle": main_title,
         "settingsUrl": settings_url,
+        "settingsTitle": settings_title,
         "uiReport": ui_report,
+        "pageReport": page_report,
     })
 }
 
@@ -404,7 +496,37 @@ pub fn wait_for_terminal(state: &AppState, timeout: Duration) -> Status {
     }
 }
 
+/// Ask the gateway webview what the web app booted with. `eval_with_callback`
+/// uses the platform's native evaluation (no IPC bridge in the main webview),
+/// so this is the only way to prove the desktop layout flag and theme landed.
+fn request_page_report(app: &AppHandle<Wry>, state: &AppState) {
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    let store = Arc::clone(&state.page_report);
+    let script = r#"
+      (() => {
+        const root = document.documentElement;
+        return {
+          title: document.title,
+          lang: root.lang,
+          theme: root.dataset.voltoTheme ?? null,
+          shell: root.dataset.voltoShell ?? null,
+          dark: root.classList.contains("dark"),
+          dragRegions: document.querySelectorAll("[data-tauri-drag-region]").length,
+          text: (document.body?.innerText ?? "").slice(0, 160),
+        };
+      })()
+    "#;
+    let _ = main.eval_with_callback(script, move |result| {
+        let parsed = serde_json::from_str::<Value>(&result).ok();
+        *store.lock().unwrap() = parsed;
+    });
+}
+
 pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Path) -> std::io::Result<()> {
+    request_page_report(app, state);
+    std::thread::sleep(Duration::from_millis(300));
     // The settings page reports itself after mounting; wait for a non-empty
     // report instead of racing it with an eval.
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -438,6 +560,18 @@ pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Pat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacts_only_the_token() {
+        let url = redact_url(
+            "http://127.0.0.1:3000/?token=secret&volto_shell=desktop&volto_theme=dark&volto_locale=en",
+        );
+        assert!(!url.contains("secret"));
+        assert!(url.contains("token=redacted"));
+        assert!(url.contains("volto_shell=desktop"));
+        assert!(url.contains("volto_theme=dark"));
+        assert!(url.contains("volto_locale=en"));
+    }
 
     #[test]
     fn only_the_settings_webview_is_trusted() {
