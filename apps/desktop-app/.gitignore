@@ -1,13 +1,20 @@
 node_modules/
-out/
 dist/
-# electron-builder 输出（即使被误移到根目录也忽略）
+.vite/
+
+# Tauri / Rust build output
+src-tauri/target/
+src-tauri/gen/
+
+# Packaging artifacts (only produced when bundle.active is enabled)
 *.dmg
 *.zip
-*.exe
 *.AppImage
 *.deb
 *.snap
+*.app/
+*.exe
+
 .env
 .env.*
 !.env.example
