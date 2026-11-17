@@ -96,49 +96,70 @@ export function ThinkingLevelsEditor({
   onChange: (next: ThinkingLevelMap | undefined) => void;
 }) {
   const t = useTranslations('settings');
-  /** Local UI truth of the master toggle: "on" iff the incoming map carries
-   * an override. Turning it off means "this model has no override at all" —
-   * rows disappear and `onChange(undefined)` fires; turning it back on
-   * re-seeds exactly like mount does. The switch is NOT derived from the
-   * `value` prop: while off the parent echoes `undefined` back, which would
-   * flip a prop-derived state straight on again mid-interaction. */
+  /** Local UI truth of the master toggle. The parent echoes emitted maps
+   * back through `value` — including the `undefined` this component fires on
+   * "off" — so a prop-derived switch would flip itself straight back on mid-
+   * interaction; it is seeded once from the mount map and then owned here.
+   * Turning off means "this model carries no override at all": rows clear and
+   * `onChange(undefined)` fires; turning back on re-seeds exactly like mount
+   * does, from the latest tracked truth (see `seedSource`). */
   const [enabled, setEnabled] = useState(() => value !== undefined);
-  /** Seed source for the toggle's re-seed: the map the component mounted with,
-   * so an off→on round-trip survives the parent echoing `undefined` back
-   * through `value`. User edits need no capture — every non-empty edit emits
-   * a map, and ModelTable's reasoning linkage remounts this subtree on the
-   * undefined→map transition, which reseeds from that fresh prop. */
+  /** Seed source for the toggle's re-seed: the LATEST map this component
+   * mounted with or emitted from its own rows. ModelTable keeps the instance
+   * alive across the expand toggle, so a mount-only snapshot would roll back
+   * post-mount edits on off→on (review fix, Important 1). */
   const seedSource = useRef<ThinkingLevelMap | undefined>(value);
-  const [rows, setRows] = useState<LevelRow[]>(() =>
-    enabled ? seedRows(value, levels) : [],
-  );
+  /** Rows the component OWNS (review fix, Important 1): the emitted map is
+   * only a projection of them, so while the master toggle is off — when the
+   * parent echoes `undefined` back — the rows must not be re-seeded from the
+   * prop. Seeding from `value` happens exactly once, at mount, and `value` is
+   * never adopted afterwards: ModelTable's draft map is stale while it does
+   * not echo an emit back, so adopting it would roll back every edit. A
+   * collapse/expand unmounts this component, so the next mount re-seeds from
+   * whatever the parent currently holds. */
+  const [rows, setRows] = useState<LevelRow[]>(() => seedRows(value, levels));
   const nextKey = useRef(rows.length);
 
   /** Apply a row edit, then emit a fresh map built from the result. An empty
    * map means "no override" → undefined. The updater form keeps `rows` fresh
    * across re-renders (a stale closure would drop edits made in the same
-   * tick, e.g. right after a Select commit closes the popup). */
+   * tick, e.g. right after a Select commit closes the popup). Every emitted
+   * truth — including `undefined` from deleting the last override — is
+   * tracked in `seedSource` at emit time, so an off→on round-trip re-seeds
+   * from the newest state even when the parent never echoes it back. */
   const commit = (edit: (prev: LevelRow[]) => LevelRow[]) => {
     setRows((prev) => {
       const next = edit(prev);
-      onChange(mapFromRows(next));
+      const map = mapFromRows(next);
+      seedSource.current = map;
+      onChange(map);
       return next;
     });
   };
 
-  /** Flip the master toggle. Off clears the rows and emits `undefined`; on
-   * re-seeds exactly like mount does, from the props' ORIGINAL truth kept in
-   * `seedSource`. */
+  /** Flip the master toggle. Off clears the rows and emits `undefined` —
+   * "this model carries no override at all" — but KEEPS the tracked truth in
+   * `seedSource`: that is what an off→on round-trip re-seeds from, so post-
+   * mount edits survive (review fix, Important 1). On re-seeds exactly like
+   * mount does, from the latest tracked truth. */
   const toggle = (next: boolean) => {
     setEnabled(next);
     if (!next) {
       setRows([]);
+      // No `seedSource` write here: the off-emit reports the current state
+      // ("no override"), it does not erase the user's row work.
       onChange(undefined);
       return;
     }
+    // Seed from the LATEST truth — never the stale prop. While off the
+    // parent echoes `undefined` back through `value`, so `seedRows(value,…)`
+    // would degrade to pure defaults and roll back every edit. An untouched
+    // round-trip still equals the mount seeding, both start from the same map.
     const seeded = seedRows(seedSource.current, levels);
+    const map = mapFromRows(seeded);
+    seedSource.current = map;
     setRows(seeded);
-    onChange(mapFromRows(seeded));
+    onChange(map);
   };
 
   /** The effective wire value for a tier, or the localized off fallback. */
@@ -153,14 +174,12 @@ export function ThinkingLevelsEditor({
         <span className="text-muted-foreground text-[10px] font-medium tracking-wider uppercase">
           {t('models.thinkingLevels')}
         </span>
-        {/* The switch's own label is a separate string from the title so RTL
-         * queries never collide; Base UI exposes it as the accessible name. */}
+        {/* The visible label text IS the switch's accessible name — the
+         * aria-label would be added on top of it and double the name
+         * ("启用推理等级覆盖 启用推理等级覆盖"). The title above is a separate
+         * string so RTL queries never collide with it. */}
         <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-          <Switch
-            checked={enabled}
-            onCheckedChange={toggle}
-            aria-label={t('models.thinkingLevelsToggle')}
-          />
+          <Switch checked={enabled} onCheckedChange={toggle} />
           {t('models.thinkingLevelsToggle')}
         </label>
       </div>

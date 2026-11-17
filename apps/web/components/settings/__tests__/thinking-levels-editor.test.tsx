@@ -40,7 +40,7 @@ const levelsSeed: ThinkingLevelInfo[] = [
 ];
 
 describe('ThinkingLevelsEditor seeding', () => {
-  it('renders rows for overridden ∪ supported levels with defaults as placeholders', () => {
+  it('renders rows for overridden ∪ supported levels with defaults as placeholders', async () => {
     render(
       <ThinkingLevelsEditor value={undefined} levels={levelsSeed} onChange={() => {}} />,
     );
@@ -77,7 +77,7 @@ describe('ThinkingLevelsEditor seeding', () => {
     expect(inputs[3]).toHaveAttribute('placeholder', 'medium');
   });
 
-  it('falls back to all seven tiers when the model carries no levels info', () => {
+  it('falls back to all seven tiers when the model carries no levels info', async () => {
     render(<ThinkingLevelsEditor value={undefined} levels={undefined} onChange={() => {}} />);
     clickSwitch();
     expect(screen.getAllByRole('combobox', { name: /档位 \d+$/ })).toHaveLength(7);
@@ -203,10 +203,10 @@ describe('ThinkingLevelsEditor row semantics', () => {
 });
 
 describe('ThinkingLevelsEditor master toggle', () => {
-  /** The switch is a controlled surface: ModelTable remounts the editor when
-   * the draft map goes undefined→map (its reasoning linkage), so each case
-   * renders its own tree. jsdom's accessibility tree resolves the labelled
-   * text and `aria-label` twice, hence the regex name. */
+  /** The switch owns its state locally — the parent echoes emitted maps back
+   * through `value` (including the off-emit's `undefined`), so it must not be
+   * prop-derived; each case renders its own tree. The switch's name comes
+   * from its visible label text only, hence the exact-string query below. */
   it('renders checked when value is a non-empty map, unchecked when absent', () => {
     const { unmount } = render(
       <ThinkingLevelsEditor
@@ -215,7 +215,9 @@ describe('ThinkingLevelsEditor master toggle', () => {
         onChange={() => {}}
       />,
     );
-    expect(screen.getByRole('switch', { name: /启用推理等级覆盖/ })).toBeChecked();
+    // Exact name: an `aria-label` on top of the visible label text would
+    // double it to "启用推理等级覆盖 启用推理等级覆盖" and fail here.
+    expect(screen.getByRole('switch', { name: '启用推理等级覆盖' })).toBeChecked();
     // The title and the switch label are separate strings so RTL queries
     // never collide (ruling from the 6a report).
     expect(screen.getByText('推理等级')).toBeTruthy();
@@ -226,7 +228,7 @@ describe('ThinkingLevelsEditor master toggle', () => {
     expect(screen.getByRole('switch', { name: /启用推理等级覆盖/ })).not.toBeChecked();
   });
 
-  it('turning off emits undefined and removes every row', () => {
+  it('turning off emits undefined and removes every row', async () => {
     const changes: Array<ThinkingLevelMap | undefined> = [];
     render(
       <ThinkingLevelsEditor
@@ -242,7 +244,8 @@ describe('ThinkingLevelsEditor master toggle', () => {
     expect(screen.queryByRole('button', { name: '添加档位' })).toBeNull();
   });
 
-  it('turning back on re-seeds the rows exactly like mount does', () => {
+  it('turning back on re-seeds the rows exactly like mount does', async () => {
+    const user = userEvent.setup();
     const changes: Array<ThinkingLevelMap | undefined> = [];
     function Harness() {
       // Echoes the emitted map back through `value`, like ModelTable does.
@@ -261,12 +264,69 @@ describe('ThinkingLevelsEditor master toggle', () => {
       );
     }
     render(<Harness />);
+    await user.click(screen.getByRole('button', { name: '删除推理等级行 1' }));
+    expect(changes.at(-1)).toBeUndefined();
     clickSwitch();
     clickSwitch();
-    // Same seeding rule as mount: overrides first, then supported defaults —
-    // low (override), off, medium, high; the emitted map still carries low.
+    // Same seeding rule as mount — off, low, medium, high — but the tracked
+    // truth is the post-deletion `{}` (Important 1), so no box carries a
+    // value and the emitted map stays "no override".
     expect(screen.getAllByRole('combobox', { name: /档位 \d+$/ })).toHaveLength(4);
-    expect(screen.getByLabelText('API 参数值 1')).toHaveValue('custom');
-    expect(changes.at(-1)).toMatchObject({ low: 'custom' });
+    for (const n of ['1', '2', '3', '4']) {
+      expect(screen.getByLabelText(`API 参数值 ${n}`)).toHaveValue('');
+    }
+    expect(changes.at(-1)).toBeUndefined();
+  });
+
+  it('re-seeds from the LATEST edit, not the mount snapshot', async () => {
+    // Review fix (Important 1): ModelTable keeps this component instance
+    // alive across the expand toggle, so a mount-only seed would roll back
+    // post-mount edits on off→on. The harness does NOT echo `value` back —
+    // that is exactly ModelTable's behaviour: the draft map stays stale while
+    // the section is off, and the re-seed must come from the tracked truth.
+    const user = userEvent.setup();
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    render(
+      <ThinkingLevelsEditor
+        value={{ low: 'custom' }}
+        levels={levelsSeed}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    await user.clear(screen.getByLabelText('API 参数值 1'));
+    await user.type(screen.getByLabelText('API 参数值 1'), 'v2');
+    expect(changes.at(-1)).toEqual({ low: 'v2' });
+    clickSwitch();
+    expect(changes.at(-1)).toBeUndefined();
+    clickSwitch();
+    // Rows carry the latest truth again; an untouched default row emits no
+    // key, so the map equals `{ low: 'v2' }` exactly.
+    expect(screen.getAllByRole('combobox', { name: /档位 \d+$/ })).toHaveLength(4);
+    expect(screen.getByLabelText('API 参数值 1')).toHaveValue('v2');
+    expect(changes.at(-1)).toEqual({ low: 'v2' });
+  });
+
+  it('a deleted override stays deleted after an off→on round-trip', async () => {
+    // The other half of Important 1: deleting every override emits
+    // `undefined`; that empty truth must NOT resurrect the mount map. Same
+    // non-echoing harness as above.
+    const user = userEvent.setup();
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    render(
+      <ThinkingLevelsEditor
+        value={{ low: 'custom' }}
+        levels={levelsSeed}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '删除推理等级行 1' }));
+    expect(changes.at(-1)).toBeUndefined();
+    clickSwitch();
+    expect(changes.at(-1)).toBeUndefined();
+    clickSwitch();
+    expect(changes.at(-1)).toBeUndefined();
+    // Re-seeded defaults carry no explicit values → still no override, and
+    // the deleted tier is not back with its old value.
+    expect(screen.getByLabelText('API 参数值 1')).toHaveValue('');
   });
 });

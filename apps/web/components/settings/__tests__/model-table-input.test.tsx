@@ -242,9 +242,9 @@ describe('thinking levels editor mounted in the expand area', () => {
     }
     render(<Harness />);
     fireEvent.click(screen.getByLabelText('展开模型 1'));
-    // The master toggle starts off for a row without a stored map — turn the
-    // section on first; the seed rows carry no explicit values, so the map
-    // only becomes non-empty once the added tier's row is picked.
+    // Review fix (Critical 1): the greyed section must stay INTERACTIVE —
+    // this whole path runs inside it. The master toggle starts off for a row
+    // without a stored map; enabling it seeds rows but emits no override yet.
     await user.click(screen.getByRole('switch', { name: /启用推理等级覆盖/ }));
     await user.click(screen.getByRole('button', { name: '添加档位' }));
     await user.click(screen.getByRole('combobox', { name: '档位 2' }));
@@ -260,7 +260,7 @@ describe('thinking levels editor mounted in the expand area', () => {
     );
   });
 
-  it('greys the section while reasoning is off, and clears the grey once it is on', () => {
+  it('greys the section while reasoning is off, keeps it interactive, and names it as a group', () => {
     // Two tables in one render: index 0 = reasoning off, index 1 = on. The
     // aria-label only exists to label this wrapper; the editor keeps its own
     // `推理等级` heading.
@@ -273,16 +273,19 @@ describe('thinking levels editor mounted in the expand area', () => {
     const expandButtons = screen.getAllByLabelText('展开模型 1');
     fireEvent.click(expandButtons[0]!);
     fireEvent.click(expandButtons[1]!);
-    const [offSection, onSection] = screen.getAllByLabelText('推理等级设置');
-    expect(offSection).toHaveAttribute('aria-disabled', 'true');
+    // Review fix (Critical 1): role=group gives the labelled div an accessible
+    // name; opacity-60 is the ONLY muting — no inert, no aria-disabled, so
+    // the auto-enable interaction stays reachable for mouse and keyboard.
+    const [offSection, onSection] = screen.getAllByRole('group', {
+      name: '推理等级设置',
+    });
     expect(offSection!.className).toContain('opacity-60');
-    // `inert` is what actually stops edits: pi-ai ignores the map for a
-    // non-reasoning model, so the section must not be operable at all. React
-    // 19 serializes the boolean prop as the empty-string attribute form.
-    expect(offSection!.hasAttribute('inert')).toBe(true);
-    expect(onSection).not.toHaveAttribute('aria-disabled');
-    expect(onSection!.hasAttribute('inert')).toBe(false);
+    expect(offSection!.hasAttribute('inert')).toBe(false);
+    expect(offSection).not.toHaveAttribute('aria-disabled');
     expect(onSection!.className).not.toContain('opacity-60');
+    // An explanatory line appears exactly while reasoning is off.
+    expect(offSection!.textContent).toContain('开启推理后生效');
+    expect(onSection!.textContent).not.toContain('开启推理后生效');
   });
 
   it('turning reasoning back off keeps the stored map and leaves the section greyed', () => {
@@ -305,9 +308,17 @@ describe('thinking levels editor mounted in the expand area', () => {
     const patched = changes.at(-1)?.[0];
     expect(patched?.reasoning).toBe(false);
     expect(patched?.thinkingLevelMap).toEqual({ low: 'custom' });
-    const section = screen.getByLabelText('推理等级设置');
-    expect(section).toHaveAttribute('aria-disabled', 'true');
+    const section = screen.getByRole('group', { name: '推理等级设置' });
     expect(section.className).toContain('opacity-60');
-    expect(section.hasAttribute('inert')).toBe(true);
+    expect(section.hasAttribute('inert')).toBe(false);
+  });
+
+  it('a model that was always reasoning does not show the auto-enable hint', () => {
+    // Review fix (Important 2): the hint binds to the auto-enable EVENT, not
+    // to reasoning being on. This row mounts with reasoning already true and
+    // nothing edits the map, so no event fired and no hint may render.
+    render(<ModelTable models={[editorRow()]} onChange={() => {}} />);
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    expect(screen.queryByText('已自动开启推理')).toBeNull();
   });
 });

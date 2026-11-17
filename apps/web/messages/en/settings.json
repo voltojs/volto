@@ -138,6 +138,7 @@
     "unsupported": "Unsupported",
     "inheritDefault": "empty inherits the default",
     "autoReasoning": "reasoning enabled automatically",
+    "autoReasoningHint": "takes effect once reasoning is enabled",
     "hint": "the value is sent in the endpoint dialect's reasoning parameter field",
     "levelOff": "No thinking",
     "deleteLevel": "Delete reasoning level row {n}"

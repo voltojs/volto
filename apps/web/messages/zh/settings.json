@@ -138,6 +138,7 @@
     "unsupported": "不支持",
     "inheritDefault": "留空继承默认",
     "autoReasoning": "已自动开启推理",
+    "autoReasoningHint": "开启推理后生效",
     "hint": "值发进该端点方言的推理参数字段",
     "levelOff": "关闭思考",
     "deleteLevel": "删除推理等级行 {n}"
