@@ -135,13 +135,16 @@ export class GatewayController {
       return { ok: false, error: "网关不存在" };
     }
 
-    // An empty token input means "keep the stored one"; switching to a local
-    // profile drops it, because a local gateway supplies its own token.
-    const token =
-      normalized.value.token ??
-      (normalized.value.kind === "remote" || !normalized.value.managed
-        ? existing?.token
-        : undefined);
+    // An empty token input means "keep the stored one" only while the
+    // credential still belongs to this destination: a changed origin or kind
+    // drops it, so a token is never sent to a host it was not issued for.
+    const sameDestination =
+      existing !== undefined &&
+      existing.kind === normalized.value.kind &&
+      existing.url === normalized.value.url;
+    const canReuseToken =
+      sameDestination && (normalized.value.kind === "remote" || !normalized.value.managed);
+    const token = normalized.value.token ?? (canReuseToken ? existing?.token : undefined);
     const profile: GatewayProfile = {
       id: draft.id ?? this.idFactory(),
       label: normalized.value.label,
@@ -151,11 +154,16 @@ export class GatewayController {
       ...(token !== undefined && token !== "" ? { token } : {}),
     };
 
+    const previous = this.persisted;
     this.persisted = {
       profiles: upsertProfile(this.persisted.profiles, profile),
       activeProfileId: this.persisted.activeProfileId,
     };
-    await this.persist();
+    const persistError = await this.persist();
+    if (persistError !== undefined) {
+      this.persisted = previous;
+      return { ok: false, error: `保存网关设置失败：${persistError}` };
+    }
 
     if (this.persisted.activeProfileId === profile.id) {
       await this.connect(profile.id);
@@ -169,8 +177,13 @@ export class GatewayController {
     const result = removeProfileRule(this.persisted.profiles, id, this.persisted.activeProfileId);
     if (!result.ok) return { ok: false, error: result.error };
     const activeRemoved = this.persisted.activeProfileId === id;
+    const previous = this.persisted;
     this.persisted = { profiles: result.profiles, activeProfileId: result.activeProfileId };
-    await this.persist();
+    const persistError = await this.persist();
+    if (persistError !== undefined) {
+      this.persisted = previous;
+      return { ok: false, error: `删除网关失败：${persistError}` };
+    }
 
     if (activeRemoved) {
       await this.connect(result.activeProfileId);
@@ -191,8 +204,18 @@ export class GatewayController {
       return;
     }
     if (this.persisted.activeProfileId !== id) {
+      const previous = this.persisted;
       this.persisted = { ...this.persisted, activeProfileId: id };
-      await this.persist();
+      const persistError = await this.persist();
+      if (persistError !== undefined) {
+        this.persisted = previous;
+        this.setStatus({
+          state: "offline",
+          profileId: previous.activeProfileId,
+          error: `保存网关设置失败：${persistError}`,
+        });
+        return;
+      }
     }
     await this.connect(id);
   }
@@ -298,15 +321,13 @@ export class GatewayController {
     this.emit({ type: "navigate", url: entryUrl, profileId: profile.id });
   }
 
-  private async persist(): Promise<void> {
+  /** Save, reporting the failure to the caller instead of hiding it. */
+  private async persist(): Promise<string | undefined> {
     try {
       await this.deps.store.save(this.persisted);
+      return undefined;
     } catch (error) {
-      this.setStatus({
-        state: "offline",
-        profileId: this.persisted.activeProfileId,
-        error: `保存网关设置失败：${messageOf(error)}`,
-      });
+      return messageOf(error);
     }
   }
 

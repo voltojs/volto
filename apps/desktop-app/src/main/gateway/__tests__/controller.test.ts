@@ -278,6 +278,71 @@ describe("GatewayController", () => {
     expect(h.supervisor.starts.length).toBe(startsBefore + 1);
   });
 
+  it("reports a failed write and keeps the previous profiles", async () => {
+    const h = harness();
+    await h.controller.init();
+    const before = h.controller.getState().profiles;
+    h.store.save = async () => {
+      throw new Error("EACCES: read-only file system");
+    };
+
+    expect(
+      await h.controller.saveProfile({ label: "New", kind: "remote", url: "https://new.example.com" }),
+    ).toEqual({ ok: false, error: "保存网关设置失败：EACCES: read-only file system" });
+    expect(h.controller.getState().profiles).toEqual(before);
+  });
+
+  it("drops a stored token when the remote origin changes", async () => {
+    const h = harness({
+      store: {
+        profiles: [defaultPersistedProfiles().profiles[0]!, remote()],
+        activeProfileId: "local",
+      },
+    });
+    await h.controller.init();
+
+    const result = await h.controller.saveProfile({
+      id: "remote",
+      label: "Remote",
+      kind: "remote",
+      url: "https://other.example.com",
+    });
+    expect(result.ok).toBe(true);
+    expect(h.store.value().profiles[1]).toMatchObject({ url: "https://other.example.com" });
+    expect(h.store.value().profiles[1]).not.toHaveProperty("token");
+    expect(h.controller.getState().profiles[1]?.hasToken).toBe(false);
+  });
+
+  it("stops a managed gateway that finishes starting after a switch", async () => {
+    let resolveStart: ((running: RunningGateway) => void) | undefined;
+    let stopped = 0;
+    const store: PersistedProfiles = {
+      profiles: [defaultPersistedProfiles().profiles[0]!, remote()],
+      activeProfileId: "local",
+    };
+    const h = harness({ store });
+    h.supervisor.start = () =>
+      new Promise<RunningGateway>((resolve) => {
+        resolveStart = resolve;
+      });
+
+    const init = h.controller.init();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await h.controller.switchProfile("remote");
+    resolveStart?.({
+      url: "http://127.0.0.1:5555",
+      token: "late",
+      degraded: false,
+      stop: async () => {
+        stopped += 1;
+      },
+    });
+    await init;
+
+    expect(stopped).toBe(1);
+    expect(h.controller.getState().status).toMatchObject({ state: "online", profileId: "remote" });
+  });
+
   it("refuses to remove the last profile", async () => {
     const h = harness();
     await h.controller.init();

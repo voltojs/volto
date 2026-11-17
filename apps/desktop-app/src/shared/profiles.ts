@@ -147,6 +147,12 @@ function isProfile(value: unknown): value is GatewayProfile {
   if (typeof entry["managed"] !== "boolean") return false;
   if (entry["kind"] === "remote" && entry["url"] === "") return false;
   if (entry["kind"] === "local" && entry["managed"] === false && entry["url"] === "") return false;
+  // A hand-edited file must not smuggle a non-http origin into the content
+  // view: `loadGateway` builds an origin from it before navigating.
+  if (entry["url"] !== "") {
+    const normalized = normalizeGatewayUrl(entry["url"]);
+    if (!normalized.ok) return false;
+  }
   if (entry["token"] !== undefined && typeof entry["token"] !== "string") return false;
   return true;
 }

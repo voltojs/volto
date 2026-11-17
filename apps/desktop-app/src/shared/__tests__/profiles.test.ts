@@ -200,6 +200,21 @@ describe("sanitizePersistedProfiles", () => {
     });
   });
 
+  it("drops an entry whose url is not an http origin", () => {
+    const raw = {
+      profiles: [
+        { id: "a", label: "A", kind: "remote", url: "file:///etc/passwd", managed: false },
+        { id: "b", label: "B", kind: "remote", url: "not a url", managed: false },
+        { id: "c", label: "C", kind: "local", url: "", managed: true },
+      ],
+      activeProfileId: "a",
+    };
+    expect(sanitizePersistedProfiles(raw, fallback)).toEqual({
+      profiles: [{ id: "c", label: "C", kind: "local", url: "", managed: true }],
+      activeProfileId: "c",
+    });
+  });
+
   it("drops duplicate ids", () => {
     const raw = {
       profiles: [
