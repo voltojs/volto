@@ -242,6 +242,10 @@ describe('thinking levels editor mounted in the expand area', () => {
     }
     render(<Harness />);
     fireEvent.click(screen.getByLabelText('展开模型 1'));
+    // The master toggle starts off for a row without a stored map — turn the
+    // section on first; the seed rows carry no explicit values, so the map
+    // only becomes non-empty once the added tier's row is picked.
+    await user.click(screen.getByRole('switch', { name: /启用推理等级覆盖/ }));
     await user.click(screen.getByRole('button', { name: '添加档位' }));
     await user.click(screen.getByRole('combobox', { name: '档位 2' }));
     await user.click(await screen.findByRole('option', { name: 'max' }));
