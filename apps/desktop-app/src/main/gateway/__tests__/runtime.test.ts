@@ -63,6 +63,17 @@ describe("gatewayEntryCandidates", () => {
     expect(candidates[3]).toEqual({ kind: "binary", path: "/usr/local/bin/volto" });
   });
 
+  it("does not offer a Windows .cmd shim that a bare spawn cannot run", () => {
+    const candidates = gatewayEntryCandidates({
+      env: { PATH: "C:\\Program Files\\nodejs" },
+      isPackaged: false,
+      appPath: "C:\\repo\\apps\\desktop-app",
+      resourcesPath: "C:\\repo\\Resources",
+      platform: "win32",
+    });
+    expect(candidates.every((entry) => !entry.path.toLowerCase().endsWith(".cmd"))).toBe(true);
+  });
+
   it("treats a non-script env override as a binary", () => {
     const candidates = gatewayEntryCandidates({
       env: { VOLTO_GATEWAY_BIN: "/opt/homebrew/bin/volto" },

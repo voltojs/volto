@@ -19,11 +19,15 @@ export interface ProbeOptions {
 }
 
 function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    if (error.name === "TimeoutError" || error.name === "AbortError") return "请求超时";
-    return error.message === "" ? String(error) : error.message;
+  if (!(error instanceof Error)) return String(error);
+  if (error.name === "TimeoutError" || error.name === "AbortError") return "请求超时";
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    const code = (cause as { code?: unknown }).code;
+    const detail = typeof code === "string" ? code : cause.message;
+    if (detail !== "") return `${error.message}（${detail}）`;
   }
-  return String(error);
+  return error.message === "" ? String(error) : error.message;
 }
 
 function timeoutSignal(timeoutMs: number): AbortSignal {

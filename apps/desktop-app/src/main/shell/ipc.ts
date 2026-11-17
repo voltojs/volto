@@ -17,8 +17,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message !== "" ? error.message : String(error);
 }
 
-const HTTP_URL = /^https?:\/\//i;
-
 export function registerShellIpc(options: {
   controller: GatewayController;
   shell: ShellWindow;
@@ -52,10 +50,5 @@ export function registerShellIpc(options: {
   handle("shell:open-in-browser", () => {
     const url = controller.lastEntryUrl();
     if (url !== undefined) shell.openExternal(url);
-  });
-  handle("shell:open-external", async (_event, url) => {
-    const target = typeof url === "string" ? url : "";
-    if (!HTTP_URL.test(target)) return;
-    shell.openExternal(target);
   });
 }

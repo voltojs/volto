@@ -70,6 +70,7 @@ export function gatewayEntryCandidates(o: {
   isPackaged: boolean;
   appPath: string;
   resourcesPath: string;
+  platform?: NodeJS.Platform;
 }): GatewayEntry[] {
   const candidates: GatewayEntry[] = [];
   const push = (entry: GatewayEntry): void => {
@@ -85,7 +86,10 @@ export function gatewayEntryCandidates(o: {
   }
   push({ kind: "script", path: path.resolve(o.appPath, "..", "gateway", "dist", "bin.js") });
 
-  const names = process.platform === "win32" ? ["volto.cmd", "volto.exe", "volto"] : ["volto"];
+  // npm installs `volto.cmd` on Windows, but a `.cmd` cannot be spawned
+  // without a shell, and this supervisor deliberately never uses one. Windows
+  // users point VOLTO_GATEWAY_BIN at the gateway's bin.js instead.
+  const names = (o.platform ?? process.platform) === "win32" ? ["volto.exe"] : ["volto"];
   for (const dir of pathEntries(o.env["PATH"])) {
     for (const name of names) push({ kind: "binary", path: path.join(dir, name) });
   }

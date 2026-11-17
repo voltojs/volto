@@ -26,6 +26,22 @@ async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Artifacts must never carry a credential, not even a smoke-run one. */
+function redactUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.searchParams.has("token")) url.searchParams.set("token", "redacted");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function publicDraft(draft: ProfileDraft): Record<string, unknown> {
+  const { token, ...rest } = draft;
+  return { ...rest, hasToken: token !== undefined && token !== "" };
+}
+
 async function waitForTerminal(controller: GatewayController, timeoutMs: number): Promise<void> {
   const started = Date.now();
   for (;;) {
@@ -70,8 +86,8 @@ export async function runSmoke(options: {
   const report = {
     status: state.status,
     activeProfileId: state.activeProfileId,
-    shellUrl: options.shell.shellView.webContents.getURL(),
-    contentUrl: options.shell.contentView.webContents.getURL(),
+    shellUrl: redactUrl(options.shell.shellView.webContents.getURL()),
+    contentUrl: redactUrl(options.shell.contentView.webContents.getURL()),
     contentTitle: options.shell.contentView.webContents.getTitle(),
     shellBounds: options.shell.shellView.getBounds(),
     contentBounds: options.shell.contentView.getBounds(),
@@ -110,10 +126,10 @@ export async function runSmoke(options: {
       path.join(options.outputDir, "switch.json"),
       `${JSON.stringify(
         {
-          wanted: draft,
+          wanted: publicDraft(draft),
           activeProfileId: switched.activeProfileId,
           status: switched.status,
-          contentUrl: options.shell.contentView.webContents.getURL(),
+          contentUrl: redactUrl(options.shell.contentView.webContents.getURL()),
           contentTitle: options.shell.contentView.webContents.getTitle(),
         },
         null,

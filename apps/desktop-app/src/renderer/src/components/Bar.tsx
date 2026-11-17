@@ -51,6 +51,7 @@ function BarButton(props: {
 export function Bar({ state }: { state: ShellState }) {
   const active = state.profiles.find((profile) => profile.id === state.activeProfileId);
   const online = state.status.state === "online";
+  const starting = state.status.state === "starting";
   const api = window.voltoShell;
 
   return (
@@ -77,6 +78,7 @@ export function Bar({ state }: { state: ShellState }) {
       <div className="no-drag ml-auto flex items-center gap-1">
         <BarButton
           label={online ? "重新加载界面" : "重试连接"}
+          disabled={starting}
           onClick={() => void (online ? api.reload() : api.retry())}
         >
           <RotateCw className="size-4" />
