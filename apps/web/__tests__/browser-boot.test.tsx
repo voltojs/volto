@@ -8,6 +8,7 @@ import {
   browserBootScript,
   LOCALE_ATTRIBUTE,
   readBrowserBoot,
+  SHELL_ATTRIBUTE,
   THEME_ATTRIBUTE,
 } from '@/lib/browser-boot';
 
@@ -18,13 +19,14 @@ function runBoot(options: {
   cookie?: string;
   languages?: readonly string[];
   dark?: boolean;
+  search?: string;
 }) {
   const root = document.createElement('html');
   const matchMedia = vi.fn(() => ({ matches: options.dark ?? false }));
   const scope = {
     document: { cookie: options.cookie ?? '', documentElement: root },
     navigator: { languages: options.languages ?? [] },
-    window: { matchMedia },
+    window: { matchMedia, location: { search: options.search ?? '' } },
   };
   new Function('document', 'navigator', 'window', browserBootScript())(
     scope.document,
@@ -38,6 +40,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.documentElement.removeAttribute(THEME_ATTRIBUTE);
   document.documentElement.removeAttribute(LOCALE_ATTRIBUTE);
+  document.documentElement.removeAttribute(SHELL_ATTRIBUTE);
 });
 
 describe('browserBootScript', () => {
@@ -78,6 +81,30 @@ describe('browserBootScript', () => {
     expect(light.matchMedia).not.toHaveBeenCalled();
   });
 
+  it('lets the desktop host override the cookies from the URL', () => {
+    const { root } = runBoot({
+      cookie: 'volto_locale=zh; volto_theme=light',
+      languages: ['zh-CN'],
+      search: '?volto_shell=desktop&volto_theme=dark&volto_locale=en',
+    });
+
+    expect(root.getAttribute(THEME_ATTRIBUTE)).toBe('dark');
+    expect(root.getAttribute(LOCALE_ATTRIBUTE)).toBe('en');
+    expect(root.getAttribute(SHELL_ATTRIBUTE)).toBe('desktop');
+    expect(root.getAttribute('lang')).toBe('en');
+    expect(root.classList.contains('dark')).toBe(true);
+  });
+
+  it('ignores desktop parameters the web build does not know', () => {
+    const { root } = runBoot({
+      search: '?volto_shell=web&volto_theme=sepia&volto_locale=fr',
+    });
+
+    expect(root.getAttribute(THEME_ATTRIBUTE)).toBe('system');
+    expect(root.getAttribute(LOCALE_ATTRIBUTE)).toBe('zh');
+    expect(root.getAttribute(SHELL_ATTRIBUTE)).toBe('web');
+  });
+
   it('defines the runtime config default without overriding an injected one', () => {
     const scope = {
       document: { cookie: '', documentElement: document.createElement('html') },
@@ -107,10 +134,19 @@ describe('readBrowserBoot', () => {
     document.documentElement.setAttribute(LOCALE_ATTRIBUTE, 'en');
     document.documentElement.setAttribute(THEME_ATTRIBUTE, 'dark');
 
-    expect(readBrowserBoot()).toEqual({ locale: 'en', theme: 'dark' });
+    document.documentElement.setAttribute(SHELL_ATTRIBUTE, 'desktop');
+    expect(readBrowserBoot()).toEqual({
+      locale: 'en',
+      theme: 'dark',
+      shell: 'desktop',
+    });
   });
 
   it('defaults when the script never ran', () => {
-    expect(readBrowserBoot()).toEqual({ locale: 'zh', theme: 'system' });
+    expect(readBrowserBoot()).toEqual({
+      locale: 'zh',
+      theme: 'system',
+      shell: 'web',
+    });
   });
 });

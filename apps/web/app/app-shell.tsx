@@ -31,7 +31,7 @@ export default function AppShell() {
       <ThemeProvider initialTheme={boot.theme}>
         <TooltipProvider>
           <div className="bg-background flex h-screen">
-            <Sidebar />
+            <Sidebar desktop={boot.shell === 'desktop'} />
             <div className="flex min-w-0 flex-1 flex-col">
               <ChatPanel />
             </div>

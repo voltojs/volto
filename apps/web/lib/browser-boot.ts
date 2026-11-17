@@ -34,12 +34,17 @@ import {
 export const THEME_ATTRIBUTE = 'data-volto-theme';
 /** `<html data-volto-locale>` — the locale the page booted with. */
 export const LOCALE_ATTRIBUTE = 'data-volto-locale';
+/** `<html data-volto-shell>` — `desktop` inside the Tauri host, else `web`. */
+export const SHELL_ATTRIBUTE = 'data-volto-shell';
+
+export type ShellSurface = 'desktop' | 'web';
 /** Where `public/volto-config.js` is served from. */
 export const CONFIG_SCRIPT_URL = '/volto-config.js';
 
 export interface BrowserBoot {
   locale: Locale;
   theme: ThemePreference;
+  shell: ShellSurface;
 }
 
 /** `["a", "b"]` — a JavaScript array literal inside the inline script. */
@@ -58,7 +63,11 @@ export function readBrowserBoot(
     : document.documentElement,
 ): BrowserBoot {
   if (root === null) {
-    return { theme: 'system', locale: resolveInitialLocale({}) };
+    return {
+      theme: 'system',
+      locale: resolveInitialLocale({}),
+      shell: 'web',
+    };
   }
   const theme = root.getAttribute(THEME_ATTRIBUTE);
   return {
@@ -66,6 +75,7 @@ export function readBrowserBoot(
     locale: resolveInitialLocale({
       cookie: root.getAttribute(LOCALE_ATTRIBUTE) ?? undefined,
     }),
+    shell: root.getAttribute(SHELL_ATTRIBUTE) === 'desktop' ? 'desktop' : 'web',
   };
 }
 
@@ -74,9 +84,11 @@ export function readBrowserBoot(
  *
  * Everything it needs is inlined as literals — it runs during HTML parsing,
  * before any module bundle exists — exactly like `sidebarWidthRestoreScript`.
- * It resolves the same way the providers do: `volto_locale` cookie, else the
- * first shipped primary subtag of `navigator.languages`, else the default;
- * `volto_theme` cookie, else `system`.
+ * It resolves the same way the providers do, with the desktop host's query
+ * parameters taking precedence: `volto_locale`/`volto_theme` from the URL,
+ * then the cookies, then `navigator.languages`/`system`. `volto_shell=desktop`
+ * publishes the surface the layout adapts to (traffic-light corner, drag
+ * regions) without changing the web deployment's defaults.
  */
 export function browserBootScript(): string {
   const shipped = jsLiterals(Object.keys(LOCALE_TAG));
@@ -88,9 +100,15 @@ export function browserBootScript(): string {
     `var c='; '+document.cookie,i=c.indexOf('; '+name+'=');` +
     `if(i<0)return null;i+=name.length+3;` +
     `var j=c.indexOf(';',i);return j<0?c.slice(i):c.slice(i,j)};` +
-    `var theme=get('${THEME_COOKIE}');` +
+    `var search='';try{search=(window.location&&window.location.search)||''}catch(e){}` +
+    `var params=new URLSearchParams(search);` +
+    `var paramTheme=params.get('volto_theme');` +
+    `if(${jsLiterals(THEME_VALUES)}.indexOf(paramTheme)<0)paramTheme=null;` +
+    `var theme=paramTheme||get('${THEME_COOKIE}');` +
     `if(${jsLiterals(THEME_VALUES)}.indexOf(theme)<0)theme='system';` +
-    `var locale=get('${LOCALE_COOKIE}');` +
+    `var paramLocale=params.get('volto_locale');` +
+    `if(${shipped}.indexOf(paramLocale)<0)paramLocale=null;` +
+    `var locale=paramLocale||get('${LOCALE_COOKIE}');` +
     `if(${shipped}.indexOf(locale)<0)locale=null;` +
     `if(!locale){` +
     `var langs=navigator.languages||[];` +
@@ -101,6 +119,7 @@ export function browserBootScript(): string {
     `var root=document.documentElement;` +
     `root.setAttribute('${THEME_ATTRIBUTE}',theme);` +
     `root.setAttribute('${LOCALE_ATTRIBUTE}',locale);` +
+    `root.setAttribute('${SHELL_ATTRIBUTE}',params.get('volto_shell')==='desktop'?'desktop':'web');` +
     `root.setAttribute('lang',${localeTags}[locale]);` +
     `var dark=theme==='system'` +
     `?!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)` +

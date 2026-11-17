@@ -57,7 +57,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ desktop = false }: { desktop?: boolean }) {
   const t = useTranslations('sidebar');
   const sidebarOpen = useSessionStore((s) => s.sidebarOpen);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
@@ -154,6 +154,12 @@ export function Sidebar() {
         className="border-sidebar-border flex h-full shrink-0 flex-col border-r"
         style={{ width: 'calc(var(--volto-sidebar-width) - 4px)' }}
       >
+        {/* Desktop traffic lights float over this corner; the strip also
+            provides a drag handle for the overlay title bar. */}
+        {desktop ? (
+          <div data-tauri-drag-region className="h-11 shrink-0" />
+        ) : null}
+
         {/* Nameplate */}
         <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
           <svg
