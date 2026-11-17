@@ -118,15 +118,15 @@ export function createShellWindow(options: CreateShellWindowOptions): ShellWindo
   // Everything else leaves for the system browser.
   const allowNavigation = (url: string): boolean => isAllowedNavigation(gatewayOrigin, url);
 
-  contentView.webContents.on("will-navigate", (event, url) => {
-    if (allowNavigation(url)) return;
+  contentView.webContents.on("will-navigate", (event) => {
+    if (allowNavigation(event.url)) return;
     event.preventDefault();
-    if (isHttpUrl(url)) void shell.openExternal(url);
+    if (isHttpUrl(event.url)) void shell.openExternal(event.url);
   });
-  contentView.webContents.on("will-redirect", (event, url) => {
-    if (allowNavigation(url)) return;
+  contentView.webContents.on("will-redirect", (event) => {
+    if (allowNavigation(event.url)) return;
     event.preventDefault();
-    if (isHttpUrl(url)) void shell.openExternal(url);
+    if (isHttpUrl(event.url)) void shell.openExternal(event.url);
   });
   // Subframes do not emit `will-navigate`; without this a gateway page could
   // frame an arbitrary origin inside the sandboxed session.
