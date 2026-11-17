@@ -346,14 +346,22 @@ right header exposes a drag region and, while the sidebar is collapsed, left pad
 traffic lights. The preference itself lives in the desktop's profile store (same file as the
 profiles, 0600), so it survives switches and restarts; the View menu updates it, persists it,
 rebuilds the native menu, retitles both windows, and navigates the main window to the same
-gateway with the new parameters. The settings window reacts live through `shell:state`.
+gateway with the new parameters. The settings window reacts live through `shell:state`. Because the URL parameters are a
+desktop *override*, the web app skips its stored gateway preference (theme/locale) while
+they are present; otherwise a saved gateway preference would immediately flip the page back.
+Within the desktop shell the View menu is therefore the authoritative theme/language control.
 
-On macOS the main window uses `TitleBarStyle::Overlay` with a hidden title and custom
-traffic-light position, so the right pane uses the full height. Windows/Linux keep the native
-title bar.
+On macOS the main window uses `TitleBarStyle::Overlay` with a hidden title, so the right pane
+uses the full height. The traffic lights keep AppKit's native position: overriding
+`trafficLightPosition` makes them transparent while the window is inactive. The sidebar
+reserves their corner; fullscreen publishes `data-volto-fullscreen` (from `Resized`, re-checked
+after the animation) and the web drops the reserved strip/padding. Windows/Linux keep the
+native title bar.
 
-`src-tauri/capabilities/default.json` grants IPC to the `settings` webview only; the main
-window hosts remote content and therefore has no bridge. The main window's navigation
+`src-tauri/capabilities/default.json` grants app commands to the `settings` webview only; the
+main window has a separate capability (`main-window.json`) limited to `start_dragging` and
+`internal_toggle_maximize` so the web drag regions work. Remote content cannot call the
+desktop's commands: every command checks the caller label is `settings`. The main window's navigation
 allow-list contains the app origin and the current gateway origin; other http(s) targets go
 to the system browser. The settings window only navigates on the app origin.
 

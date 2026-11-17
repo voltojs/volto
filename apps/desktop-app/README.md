@@ -7,9 +7,11 @@
 - **主窗口**：一个 webview，加载当前网关托管的 UI（`http://<gateway>/`）。切换网关 = 让这个 webview 重新导航。
 - **设置窗口**：一个本地 webview，渲染 React 设置页（网关列表、新增/编辑/删除、离线状态与重试）。它是**唯一**能调用 Rust 命令的 webview。
 - **原生菜单**：网关列表（当前项勾选）、管理网关…（`⌘⇧G`）、重新连接、在浏览器中打开；
-  「视图」里可切换主题（跟随系统/浅色/深色）和语言（中文/English）。
-- **macOS 窗口**：隐藏原生标题栏（`Overlay`），红绿灯浮在左侧边栏上方，右侧内容占满高度；
-  边栏顶部预留 44px 拖拽/红绿灯区，侧栏收起时右侧头部左侧让出红绿灯位置。
+  「视图」里可切换主题（跟随系统/浅色/深色）和语言（中文/English）。桌面端是主题/语言的
+  权威来源：切换后经 URL 参数强制覆盖网关里保存的偏好，直到从桌面端再改。
+- **macOS 窗口**：隐藏原生标题栏（`Overlay`），红绿灯使用 AppKit 原生位置浮在左侧边栏上方，
+  右侧内容占满高度；边栏顶部 44px 与右侧头部都是拖拽区，侧栏收起时右侧头部让出红绿灯位置。
+  全屏时红绿灯消失，44px 保留区自动收起（侧栏展开上移、收起时按钮靠左），退出全屏恢复。
 - 窗口标题实时显示「Volto Desktop · 档案名 · 已连接/连接中/未连接」（随语言切换）。
 
 ## 前置
@@ -126,7 +128,7 @@ apps/desktop-app/
 
 ## 安全边界
 
-- 主窗口加载远程网关页面，**没有 IPC 权限**（capability 只给 `settings`）；命令还会校验调用方 label。
+- 主窗口加载远程网关页面，**没有应用命令权限**；capability 只放行窗口拖拽/双击最大化（`main-window.json`），命令还会校验调用方 label 为 `settings`。
 - 设置窗只加载本地资源，`on_navigation` 只放行应用 origin。
 - 访问令牌只存在 Rust 内存与 `gateway-profiles.json`（0600）；`ShellState` 只暴露 `hasToken`；curl 探测通过 0600 临时配置文件传 token，不出现在 argv。
 - 主窗口导航白名单只含应用 origin 与当前网关 origin；其他 http(s) 交给系统浏览器。
@@ -136,6 +138,7 @@ apps/desktop-app/
 
 - UI 版本跟随网关：连到旧网关看到的就是旧 UI；旧版 web 不认 `volto_shell/volto_theme/volto_locale` 时，桌面端仍能连接，但不会得到新的红绿灯布局，主题/语言回退到 cookie/系统。
 - 红绿灯布局是 macOS 专用（`TitleBarStyle::Overlay`）；Windows/Linux 保留原生标题栏。
+- 全屏布局（收起保留区）在冒烟里通过 `data-volto-fullscreen` 标记验证；原生全屏事件需要真机确认。
 - 主题/语言保存在 `gateway-profiles.json`（与档案同一文件），不写网关的 cookie；每次进入网关都由 `?volto_*` 查询参数覆盖，因此换网关也一致。
 - 打包产物不内嵌 gateway/web；本机托管需要 Node 与仓库里的 gateway 构建（或用 `VOLTO_GATEWAY_BIN` 指向已安装包）。
 - 探测依赖 curl 子进程；每请求有 4 秒超时。
