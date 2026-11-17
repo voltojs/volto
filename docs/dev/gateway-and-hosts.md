@@ -329,6 +329,9 @@ the UI the active gateway serves, so the repo has exactly one web frontend and o
 - `src/renderer` — the local shell bar and the gateway management page (list, add/edit/delete,
   offline banner, degraded warning). The chat UI itself is the gateway's.
 
+Switching blanks the content view (`clearGateway`) before the new gateway is probed, so a
+failed switch never leaves the previous gateway's UI interactive under the new profile's name.
+
 Credential flow: the controller hands the content view `http://<gateway>/?token=…`. Electron's
 top-level navigation carries `Sec-Fetch-Mode: navigate`, so the gateway guard performs its
 302 + `Set-Cookie` exchange; later `fetch`/`EventSource` calls ride the cookie. The desktop

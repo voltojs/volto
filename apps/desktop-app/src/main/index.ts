@@ -97,6 +97,12 @@ function start(): void {
 
     gateway.subscribe((event) => {
       if (event.type === "navigate") shell?.loadGateway(event.url);
+      if (event.type === "status" && (event.status.state === "starting" || event.status.state === "offline")) {
+        // A failed switch must not leave the previous gateway's UI live: the
+        // bar would name the new profile while the old one still serves every
+        // request under its stale allow-list.
+        shell?.clearGateway();
+      }
       syncShell(gateway.getState(), actions);
     });
 

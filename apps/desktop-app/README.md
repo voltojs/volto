@@ -130,4 +130,5 @@ apps/desktop-app/
 - UI 版本跟随网关：连到旧网关看到的就是旧 UI（这正是"复用 web"的代价与收益）。
 - 不同网关 origin 的 `localStorage` 隔离，主题等本地偏好不共享；会话/工作区在服务端，不受影响。
 - 断线不会自动重连：状态变红 + 手动重试，避免无感重连掩盖令牌失效。
+- 切换失败时内容视图会清空（`about:blank`），不会保留上一个网关的界面，避免把消息发到以为已经离开的网关。
 - 旧的 `electron-store`（`volto-config.json` 里的 providers/sessions）不再读取，文件原地保留；新配置以 `~/.volto` 为准。

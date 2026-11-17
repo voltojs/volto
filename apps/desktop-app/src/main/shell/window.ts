@@ -12,9 +12,13 @@
  * platforms, an opaque full-window page does not.
  */
 
+import { pathToFileURL } from "node:url";
+
 import { app, BrowserWindow, WebContentsView, session, shell } from "electron";
 
 import { BAR_HEIGHT, type ShellState } from "@shared/gateway";
+
+import { isAllowedNavigation, isShellNavigationAllowed } from "./navigation";
 
 const CONTENT_PARTITION = "persist:volto-gateway";
 const ALLOWED_PERMISSIONS = new Set(["fullscreen", "clipboard-sanitized-write"]);
@@ -25,6 +29,8 @@ export interface ShellWindow {
   contentView: WebContentsView;
   applyState(state: ShellState): void;
   loadGateway(url: string): void;
+  /** Blank the content view and forget the gateway origin it allowed. */
+  clearGateway(): void;
   reloadContent(): void;
   openExternal(url: string): void;
   toggleDevTools(): void;
@@ -110,15 +116,7 @@ export function createShellWindow(options: CreateShellWindowOptions): ShellWindo
 
   // A page from the active gateway may only navigate inside its own origin.
   // Everything else leaves for the system browser.
-  const allowNavigation = (url: string): boolean => {
-    if (url === "about:blank") return true;
-    if (gatewayOrigin === undefined) return false;
-    try {
-      return new URL(url).origin === gatewayOrigin;
-    } catch {
-      return false;
-    }
-  };
+  const allowNavigation = (url: string): boolean => isAllowedNavigation(gatewayOrigin, url);
 
   contentView.webContents.on("will-navigate", (event, url) => {
     if (allowNavigation(url)) return;
@@ -130,6 +128,12 @@ export function createShellWindow(options: CreateShellWindowOptions): ShellWindo
     event.preventDefault();
     if (isHttpUrl(url)) void shell.openExternal(url);
   });
+  // Subframes do not emit `will-navigate`; without this a gateway page could
+  // frame an arbitrary origin inside the sandboxed session.
+  contentView.webContents.on("will-frame-navigate", (event) => {
+    if (allowNavigation(event.url)) return;
+    event.preventDefault();
+  });
   contentView.webContents.setWindowOpenHandler(({ url }) => {
     if (isHttpUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
@@ -140,15 +144,18 @@ export function createShellWindow(options: CreateShellWindowOptions): ShellWindo
 
   shellView.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-  const rendererEntry = (): void => {
-    const devUrl = options.rendererUrl;
-    if (devUrl !== undefined && devUrl !== "") {
-      void shellView.webContents.loadURL(`${devUrl.replace(/\/+$/, "")}/index.html`);
-      return;
-    }
-    void shellView.webContents.loadFile(options.rendererFile);
+  const shellEntryUrl =
+    options.rendererUrl !== undefined && options.rendererUrl !== ""
+      ? `${options.rendererUrl.replace(/\/+$/, "")}/index.html`
+      : pathToFileURL(options.rendererFile).toString();
+  // The shell page carries the preload and the whole ShellApi; it must never
+  // navigate away from its own entry document.
+  const guardShellNavigation = (event: { preventDefault(): void; url: string }): void => {
+    if (!isShellNavigationAllowed(shellEntryUrl, event.url)) event.preventDefault();
   };
-  rendererEntry();
+  shellView.webContents.on("will-navigate", guardShellNavigation);
+  shellView.webContents.on("will-redirect", guardShellNavigation);
+  void shellView.webContents.loadURL(shellEntryUrl).catch(() => undefined);
 
   // The window's own webContents never loads anything: `ready-to-show` may
   // never fire, so show immediately on the dark background and let the views
@@ -182,6 +189,10 @@ export function createShellWindow(options: CreateShellWindowOptions): ShellWindo
     loadGateway(url) {
       gatewayOrigin = new URL(url).origin;
       void contentView.webContents.loadURL(url).catch(() => undefined);
+    },
+    clearGateway() {
+      gatewayOrigin = undefined;
+      void contentView.webContents.loadURL("about:blank").catch(() => undefined);
     },
     reloadContent() {
       contentView.webContents.reload();
