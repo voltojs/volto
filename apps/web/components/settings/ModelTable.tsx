@@ -121,11 +121,6 @@ function parsePositiveInt(raw: string): number | undefined {
   return digits === '' ? undefined : Number(digits);
 }
 
-/** Immutable set-add returning `prev` untouched when the key is already in. */
-function addToSet(prev: Set<string>, key: string): Set<string> {
-  return prev.has(key) ? prev : new Set(prev).add(key);
-}
-
 /** 只拼实际存在的字段；全部缺失返回 undefined（调用方据此隐藏分组）。 */
 function formatInputLimits(
   limits: ModelInputLimits | undefined,
@@ -205,15 +200,6 @@ export function ModelTable({
     onChange(models.map((m, i) => (i === index ? { ...m, ...next } : m)));
 
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
-  /** Rows whose reasoning got auto-enabled by an editor edit (review fix,
-   * Important 2): the hint binds to that EVENT, not to `reasoning === true`,
-   * so a model that was always reasoning never shows it. Keyed by
-   * `clientKey`, which is stable for the row's whole lifetime; a fresh
-   * ModelTable mount resets it with the form. The set only grows, so the
-   * render ALSO requires `model.reasoning`: after the user turns reasoning
-   * back off, the auto-enabled line would otherwise contradict the visible
-   * switch (review fix B2). */
-  const [autoEnabledKeys, setAutoEnabledKeys] = useState<Set<string>>(new Set());
   const toggleOpen = (key: string) =>
     setOpenKeys((prev) => {
       const next = new Set(prev);
@@ -436,38 +422,24 @@ export function ModelTable({
                     </p>
                   </div>
                 )}
-                {/* The tier → API-value editor plus the reasoning linkage: pi-ai
-                only reads the map when the model is a reasoning model, so an
-                emitted non-empty map auto-enables `reasoning` in the SAME patch
-                and shows the hint. While reasoning is off the section is only
-                VISUALLY muted (opacity-60) — never inert or aria-disabled, or
-                the auto-enable interaction itself becomes unreachable; the
-                stored map survives turning reasoning back off. */}
-                <div
-                  role="group"
-                  aria-label={t('models.thinkingLevelsSection')}
-                  className={`space-y-1.5${model.reasoning ? '' : ' opacity-60'}`}
-                >
+                {/* The tier table is the single source of which tiers this
+                model offers. It stays fully editable at all times: no
+                auto-enabling of the reasoning flag, no muting. A model whose
+                reasoning is off just gets one plain sentence, because pi-ai
+                ignores the map for such a model. The editor is keyed by the
+                model code so switching codes remounts it and discards the
+                previous code's seeds (the draft fields are cleared in the
+                code input's onChange). */}
+                <div className="space-y-1.5">
                   <ThinkingLevelsEditor
+                    key={model.code}
                     value={model.thinkingLevelMap}
                     levels={model.thinkingLevels}
-                    onChange={(next) => {
-                      const autoEnable = next !== undefined && !model.reasoning;
-                      if (autoEnable) setAutoEnabledKeys((prev) => addToSet(prev, model.clientKey));
-                      patch(index, {
-                        thinkingLevelMap: next,
-                        ...(autoEnable ? { reasoning: true } : {}),
-                      });
-                    }}
+                    onChange={(next) => patch(index, { thinkingLevelMap: next })}
                   />
                   {!model.reasoning && (
                     <p className="text-muted-foreground text-xs">
-                      {t('models.autoReasoningHint')}
-                    </p>
-                  )}
-                  {autoEnabledKeys.has(model.clientKey) && model.reasoning && (
-                    <p className="text-muted-foreground text-xs">
-                      {t('models.autoReasoning')}
+                      {t('models.reasoningDisabled')}
                     </p>
                   )}
                 </div>
