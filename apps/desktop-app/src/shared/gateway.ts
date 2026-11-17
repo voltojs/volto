@@ -91,7 +91,8 @@ export interface ShellApi {
   restart(): Promise<void>;
   retry(): Promise<void>;
   setSheetOpen(open: boolean): Promise<void>;
-  openExternal(url: string): Promise<void>;
+  reload(): Promise<void>;
+  openInBrowser(): Promise<void>;
 }
 
 /**

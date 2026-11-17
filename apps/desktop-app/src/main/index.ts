@@ -1,74 +1,127 @@
 /**
- * Electron 主进程入口
- * 负责应用生命周期管理和 IPC 处理器注册
+ * Electron main entry: build the controller and the native shell, wire them
+ * together, and own the process lifecycle.
+ *
+ * Ordering matters in one place: the shell is created and subscribed BEFORE
+ * `controller.init()` runs, so the very first "starting" status reaches the
+ * bar instead of being dropped.
  */
 
-import { app, shell, BrowserWindow } from "electron";
-import { electronApp, optimizer } from "@electron-toolkit/utils";
-import { createMainWindow } from "./window.js";
-import { registerIpcHandlers } from "./ipc/handlers.js";
-import { getStoreIpcHandlers } from "./ipc/store-handlers.js";
-import { getAgentIpcHandlers } from "./ipc/agent-handlers.js";
-import { getAgentManager, destroyAgentManager } from "./agent/agent-manager.js";
-import { createIpcEventSink } from "./agent/event-bridge.js";
+import { app } from "electron";
+import * as path from "node:path";
 
-function initApp(): void {
-  electronApp.setAppUserModelId("com.volto.desktop-app");
+import type { ShellState } from "@shared/gateway";
 
-  app.on("browser-window-created", (_, window) => {
-    optimizer.watchWindowShortcuts(window);
-  });
+import { GatewayController } from "./gateway/controller";
+import { probeGateway } from "./gateway/probe";
+import { resolveGatewayRuntime } from "./gateway/runtime";
+import { ElectronProfileStore } from "./gateway/store";
+import { LocalGatewaySupervisor } from "./gateway/supervisor";
+import { registerShellIpc } from "./shell/ipc";
+import { installAppMenu, type ShellMenuActions } from "./shell/menu";
+import { createShellWindow, type ShellWindow } from "./shell/window";
+import { runSmoke } from "./smoke";
 
-  app.whenReady().then(() => {
-    // 创建 EventSink
-    const eventSink = createIpcEventSink();
+let controller: GatewayController | undefined;
+let shell: ShellWindow | undefined;
+let quitting = false;
+let menuKey = "";
 
-    // 初始化 Agent Manager
-    getAgentManager(eventSink);
+function syncShell(state: ShellState, actions: ShellMenuActions): void {
+  if (shell === undefined) return;
+  shell.applyState(state);
+  const key = JSON.stringify([state.activeProfileId, state.profiles, state.status.state]);
+  if (key !== menuKey) {
+    menuKey = key;
+    installAppMenu({ state, actions });
+  }
+}
 
-    // 注册 IPC 处理器
-    registerIpcHandlers([
-      ...getStoreIpcHandlers(),
-      ...getAgentIpcHandlers(),
-    ]);
+function start(): void {
+  app.setAppUserModelId("com.volto.desktop-app");
 
-    createMainWindow();
-
-    // macOS: 点击 dock 图标时重新创建窗口
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
-      }
-    });
-  });
-
-  // 关闭所有窗口时退出应用（macOS 除外）
+  app.on("second-instance", () => shell?.show());
+  app.on("activate", () => shell?.show());
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") {
-      app.quit();
+    if (process.platform !== "darwin") app.quit();
+  });
+  app.whenReady().then(() => {
+    const store = new ElectronProfileStore();
+    const supervisor = new LocalGatewaySupervisor({
+      runtime: () =>
+        resolveGatewayRuntime({
+          isPackaged: app.isPackaged,
+          appPath: app.getAppPath(),
+          resourcesPath: process.resourcesPath,
+          execPath: process.execPath,
+        }),
+    });
+    const gateway = new GatewayController({
+      store,
+      supervisor,
+      probe: probeGateway,
+      appVersion: app.getVersion(),
+    });
+    controller = gateway;
+
+    const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
+    shell = createShellWindow({
+      preloadPath: path.join(__dirname, "../preload/index.mjs"),
+      rendererFile: path.join(__dirname, "../renderer/index.html"),
+      ...(rendererUrl !== undefined && rendererUrl !== "" ? { rendererUrl } : {}),
+    });
+
+    registerShellIpc({ controller: gateway, shell });
+
+    const actions: ShellMenuActions = {
+      switchProfile: (id) => void gateway.switchProfile(id),
+      manage: () => {
+        gateway.setSheetOpen(true);
+        shell?.show();
+      },
+      restart: () => void gateway.restart(),
+      openInBrowser: () => {
+        const url = gateway.lastEntryUrl();
+        if (url !== undefined) shell?.openExternal(url);
+      },
+      reload: () => shell?.reloadContent(),
+      toggleDevTools: () => shell?.toggleDevTools(),
+    };
+
+    gateway.subscribe((event) => {
+      if (event.type === "navigate") shell?.loadGateway(event.url);
+      syncShell(gateway.getState(), actions);
+    });
+
+    syncShell(gateway.getState(), actions);
+    void gateway
+      .init()
+      .catch((error: unknown) => {
+        console.error("gateway init failed:", error);
+      })
+      .finally(() => syncShell(gateway.getState(), actions));
+
+    const smokeDir = process.env["VOLTO_DESKTOP_SMOKE"];
+    if (smokeDir !== undefined && smokeDir !== "" && shell !== undefined) {
+      void runSmoke({ shell, controller: gateway, outputDir: smokeDir }).catch((error: unknown) => {
+        console.error("smoke failed:", error);
+        app.exit(1);
+      });
     }
   });
 
-  // 退出前回收每个 agent 实例持有的长驻 bash 会话与后台进程。
-  // 用 before-quit 而非 will-quit：此时还允许 async 收尾，且要先阻止默认退出，
-  // 否则子进程会随主进程一起被留成孤儿。
-  let teardownDone = false;
   app.on("before-quit", (event) => {
-    if (teardownDone) return;
+    if (quitting) return;
     event.preventDefault();
-    void destroyAgentManager().finally(() => {
-      teardownDone = true;
-      app.quit();
-    });
-  });
-
-  // 外部链接用系统浏览器打开
-  app.on("web-contents-created", (_, contents) => {
-    contents.setWindowOpenHandler((details) => {
-      shell.openExternal(details.url);
-      return { action: "deny" };
-    });
+    quitting = true;
+    const dispose = controller?.dispose() ?? Promise.resolve();
+    void dispose.finally(() => app.quit());
   });
 }
 
-initApp();
+const hasLock = app.requestSingleInstanceLock();
+if (!hasLock) {
+  app.quit();
+} else {
+  start();
+}

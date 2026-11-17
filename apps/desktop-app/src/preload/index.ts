@@ -1,100 +1,29 @@
 /**
- * Preload 脚本
- * 通过 contextBridge 暴露安全的 API 给渲染进程
+ * Preload for the local shell page only. The gateway content view is created
+ * without a preload, so this bridge never exists in a remote page.
  */
 
 import { contextBridge, ipcRenderer } from "electron";
 
-/** Store API */
-const storeAPI = {
-  /** 获取 store 值 */
-  get: (key: string) => ipcRenderer.invoke("store:get", { key }),
+import type { ProfileDraft, ShellApi, ShellState } from "@shared/gateway";
 
-  /** 设置 store 值 */
-  set: (key: string, value: unknown) =>
-    ipcRenderer.invoke("store:set", { key, value }),
-
-  /** 删除 store 值 */
-  delete: (key: string) => ipcRenderer.invoke("store:delete", { key }),
-
-  /** 清空 store */
-  clear: () => ipcRenderer.invoke("store:clear"),
-};
-
-/** Agent API */
-const agentAPI = {
-  /** 创建 agent 实例 */
-  create: (sessionId: string) => ipcRenderer.invoke("agent:create", { sessionId }),
-
-  /** 发送消息 */
-  sendMessage: (sessionId: string, message: string) =>
-    ipcRenderer.invoke("agent:send-message", { sessionId, message }),
-
-  /** 恢复会话 */
-  resume: (sessionId: string, resumeId: string, decision: "allow" | "deny") =>
-    ipcRenderer.invoke("agent:resume", { sessionId, resumeId, decision }),
-
-  /** 获取 agent 状态 */
-  getStatus: (sessionId: string) => ipcRenderer.invoke("agent:get-status", { sessionId }),
-
-  /** 获取 agent 状态 */
-  getState: (sessionId: string) => ipcRenderer.invoke("agent:get-state", { sessionId }),
-
-  /** 销毁 agent 实例 */
-  destroy: (sessionId: string) => ipcRenderer.invoke("agent:destroy", { sessionId }),
-
-  /** 订阅 agent 事件 */
-  onEvent: (callback: (event: unknown) => void) => {
-    const handler = (_event: unknown, data: unknown) => callback(data);
-    ipcRenderer.on("agent:event", handler);
+const api: ShellApi = {
+  getState: () => ipcRenderer.invoke("shell:get-state") as Promise<ShellState>,
+  onState: (listener) => {
+    const handler = (_event: unknown, state: ShellState): void => listener(state);
+    ipcRenderer.on("shell:state", handler);
     return () => {
-      ipcRenderer.removeListener("agent:event", handler);
+      ipcRenderer.removeListener("shell:state", handler);
     };
   },
-
-  /**
-   * 订阅审批请求事件 — 主进程 ApprovalGate 通过 `agent:approval-request`
-   * 把 PendingToolCall + RiskTier 推给渲染端，由 ApprovalDialog 决策。
-   */
-  onApprovalRequest: (callback: (payload: unknown) => void) => {
-    const handler = (_event: unknown, data: unknown) => callback(data);
-    ipcRenderer.on("agent:approval-request", handler);
-    return () => {
-      ipcRenderer.removeListener("agent:approval-request", handler);
-    };
-  },
-
-  /** 回写审批决策 */
-  decideApproval: (requestId: string, decision: "allow" | "deny") =>
-    ipcRenderer.invoke("agent:approval-decide", { requestId, decision }),
-
-  /** 拉取当前所有挂起的审批请求（窗口重挂载时补齐） */
-  listApprovals: () => ipcRenderer.invoke("agent:approval-list"),
-
-  /**
-   * 时间旅行（M12）— 列出会话的 checkpoint 历史。
-   * 返回 [{ seq, status, messageCount, createdAt }] 摘要。
-   */
-  listCheckpoints: (sessionId: string) =>
-    ipcRenderer.invoke("debug:checkpoints", { sessionId }),
-
-  /**
-   * 时间旅行 — 回退到指定 checkpoint：返回 { state, diff }。
-   * 只读回退，不改变 agent 运行状态。
-   */
-  rewindCheckpoint: (sessionId: string, seq: number) =>
-    ipcRenderer.invoke("debug:rewind", { sessionId, seq }),
+  switchProfile: (id) => ipcRenderer.invoke("shell:switch-profile", id) as Promise<void>,
+  saveProfile: (draft: ProfileDraft) => ipcRenderer.invoke("shell:save-profile", draft),
+  removeProfile: (id) => ipcRenderer.invoke("shell:remove-profile", id),
+  restart: () => ipcRenderer.invoke("shell:restart") as Promise<void>,
+  retry: () => ipcRenderer.invoke("shell:retry") as Promise<void>,
+  setSheetOpen: (open) => ipcRenderer.invoke("shell:set-sheet", open) as Promise<void>,
+  reload: () => ipcRenderer.invoke("shell:reload") as Promise<void>,
+  openInBrowser: () => ipcRenderer.invoke("shell:open-in-browser") as Promise<void>,
 };
 
-/** 应用信息 API */
-const appAPI = {
-  /** 获取平台信息 */
-  platform: process.platform,
-};
-
-/** 暴露 API 到渲染进程 */
-contextBridge.exposeInMainWorld("electronAPI", {
-  store: storeAPI,
-  agent: agentAPI,
-  app: appAPI,
-});
+contextBridge.exposeInMainWorld("voltoShell", api);

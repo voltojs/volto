@@ -76,6 +76,32 @@ function lineReader(onLine: (line: string) => void): (chunk: string) => void {
   };
 }
 
+/**
+ * Children that are still alive. A hard exit (app.exit, a crash) skips
+ * before-quit, and a child process does not die with its parent, so the last
+ * line of defence is a synchronous SIGKILL from the process exit hook.
+ */
+const liveChildren = new Set<ChildProcess>();
+let exitHookInstalled = false;
+
+function trackChild(child: ChildProcess): void {
+  liveChildren.add(child);
+  child.once("exit", () => {
+    liveChildren.delete(child);
+  });
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once("exit", () => {
+    for (const tracked of liveChildren) {
+      try {
+        tracked.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+}
+
 export interface LocalGatewaySupervisorOptions {
   timeoutMs?: number;
   /** Resolved by the caller so this module stays free of Electron and app paths. */
@@ -106,6 +132,7 @@ export class LocalGatewaySupervisor {
       windowsHide: true,
     });
     this.child = child;
+    trackChild(child);
 
     return await new Promise<RunningGateway>((resolve, reject) => {
       let url: string | undefined;
