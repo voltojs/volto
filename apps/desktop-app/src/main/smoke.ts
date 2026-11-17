@@ -90,5 +90,18 @@ export async function runSmoke(options: {
     );
   }
 
+  if (process.env["VOLTO_DESKTOP_SMOKE_FORM"] === "1") {
+    await options.shell.shellView.webContents.executeJavaScript(`
+      [...document.querySelectorAll("button")].find((button) =>
+        (button.textContent ?? "").includes("添加网关"),
+      )?.click();
+    `);
+    await wait(600);
+    await capture(
+      options.shell.shellView.webContents,
+      path.join(options.outputDir, "form.png"),
+    );
+  }
+
   app.quit();
 }
