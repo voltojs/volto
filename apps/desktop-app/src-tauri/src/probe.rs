@@ -58,12 +58,20 @@ fn curl_status(url: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Parallel probes need distinct files even when two calls land in the same
+/// clock tick; a timestamp alone collided and one test read another's body.
 fn unique_path(suffix: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!("volto-probe-{}-{nanos}{suffix}", std::process::id()))
+    let sequence = NEXT.fetch_add(1, Ordering::SeqCst);
+    std::env::temp_dir().join(format!(
+        "volto-probe-{}-{nanos}-{sequence}{suffix}",
+        std::process::id()
+    ))
 }
 
 struct TempFiles(Vec<PathBuf>);
