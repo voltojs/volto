@@ -128,7 +128,18 @@
     "catalogSelect": "Select {code}",
     "catalogReasoning": " · reasoning",
     "cancel": "Cancel",
-    "addCount": "Add {count}"
+    "addCount": "Add {count}",
+    "thinkingLevels": "Reasoning levels",
+    "thinkingLevelsToggle": "Enable reasoning level overrides",
+    "colLevel": "Tier",
+    "colApiValue": "API parameter value",
+    "addLevel": "Add tier",
+    "unsupported": "Unsupported",
+    "inheritDefault": "empty inherits the default",
+    "autoReasoning": "reasoning enabled automatically",
+    "hint": "the value is sent in the endpoint dialect's reasoning parameter field",
+    "levelOff": "No thinking",
+    "deleteLevel": "Delete reasoning level row {n}"
   },
   "routing": {
     "loading": "Loading model routing tiers…",

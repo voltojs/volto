@@ -128,7 +128,18 @@
     "catalogSelect": "选择 {code}",
     "catalogReasoning": " · 推理",
     "cancel": "取消",
-    "addCount": "添加 {count} 个"
+    "addCount": "添加 {count} 个",
+    "thinkingLevels": "推理等级",
+    "thinkingLevelsToggle": "启用推理等级覆盖",
+    "colLevel": "档位",
+    "colApiValue": "API 参数值",
+    "addLevel": "添加档位",
+    "unsupported": "不支持",
+    "inheritDefault": "留空继承默认",
+    "autoReasoning": "已自动开启推理",
+    "hint": "值发进该端点方言的推理参数字段",
+    "levelOff": "关闭思考",
+    "deleteLevel": "删除推理等级行 {n}"
   },
   "routing": {
     "loading": "正在加载模型路由档位…",
