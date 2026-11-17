@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThinkingLevelsEditor } from '../ThinkingLevelsEditor';
@@ -191,6 +191,45 @@ describe('ThinkingLevelsEditor row semantics', () => {
     await user.click(screen.getByRole('combobox', { name: '档位 5' }));
     await user.click(await screen.findByRole('option', { name: 'max' }));
     expect(changes.at(-1)).toMatchObject({ low: 'custom', max: 'max' });
+  });
+
+  it('disables 添加档位 once all seven tiers have rows', () => {
+    render(
+      <ThinkingLevelsEditor
+        value={{
+          off: 'off-value',
+          minimal: 'minimal-value',
+          low: 'low-value',
+          medium: 'medium-value',
+          high: 'high-value',
+          xhigh: 'xhigh-value',
+          max: 'max-value',
+        }}
+        levels={levelsSeed}
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.getAllByRole('combobox', { name: /档位 \d+$/ })).toHaveLength(7);
+    expect(screen.getByRole('button', { name: '添加档位' })).toBeDisabled();
+  });
+
+  it('fires onChange once per edit under StrictMode', () => {
+    // The parent patch must run once, not once per updater invocation:
+    // StrictMode deliberately double-invokes state updaters.
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    render(
+      <StrictMode>
+        <ThinkingLevelsEditor
+          value={{ low: 'custom' }}
+          levels={levelsSeed}
+          onChange={(next) => changes.push(next)}
+        />
+      </StrictMode>,
+    );
+    fireEvent.change(screen.getByLabelText('API 参数值 1'), {
+      target: { value: 'edited' },
+    });
+    expect(changes).toEqual([{ low: 'edited' }]);
   });
 
   it('never mutates the seed map in place', async () => {

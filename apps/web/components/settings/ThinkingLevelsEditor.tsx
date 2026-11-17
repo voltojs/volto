@@ -105,9 +105,11 @@ export function ThinkingLevelsEditor({
    * does, from the latest tracked truth (see `seedSource`). */
   const [enabled, setEnabled] = useState(() => value !== undefined);
   /** Seed source for the toggle's re-seed: the LATEST map this component
-   * mounted with or emitted from its own rows. ModelTable keeps the instance
-   * alive across the expand toggle, so a mount-only snapshot would roll back
-   * post-mount edits on off→on (review fix, Important 1). */
+   * mounted with or emitted from its own rows. The parent's `value` echo can
+   * lag behind an edit or be cleared mid-session (the master toggle's own
+   * `undefined`), so it is never authoritative for a re-seed; this ref is the
+   * component's self-truth. A mount-only snapshot would roll back post-mount
+   * edits on off→on (review fix, Important 1). */
   const seedSource = useRef<ThinkingLevelMap | undefined>(value);
   /** Rows the component OWNS (review fix, Important 1): the emitted map is
    * only a projection of them, so while the master toggle is off — when the
@@ -118,23 +120,30 @@ export function ThinkingLevelsEditor({
    * collapse/expand unmounts this component, so the next mount re-seeds from
    * whatever the parent currently holds. */
   const [rows, setRows] = useState<LevelRow[]>(() => seedRows(value, levels));
+  /** Mirror of `rows` for reads outside the state updater: `commit` must
+   * compute the next rows before rendering to emit a single `onChange` (not
+   * once per StrictMode updater invocation), while still seeing edits made in
+   * the same tick. */
+  const rowsRef = useRef(rows);
   const nextKey = useRef(rows.length);
 
   /** Apply a row edit, then emit a fresh map built from the result. An empty
-   * map means "no override" → undefined. The updater form keeps `rows` fresh
-   * across re-renders (a stale closure would drop edits made in the same
-   * tick, e.g. right after a Select commit closes the popup). Every emitted
-   * truth — including `undefined` from deleting the last override — is
-   * tracked in `seedSource` at emit time, so an off→on round-trip re-seeds
-   * from the newest state even when the parent never echoes it back. */
+   * map means "no override" → undefined. Computing outside the `setRows`
+   * updater keeps the parent patch to ONE call per edit: StrictMode
+   * deliberately double-invokes updaters, which would otherwise fire
+   * `onChange` twice. `rowsRef` preserves the same-tick freshness the
+   * updater form used to provide (e.g. right after a Select commit).
+   * Every emitted truth — including `undefined` from deleting the last
+   * override — is tracked in `seedSource` at emit time, so an off→on
+   * round-trip re-seeds from the newest state even when the parent never
+   * echoes it back. */
   const commit = (edit: (prev: LevelRow[]) => LevelRow[]) => {
-    setRows((prev) => {
-      const next = edit(prev);
-      const map = mapFromRows(next);
-      seedSource.current = map;
-      onChange(map);
-      return next;
-    });
+    const next = edit(rowsRef.current);
+    const map = mapFromRows(next);
+    rowsRef.current = next;
+    seedSource.current = map;
+    setRows(next);
+    onChange(map);
   };
 
   /** Flip the master toggle. Off clears the rows and emits `undefined` —
@@ -146,6 +155,7 @@ export function ThinkingLevelsEditor({
     setEnabled(next);
     if (!next) {
       setRows([]);
+      rowsRef.current = [];
       // No `seedSource` write here: the off-emit reports the current state
       // ("no override"), it does not erase the user's row work.
       onChange(undefined);
@@ -157,6 +167,7 @@ export function ThinkingLevelsEditor({
     // round-trip still equals the mount seeding, both start from the same map.
     const seeded = seedRows(seedSource.current, levels);
     const map = mapFromRows(seeded);
+    rowsRef.current = seeded;
     seedSource.current = map;
     setRows(seeded);
     onChange(map);
@@ -167,6 +178,10 @@ export function ThinkingLevelsEditor({
     const level = levels?.find((l) => l.id === id);
     return level?.value ?? (id === 'off' ? t('models.levelOff') : undefined);
   };
+
+  /** Rows are unique per tier by construction, so a full-length set is the
+   * full seven-tier list; adding another can only duplicate. */
+  const allTiersPresent = rows.length >= ALL_LEVELS.length;
 
   return (
     <div className="space-y-1.5">
@@ -296,6 +311,7 @@ export function ThinkingLevelsEditor({
             variant="ghost"
             size="sm"
             className="text-muted-foreground gap-1"
+            disabled={allTiersPresent}
             onClick={() => {
               const used = new Set(rows.map((r) => r.level));
               const free = ALL_LEVELS.find((id) => !used.has(id));

@@ -260,6 +260,67 @@ describe('thinking levels editor mounted in the expand area', () => {
     );
   });
 
+  it('turning reasoning back off drops the auto-enabled hint, keeping only the greyed hint', async () => {
+    // Review fix B2: `autoEnabledKeys` only grows, so the auto-enabled line
+    // must additionally require the switch to still be on — otherwise it
+    // contradicts the visible switch after the user turns reasoning off.
+    const user = userEvent.setup();
+    function Harness() {
+      const [models, setModels] = useState([
+        row({
+          reasoning: false,
+          thinkingLevels: [
+            { id: 'low', supported: true, value: 'low', overridden: false },
+          ],
+        }),
+      ]);
+      return <ModelTable models={models} onChange={setModels} />;
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    await user.click(screen.getByRole('switch', { name: /启用推理等级覆盖/ }));
+    await user.click(screen.getByRole('button', { name: '添加档位' }));
+    await user.click(screen.getByRole('combobox', { name: '档位 2' }));
+    await user.click(await screen.findByRole('option', { name: 'max' }));
+    await waitFor(() =>
+      expect(screen.getByText('已自动开启推理')).toBeTruthy(),
+    );
+
+    await user.click(screen.getByLabelText('支持推理 1'));
+    await waitFor(() =>
+      expect(screen.queryByText('已自动开启推理')).toBeNull(),
+    );
+    expect(screen.getByText('开启推理后生效')).toBeTruthy();
+  });
+
+  it('clears the previous code\'s thinking level seeds when the code changes', () => {
+    // Review fix B3: the resolved levels and the stored map describe the OLD
+    // code. Keeping them makes the editor show values that will not be sent
+    // for the new one; clearing both degrades to the all-seven-tiers default.
+    const changes: DraftModel[][] = [];
+    render(
+      <ModelTable
+        models={[
+          row({
+            reasoning: true,
+            thinkingLevelMap: { low: 'custom' },
+            thinkingLevels: [
+              { id: 'low', supported: true, value: 'custom', overridden: true },
+            ],
+          }),
+        ]}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('模型 ID 1'), {
+      target: { value: 'another-model' },
+    });
+    const patched = changes.at(-1)?.[0];
+    expect(patched?.code).toBe('another-model');
+    expect(patched?.thinkingLevelMap).toBeUndefined();
+    expect(patched?.thinkingLevels).toBeUndefined();
+  });
+
   it('greys the section while reasoning is off, keeps it interactive, and names it as a group', () => {
     // Two tables in one render: index 0 = reasoning off, index 1 = on. The
     // aria-label only exists to label this wrapper; the editor keeps its own

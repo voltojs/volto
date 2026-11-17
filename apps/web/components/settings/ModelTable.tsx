@@ -209,7 +209,10 @@ export function ModelTable({
    * Important 2): the hint binds to that EVENT, not to `reasoning === true`,
    * so a model that was always reasoning never shows it. Keyed by
    * `clientKey`, which is stable for the row's whole lifetime; a fresh
-   * ModelTable mount resets it with the form. */
+   * ModelTable mount resets it with the form. The set only grows, so the
+   * render ALSO requires `model.reasoning`: after the user turns reasoning
+   * back off, the auto-enabled line would otherwise contradict the visible
+   * switch (review fix B2). */
   const [autoEnabledKeys, setAutoEnabledKeys] = useState<Set<string>>(new Set());
   const toggleOpen = (key: string) =>
     setOpenKeys((prev) => {
@@ -272,6 +275,14 @@ export function ModelTable({
                     ...(match !== undefined
                       ? { inputLimits: match.inputLimits }
                       : {}),
+                    // The thinking-level seeds describe the PREVIOUS code:
+                    // its resolved levels and stored map are not facts about
+                    // the new one. Keeping them would show the old model's
+                    // effective values ("a value that will not be sent");
+                    // clearing both degrades the editor to the documented
+                    // all-seven-tier fallback.
+                    thinkingLevelMap: undefined,
+                    thinkingLevels: undefined,
                   });
                 }}
               />
@@ -454,7 +465,7 @@ export function ModelTable({
                       {t('models.autoReasoningHint')}
                     </p>
                   )}
-                  {autoEnabledKeys.has(model.clientKey) && (
+                  {autoEnabledKeys.has(model.clientKey) && model.reasoning && (
                     <p className="text-muted-foreground text-xs">
                       {t('models.autoReasoning')}
                     </p>

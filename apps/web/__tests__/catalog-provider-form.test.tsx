@@ -346,6 +346,10 @@ describe('CatalogProviderSection', () => {
     // A row that never had a map submits no thinkingLevelMap key at all —
     // an absent map means "no override", same ruling as an empty one.
     expect(savedModels[1]).not.toHaveProperty('thinkingLevelMap');
+    // `reasoning.levels` is a read-only display seed: it must never leak into
+    // the submit payload as if it were config.
+    expect(savedModels[0]).not.toHaveProperty('thinkingLevels');
+    expect(savedModels[1]).not.toHaveProperty('thinkingLevels');
 
     // Turning the toggle off clears the draft's map (Task 6 owns that UI);
     // from here the submit conversion must drop the key entirely. Simulate
