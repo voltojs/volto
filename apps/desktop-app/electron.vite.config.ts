@@ -3,9 +3,11 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 
+const shared = resolve(__dirname, "src/shared");
+
 export default defineConfig({
   main: {
-    // v5: externalizeDeps 默认已启用，无需 externalizeDepsPlugin
+    resolve: { alias: { "@shared": shared } },
     build: {
       rollupOptions: {
         input: {
@@ -15,6 +17,7 @@ export default defineConfig({
     },
   },
   preload: {
+    resolve: { alias: { "@shared": shared } },
     build: {
       rollupOptions: {
         input: {
@@ -35,6 +38,7 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
+        "@shared": shared,
         "@": resolve(__dirname, "src"),
       },
     },
