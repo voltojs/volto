@@ -315,7 +315,8 @@ the UI the active gateway serves, so the repo has exactly one web frontend and o
   packaged `resources/gateway/bin.js` → repo `apps/gateway/dist/bin.js` → PATH `volto`.
 - `src/main/gateway/probe.ts` — `/health` (liveness), `/` (a 503 means no web build) and
   `/gateway-info` with `Authorization: Bearer <token>` (credentials + version/mode). Each
-  failure has its own sentence, and the content view is never pointed at an unusable gateway.
+  failure has its own sentence — a 401 without a token reads "需要访问令牌" instead of leaving
+  a blank UI — and the content view is never pointed at an unusable gateway.
 - `src/main/shell/window.ts` — one BrowserWindow, two `WebContentsView`s: a 44 px local shell
   bar with the preload, and the gateway page with no preload, `sandbox: true`, its own
   `persist:volto-gateway` partition, a navigation allow-list and external-open handling.
