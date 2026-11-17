@@ -4,7 +4,7 @@ status: current
 source:
   - apps/gateway/src
   - apps/desktop-app/src/main
-verified: 2026-11-13
+verified: 2026-11-17
 supersedes:
   - docs/archive/superpowers/specs/2026-08-31-web-app-sse-design.md
   - docs/archive/superpowers/specs/2026-09-02-native-directory-picker-design.md
@@ -27,8 +27,9 @@ There are three hosts in this repo, and only one of them is a server:
 - **Web** (`apps/web`) — a Next.js app built with `output: 'export'`; its plain files are
   served by the gateway (or `volto web`), and it talks to the API over `fetch` and
   `EventSource` using the protocol types from `@voltojs/sdk/sse`.
-- **Desktop** (`apps/desktop-app`) — an Electron app that builds its **own** agent instances
-  in the main process and never speaks HTTP/SSE to the gateway.
+- **Desktop** (`apps/desktop-app`) — an Electron shell that embeds the gateway + web stack:
+  it starts a local gateway (or connects to a remote one), then loads the UI that gateway
+  serves. It builds no agent and owns no chat UI.
 
 The gateway is a wiring layer, not a second kernel: it constructs agents through
 `createWiredAgent` (`src/wiring.ts`), drives them through `createSessionRegistry`
@@ -295,50 +296,60 @@ What it wires:
 
 ### Desktop (`apps/desktop-app`)
 
-The Electron main process embeds the SDK; there is no gateway in the loop.
+The Electron app is a **native shell around the gateway**, not a second agent host. It loads
+the UI the active gateway serves, so the repo has exactly one web frontend and one agent host.
 
-- `src/main/index.ts` creates the IPC event sink, the `AgentManager`, the IPC handlers and the
-  window; `before-quit` intercepts the quit and awaits `destroyAgentManager()` so persistent
-  bash sessions and background processes are reaped instead of orphaned.
-- `src/main/agent/agent-manager.ts` keeps `Map<sessionId, AgentInstance>`. `create()` resolves
-  the session's provider/model binding from `electron-store`, converts persisted messages to
-  `initialMessages` (`session-history.ts`) and builds the instance through
-  `createAgentInstance`; `stream()`/`run()` auto-create on first use, and `destroy()` awaits
-  `agent.dispose()`.
-- `src/main/agent/wiring.ts` constructs the SDK directly: `createPiAiModelPort` with one
-  `custom` provider, node fs/shell/network/scheduler, and a permission triple read from
-  `store.permissionMode` — `auto` → `danger-full-access` + `approval: "never"`, `deny` →
-  `read-only` + `never`, otherwise `workspace-write` + `ask`. The same mode also builds the
-  `SandboxConfig` handed to `createAgent`, because otherwise the persistent-session bash path
-  would run unconfined while the config claimed otherwise. `askUserGate` is bound to the same
-  gate as `approvalGate`; the SDK's default would auto-answer `ask_user` with "yes".
-- `src/main/agent/approval-gate.ts` parks each `ask()` on a promise keyed by a locally minted
-  `requestId`, broadcasts `agent:approval-request` to every window, and denies after
-  `approvalTimeoutMs` (5 minutes) or when `dispose()` runs. Decisions come back on
-  `agent:approval-decide`; `agent:approval-list` re-sends everything still pending so a
-  remounted dialog recovers.
-- `src/main/ipc/agent-handlers.ts` registers `agent:create`, `agent:send-message`,
-  `agent:resume`, `agent:get-status`, `agent:get-state`, `agent:destroy`,
-  `agent:approval-decide`, `agent:approval-list`, plus the time-travel pair
-  `debug:checkpoints` / `debug:rewind` (checkpoints are the agent's own session store, keyed
-  `sessionId#seq`).
-- `src/preload/index.ts` exposes `window.electronAPI` (`store`, `agent`, `app`) through
-  `contextBridge`; `window.ts` sets `sandbox: false` for the preload and loads the Vite dev
-  URL in development, `renderer/index.html` otherwise.
+- `src/main/index.ts` — single-instance lock; builds the profile store, the controller, the
+  two-view window and the IPC bridge in that order; `before-quit` awaits
+  `controller.dispose()` (SIGTERM, SIGKILL after 5 s) and then really quits.
+- `src/main/gateway/controller.ts` — the profile state machine (`idle → starting → online |
+  offline`), profile CRUD and `navigate` events; a generation counter drops late probe or
+  startup results after a switch. It imports no electron, so it is unit-tested on plain Node.
+- `src/main/gateway/supervisor.ts` — starts `apps/gateway/dist/bin.js` with
+  `--port <p> --no-open`, parses the CLI's two stdout lines for the URL and launch token,
+  treats "Sessions are now saved to …" on stderr as a degraded store, and stops the child
+  with SIGTERM. A process-exit hook kills any survivor of a hard exit (`app.exit`, a crash).
+- `src/main/gateway/runtime.ts` — resolves the Node runtime and the gateway entry.
+  Runtime: `VOLTO_NODE` → PATH `node` (major ≥ 22) → Electron-as-node fallback, marked
+  degraded because better-sqlite3 is built for the system ABI. Entry: `VOLTO_GATEWAY_BIN` →
+  packaged `resources/gateway/bin.js` → repo `apps/gateway/dist/bin.js` → PATH `volto`.
+- `src/main/gateway/probe.ts` — `/health` (liveness), `/` (a 503 means no web build) and
+  `/gateway-info` with `Authorization: Bearer <token>` (credentials + version/mode). Each
+  failure has its own sentence, and the content view is never pointed at an unusable gateway.
+- `src/main/shell/window.ts` — one BrowserWindow, two `WebContentsView`s: a 44 px local shell
+  bar with the preload, and the gateway page with no preload, `sandbox: true`, its own
+  `persist:volto-gateway` partition, a navigation allow-list and external-open handling.
+  Opening the management page grows the shell view to the whole window (an opaque page, not
+  a transparent overlay, because view transparency differs across platforms).
+- `src/main/shell/ipc.ts` / `src/preload/index.ts` — `window.voltoShell` (`getState`,
+  `onState`, `saveProfile`, `removeProfile`, `switchProfile`, `restart`, `retry`,
+  `setSheetOpen`, `reload`, `openInBrowser`). Handlers reject every sender but the shell view
+  and turn exceptions into `{ ok: false, error }` instead of leaking a rejection.
+- `src/renderer` — the local shell bar and the gateway management page (list, add/edit/delete,
+  offline banner, degraded warning). The chat UI itself is the gateway's.
+
+Credential flow: the controller hands the content view `http://<gateway>/?token=…`. Electron's
+top-level navigation carries `Sec-Fetch-Mode: navigate`, so the gateway guard performs its
+302 + `Set-Cookie` exchange; later `fetch`/`EventSource` calls ride the cookie. The desktop
+implements no authentication of its own.
+
+The profile list is the one piece of state the desktop owns
+(`userData/gateway-profiles.json`). Everything else — providers, workspaces, sessions,
+permissions, approvals — belongs to the gateway and `~/.volto`, which a managed local gateway
+shares with a terminal `volto`.
 
 | Concern | Gateway + web | Desktop |
 | --- | --- | --- |
-| Transport | HTTP + SSE, `EventSource` with credentials | `ipcRenderer.invoke` + `agent:event` broadcasts |
-| Agent construction | `createWiredAgent` (config-store driven, per turn rebuild) | `createAgentInstance` (electron-store driven, explicit `create`) |
-| Transcript | `@voltojs/stores/jsonl` + sqlite session store under the config dir | `electron-store` (`sessions`, `sessionMessages`), replayed into `initialMessages` |
-| Providers | provider store, per-session `providerId`/`modelId`, protocol probe | one `custom` provider per session binding, no probe |
-| Permission presets | `permission-modes.ts` over `@voltojs/core`'s `PERMISSION_PRESETS` | local `auto`/`ask`/`deny` triple in `wiring.ts` |
-| Approvals | SSE channel + `POST /approvals` with a per-connection token | IPC broadcast + `requestId`, 5-minute deny timeout |
-| Auth | launch/access token → cookie/bearer, rate limited | none; the process boundary is the app |
+| Transport | HTTP + SSE for one origin | the same, loaded from the active gateway's own origin |
+| Agent construction | `createWiredAgent` | none — the desktop builds no agent |
+| Transcript / providers / permissions / approvals | gateway config store, `~/.volto` | the same; the desktop has no second store |
+| UI | exported Next app served at `/` | that same build, in the content view |
+| Auth | launch/access token → cookie/bearer | token in a `?token=` navigation, then the cookie |
+| Gateway selection | one origin per deployment | profile list in the shell; switching reloads the content view |
 
-The desktop path is the older wiring and the two have drifted: it has no attachments
-pipeline, no browser host, no LSP/egress/hooks/skills wiring and no transcript store, and its
-permission vocabulary is a separate three-value list rather than the core preset table.
+`@voltojs/desktop-app` is not in `docs/user/`: it is a repo-local host, not a published
+surface. Its gates are `typecheck`, `lint`, `test` (Node-only modules) and `build`, plus the
+`VOLTO_DESKTOP_SMOKE` run that launches the real app and captures both views.
 
 ## Invariants and boundaries
 
@@ -398,19 +409,28 @@ permission vocabulary is a separate three-value list rather than the core preset
   tunnel-first remote access with no built-in TLS/ACME; one subscriber per session;
   `npx`-first packaging. Cross-origin web stays a degradation mode behind `Bearer` — the
   one-time `POST /stream-tickets` endpoint from that spec was never built.
+- **2026-11-17 — the desktop is a gateway shell** (`desktop-gateway-shell-design`). Chose
+  loading each gateway's own UI over an in-app proxy (rejected: duplicates `volto web`'s
+  SSE/WS/cookie forwarding and pins one web build inside the app) and over cross-origin web
+  driven by `gatewayUrl` (rejected: cross-site cookies cannot carry `SameSite=Strict`, so it
+  would break the gateway's same-origin CSRF boundary). Local gateways are supervised child
+  processes sharing `~/.volto`; a remote gateway is a URL plus an access token.
 - **Reversals recorded rather than honoured.** The spec's `GET /health` shape was
   `{ ok, version }`; the code returns `{ status: "ok" }`. The runtime config file was planned as
   `/volto-config.json` and is served as the script `/volto-config.js` so it can load
   synchronously in `<head>`. And the spec's P6 ("delete the desktop agent, load the gateway URL")
-  has not happened: `apps/desktop-app/src/main/agent/**` still builds agents in-process.
+  was executed on 2026-11-17, extended with gateway switching: the desktop now loads the
+  gateway-served UI and has no agent code left.
 
 ## How to change it (tests to run, contract impact)
 
 Run the package's own gates —
 `pnpm turbo run typecheck lint test --filter @voltojs/gateway` — plus
 `--filter @voltojs/sdk` when the frame types or `formatSSEFrame` change, and
-`--filter @voltojs/web` when a route shape changes. `@voltojs/desktop-app` is excluded by
-policy: it has no test script, and its `typecheck` is `tsc -b --noEmit --force`.
+`--filter @voltojs/web` when a route shape changes. `@voltojs/desktop-app` stays out of
+repo-wide gates (Electron binaries, slow build), but it has its own Node-only suite and
+gates: `pnpm --filter @voltojs/desktop-app test typecheck lint build`, plus the smoke run
+below.
 
 Where the existing coverage lives, by change:
 
@@ -422,7 +442,7 @@ Where the existing coverage lives, by change:
 | Remote posture / capabilities | `__tests__/capabilities.test.ts`, `directory-picker.test.ts`, `server.test.ts` |
 | Static hosting / `volto web` proxy | `__tests__/static-site.test.ts`, `web-server.test.ts`, `copy-web-assets.test.ts` |
 | Session lifecycle, approvals, steering | `__tests__/session-*.test.ts`, `approval-gate.test.ts`, `steering-gateway.test.ts`, `queue-route.test.ts`, `permission-modes.test.ts` |
-| Desktop gate or IPC | none — verify by running `pnpm --filter @voltojs/desktop-app build` and exercising the dialog manually |
+| Desktop shell / IPC / gateway switching | `apps/desktop-app/src/**/__tests__/*.test.ts`; then build and run the `VOLTO_DESKTOP_SMOKE` harness (see `apps/desktop-app/README.md`) |
 
 Contract impact to check before merging:
 
@@ -437,7 +457,8 @@ Contract impact to check before merging:
   helper module needs a notes entry (or a generator change) to become part of the contract.
 - Anything that changes the wire means the SSE types in `packages/sdk/src/sse/types.ts` and
   `apps/web/lib/agent-config.ts` change in the same commit; `@voltojs/sdk/sse` is the shared
-  contract, and the desktop host does not consume it.
+  contract; the desktop host does not consume the wire types directly because it loads the
+  gateway-served web build, but the same change still lands in `packages/sdk` and `apps/web`.
 
 ## Further reading (archive links)
 
