@@ -130,6 +130,7 @@
     "cancel": "取消",
     "addCount": "添加 {count} 个",
     "thinkingLevels": "推理等级",
+    "thinkingLevelsSection": "推理等级设置",
     "thinkingLevelsToggle": "启用推理等级覆盖",
     "colLevel": "档位",
     "colApiValue": "API 参数值",

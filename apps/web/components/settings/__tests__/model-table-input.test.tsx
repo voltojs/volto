@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {
   emptyDraftModel,
   ModelTable,
@@ -186,5 +187,123 @@ describe('thinking level draft seeding', () => {
     const draft = emptyDraftModel();
     expect(draft.thinkingLevelMap).toBeUndefined();
     expect(draft.thinkingLevels).toBeUndefined();
+  });
+});
+
+// jsdom lacks the pointer-capture / scroll APIs Base UI's Select uses — same
+// shims as thinking-levels-editor.test.tsx, needed once a spec opens a dropdown.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
+describe('thinking levels editor mounted in the expand area', () => {
+  /** A row whose editor seeds two tiers: low (overridden) and high (default). */
+  const editorRow = () =>
+    row({
+      reasoning: true,
+      thinkingLevelMap: { low: 'custom' },
+      thinkingLevels: [
+        { id: 'low', supported: true, value: 'custom', overridden: true },
+        { id: 'high', supported: true, value: 'high', overridden: false },
+      ],
+    });
+
+  it('renders the editor for an expanded row and hides it while collapsed', () => {
+    render(<ModelTable models={[editorRow()]} onChange={() => {}} />);
+    expect(screen.queryByText('推理等级')).toBeNull();
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    expect(screen.getByText('推理等级')).toBeTruthy();
+    // The seeded override shows in the first tier row's value box.
+    expect(screen.getByLabelText('API 参数值 1')).toHaveValue('custom');
+  });
+
+  it('a non-empty emitted map flips reasoning off → true in the same patch and shows the hint', async () => {
+    const user = userEvent.setup();
+    const changes: DraftModel[][] = [];
+    function Harness() {
+      const [models, setModels] = useState([
+        row({
+          reasoning: false,
+          thinkingLevels: [
+            { id: 'low', supported: true, value: 'low', overridden: false },
+          ],
+        }),
+      ]);
+      return (
+        <ModelTable
+          models={models}
+          onChange={(next) => {
+            changes.push(next);
+            setModels(next);
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    await user.click(screen.getByRole('button', { name: '添加档位' }));
+    await user.click(screen.getByRole('combobox', { name: '档位 2' }));
+    await user.click(await screen.findByRole('option', { name: 'max' }));
+    // The added tier's row seeds its value to the tier id itself, so the
+    // emitted map is non-empty. (The untouched default row carries no key —
+    // empty box = inherit.)
+    const patched = changes.at(-1)?.[0];
+    expect(patched?.reasoning).toBe(true);
+    expect(patched?.thinkingLevelMap).toMatchObject({ max: 'max' });
+    await waitFor(() =>
+      expect(screen.getByText('已自动开启推理')).toBeTruthy(),
+    );
+  });
+
+  it('greys the section while reasoning is off, and clears the grey once it is on', () => {
+    // Two tables in one render: index 0 = reasoning off, index 1 = on. The
+    // aria-label only exists to label this wrapper; the editor keeps its own
+    // `推理等级` heading.
+    render(
+      <div>
+        <ModelTable models={[row({ reasoning: false })]} onChange={() => {}} />
+        <ModelTable models={[row({ clientKey: 'k2', reasoning: true })]} onChange={() => {}} />
+      </div>,
+    );
+    const expandButtons = screen.getAllByLabelText('展开模型 1');
+    fireEvent.click(expandButtons[0]!);
+    fireEvent.click(expandButtons[1]!);
+    const [offSection, onSection] = screen.getAllByLabelText('推理等级设置');
+    expect(offSection).toHaveAttribute('aria-disabled', 'true');
+    expect(offSection!.className).toContain('opacity-60');
+    // `inert` is what actually stops edits: pi-ai ignores the map for a
+    // non-reasoning model, so the section must not be operable at all. React
+    // 19 serializes the boolean prop as the empty-string attribute form.
+    expect(offSection!.hasAttribute('inert')).toBe(true);
+    expect(onSection).not.toHaveAttribute('aria-disabled');
+    expect(onSection!.hasAttribute('inert')).toBe(false);
+    expect(onSection!.className).not.toContain('opacity-60');
+  });
+
+  it('turning reasoning back off keeps the stored map and leaves the section greyed', () => {
+    const changes: DraftModel[][] = [];
+    function Harness() {
+      const [models, setModels] = useState([editorRow()]);
+      return (
+        <ModelTable
+          models={models}
+          onChange={(next) => {
+            changes.push(next);
+            setModels(next);
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('展开模型 1'));
+    fireEvent.click(screen.getByLabelText('支持推理 1'));
+    const patched = changes.at(-1)?.[0];
+    expect(patched?.reasoning).toBe(false);
+    expect(patched?.thinkingLevelMap).toEqual({ low: 'custom' });
+    const section = screen.getByLabelText('推理等级设置');
+    expect(section).toHaveAttribute('aria-disabled', 'true');
+    expect(section.className).toContain('opacity-60');
+    expect(section.hasAttribute('inert')).toBe(true);
   });
 });

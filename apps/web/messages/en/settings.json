@@ -130,6 +130,7 @@
     "cancel": "Cancel",
     "addCount": "Add {count}",
     "thinkingLevels": "Reasoning levels",
+    "thinkingLevelsSection": "Reasoning level settings",
     "thinkingLevelsToggle": "Enable reasoning level overrides",
     "colLevel": "Tier",
     "colApiValue": "API parameter value",

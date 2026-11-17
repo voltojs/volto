@@ -23,6 +23,7 @@ import type {
   ThinkingLevelMap,
 } from '@/lib/config-api';
 import { AvailableModelsDialog } from './AvailableModelsDialog';
+import { ThinkingLevelsEditor } from './ThinkingLevelsEditor';
 
 /**
  * A draft model row needs a React key that stays stable for the row's whole
@@ -413,6 +414,37 @@ export function ModelTable({
                     </p>
                   </div>
                 )}
+                {/* The tier → API-value editor plus the reasoning linkage: pi-ai
+                only reads the map when the model is a reasoning model, so an
+                emitted non-empty map auto-enables `reasoning` in the SAME patch
+                and shows the hint; while reasoning is off the section is greyed
+                and made inert instead of being hidden, and the stored map
+                survives — turning reasoning back off never deletes it. */}
+                <div
+                  className={`space-y-1.5${model.reasoning ? '' : ' opacity-60'}`}
+                  aria-label={t('models.thinkingLevelsSection')}
+                  {...(model.reasoning
+                    ? {}
+                    : ({ 'aria-disabled': true, inert: true } as Record<string, string | boolean>))}
+                >
+                  <ThinkingLevelsEditor
+                    value={model.thinkingLevelMap}
+                    levels={model.thinkingLevels}
+                    onChange={(next) =>
+                      patch(index, {
+                        thinkingLevelMap: next,
+                        ...(next !== undefined && !model.reasoning
+                          ? { reasoning: true }
+                          : {}),
+                      })
+                    }
+                  />
+                  {model.reasoning && (
+                    <p className="text-muted-foreground text-xs">
+                      {t('models.autoReasoning')}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </Fragment>
