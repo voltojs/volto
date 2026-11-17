@@ -41,28 +41,25 @@ For the custom type the model ID is exactly the string your endpoint accepts; wi
 
 ## Reasoning levels
 
-Open a model row in "Settings → Models" and expand it: the "Reasoning levels" section lets you change, per model, which value each reasoning tier is sent as. Turn on "Enable reasoning level overrides" to edit the rows.
+Expand a model row in "Settings → Models": the "Reasoning levels" section is the one place that decides which reasoning tiers this model offers and which string each tier sends to the endpoint. The reasoning picker in the chat composer reads the same list, so the two always agree.
 
-This is what you need it for when a compatible endpoint does not accept the standard tier names — for example one that wants `enabled` / `disabled` instead of `high` / `off`, or a tier name the built-in catalog does not list for that model.
+- **Listed = offered.** Every row is a tier the model offers. The rows start from what pi-ai reports for the model, and each value box is prefilled with the real wire value: a stored value first, then the model's reported value, then the tier's own name.
+- **Deleted = removed.** Deleting a row removes that tier from this model, and it disappears from the chat picker too.
+- **The value is exactly what is sent.** Whatever the value box contains is the string sent to the endpoint for that tier (`high`, or a vendor-specific `enabled`, and so on). Editing the box changes what is sent; emptying it immediately refills the tier's name, so the box never hides the real value.
+- **Add tier** appends a row for a tier that is not listed yet, with the tier's name as its value; use the "Tier" column to pick a different tier.
 
-The full set of tiers is seven: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Each row has three states:
+The tiers are seven: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
 
-| Row state | What it means |
-| --- | --- |
-| A value typed in | The tier is supported and is sent as exactly that string. |
-| "Unsupported" ticked | The tier is declared not supported: it disappears from the reasoning picker in the chat composer, and a request that still names it is refused with an explicit error rather than quietly switched to another tier. |
-| Empty value | Inherits the default — the catalog's own value for a built-in provider; for a custom provider, a tier the endpoint can use sends its own name and `off` sends no reasoning parameter at all. |
+The table is editable at all times. If the model's "Reasoning" checkbox is off, the section only adds one sentence saying the tiers do not take effect: nothing is greyed out, and editing the table does not turn reasoning on for you.
 
-- **Adding a tier seeds its value.** When you pick a tier in the "Tier" column, or press "Add tier", the value box comes pre-filled with the tier's name (`xhigh` and `max` have no built-in mapping for most models). Clearing the box back to empty means inherit again; the `off` row shows "No thinking" when nothing is mapped to it.
-- **Turning the master toggle off removes every override** for that model, it does not hide them; switching it back on re-seeds from what was there before you turned it off. Collapsing and reopening the row reloads the saved configuration — only once you have saved; unsaved edits in the row are discarded.
-- **Editing a tier value while the model's "Reasoning" checkbox is off turns reasoning on for you**, and the row shows "reasoning enabled automatically". Without that the setting would be stored but never used. While reasoning is off the section shows "takes effect once reasoning is enabled".
+This is what you need when a compatible endpoint does not accept the standard tier names — for example one that wants `enabled` / `disabled` instead of `high` / `off`, or a tier the built-in catalog does not list for that model.
+
+Collapsing and reopening the model row reads the form draft, so ordinary edits survive the round-trip; they are still only written to the server when you press Save.
 
 Two boundaries worth knowing:
 
 - **You change the value, not the field.** The value goes into whichever reasoning parameter your endpoint's protocol already uses (`reasoning_effort`, `thinking`, `reasoning.effort`, and so on); you cannot rename that field or restructure it here.
 - **A numeric token budget is not a tier value.** Tiers map to text values only; capping reasoning tokens is not configurable in this section.
-
-The values you see in the placeholders are the effective ones for that model, so you can read off what will actually be sent without saving anything.
 
 ## Model routing tiers
 
