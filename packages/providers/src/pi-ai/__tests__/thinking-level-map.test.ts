@@ -203,6 +203,44 @@ describe("custom provider: per-model thinkingLevelMap", () => {
     expect(effortIds(info)).toEqual(["low", "medium", "high", "xhigh"]);
   });
 
+  it("reports no id-fallback value for an Anthropic model without a map", () => {
+    // The id fallback is only truthful for OpenAI-style dialects. pi-ai's
+    // Anthropic path maps both minimal and low to "low", so reporting the
+    // level id would promise a parameter this dialect never sends.
+    const models = buildModels([
+      {
+        kind: "custom",
+        id: "claude-gw",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        protocol: "anthropic-messages",
+        models: [{ code: "m", reasoning: true }],
+      },
+    ]);
+
+    const levels = levelMap(describeModelInfo(models, "claude-gw", "m"));
+    expect(levels.low).toMatchObject({ supported: true, overridden: false });
+    expect(levels.low?.value).toBeUndefined();
+    expect(levels.minimal).toMatchObject({ supported: true, overridden: false });
+    expect(levels.minimal?.value).toBeUndefined();
+    // An explicit map value is still what pi-ai sends, so it stays reported.
+    const mapped = buildModels([
+      {
+        kind: "custom",
+        id: "claude-gw-2",
+        baseURL: "https://gateway.example",
+        apiKey: "k",
+        protocol: "anthropic-messages",
+        models: [{ code: "m", reasoning: true, thinkingLevelMap: { low: "custom-low" } }],
+      },
+    ]);
+    expect(levelMap(describeModelInfo(mapped, "claude-gw-2", "m")).low).toMatchObject({
+      supported: true,
+      value: "custom-low",
+      overridden: true,
+    });
+  });
+
   it("pins the full levels payload for a custom model with no map at all", () => {
     // The levels array is new visible payload on GET /providers (the gateway
     // inlines info.reasoning wholesale) — intentional per spec, so pin its

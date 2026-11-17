@@ -2072,18 +2072,8 @@ describe("Headless server", () => {
     // map reaches the ModelPort (server.ts's catalog config), and the
     // resolved info lands on the response while the stored draft seed
     // (`thinkingLevelMap`) keeps riding along via `...rest`.
-    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
-
-    const created = await post("/providers", {
-      name: "Thinking levels provider",
-      kind: "catalog",
-      piProvider: target.piProvider,
-      models: [{ code: target.code, thinkingLevelMap: { medium: null } }],
-    });
-    expect(created.status).toBe(201);
-
-    const { data } = await getJson("/providers");
-    const providers = data as Array<{
+    type ProvidersPayload = Array<{
+      id: string;
       name: string;
       models: Array<{
         code: string;
@@ -2094,6 +2084,35 @@ describe("Headless server", () => {
         };
       }>;
     }>;
+    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
+
+    // Baseline first: without a map, medium is a normal selectable effort.
+    // Proving it NOW is what makes "medium disappeared" attributable to the
+    // override instead of to the catalog model's own level set.
+    const created = await post("/providers", {
+      name: "Thinking levels provider",
+      kind: "catalog",
+      piProvider: target.piProvider,
+      models: [{ code: target.code }],
+    });
+    expect(created.status).toBe(201);
+    const createdProvider = created.data as { id: string };
+
+    const before = (await getJson("/providers")).data as ProvidersPayload;
+    const beforeModel = before
+      .find((p) => p.name === "Thinking levels provider")!
+      .models.find((m) => m.code === target.code)!;
+    expect((beforeModel.reasoning?.efforts ?? []).map((e) => e.id)).toContain("medium");
+    expect("thinkingLevelMap" in beforeModel).toBe(false);
+
+    const updated = await put(`/providers/${encodeURIComponent(createdProvider.id)}`, {
+      kind: "catalog",
+      models: [{ code: target.code, thinkingLevelMap: { medium: null } }],
+    });
+    expect(updated.status).toBe(200);
+
+    const { data } = await getJson("/providers");
+    const providers = data as ProvidersPayload;
     const model = providers.find((p) => p.name === "Thinking levels provider")!
       .models.find((m) => m.code === target.code)!;
 
@@ -2120,6 +2139,48 @@ describe("Headless server", () => {
     const low = levels!.find((l) => l.id === "low");
     expect(low!.supported).toBe(true);
     expect(low!.overridden).toBe(false);
+  });
+
+  it("GET /providers keeps reasoning suppressed for an unknown code with reasoning:false and a stored map", async () => {
+    // Review fix A1: the catalog form accepts a hand-typed code; adding
+    // tiers auto-enables reasoning, and turning reasoning back off then
+    // saving stores `reasoning:false` plus a map. The synthesized entry must
+    // honor that false (map stored but inert) instead of reporting a
+    // reasoning capability the switch says is off.
+    const target = await pickFreeCatalogTarget((m) => m.reasoning === true);
+    const unknownCode = `${target.code}-fantasy`;
+
+    const created = await post("/providers", {
+      name: "Suppressed reasoning provider",
+      kind: "catalog",
+      piProvider: target.piProvider,
+      models: [
+        {
+          code: unknownCode,
+          reasoning: false,
+          thinkingLevelMap: { medium: null },
+        },
+      ],
+    });
+    expect(created.status).toBe(201);
+
+    const { data } = await getJson("/providers");
+    const providers = data as Array<{
+      name: string;
+      models: Array<{
+        code: string;
+        thinkingLevelMap?: Record<string, string | null>;
+        reasoning?: unknown;
+      }>;
+    }>;
+    const model = providers.find((p) => p.name === "Suppressed reasoning provider")!
+      .models.find((m) => m.code === unknownCode)!;
+
+    // The stored map still round-trips as the form's draft seed...
+    expect(model.thinkingLevelMap).toEqual({ medium: null });
+    // ...but it decides nothing while the explicit override suppresses
+    // reasoning, so no `reasoning` block may appear.
+    expect("reasoning" in model).toBe(false);
   });
 
   it("GET /providers keeps full default levels for an untouched reasoning model", async () => {

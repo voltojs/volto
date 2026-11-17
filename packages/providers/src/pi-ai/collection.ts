@@ -421,15 +421,20 @@ function supportsDeveloperRole(piProvider: string, modelId: string): boolean {
  * the synthesis baseline provides (the reasoning template's inherited map,
  * or nothing at all for the no-template stub branch) and registered in
  * `levelOverrides` so `describeModelInfo` reports the decided levels.
+ * An explicit `false` `reasoningOverride` suppresses the capability even
+ * when a stored map or input declaration is what triggered the synthesis:
+ * the map stays stored (and registered) but pi-ai ignores it entirely while
+ * `reasoning` is false, so the settings switch cannot bounce back on.
  *
  * Template choice:
  * - First reasoning-capable catalog model → inherit its thinkingLevelMap
  *   (real efforts for that provider family).
  * - No reasoning model in the catalog at all → take any catalog model as a
- *   structural template, force `reasoning: true` and drop `thinkingLevelMap`
- *   so `getSupportedThinkingLevels` yields the same default level set a
- *   hand-declared custom model gets (minimal/low/medium/high), unless the
- *   override supplies one to stand in its place.
+ *   structural template, default `reasoning` to true and drop
+ *   `thinkingLevelMap` so `getSupportedThinkingLevels` yields the same
+ *   default level set a hand-declared custom model gets
+ *   (minimal/low/medium/high), unless the override supplies one to stand in
+ *   its place.
  */
 function synthesizeUnknownCatalogModel(
   source: Provider,
@@ -438,6 +443,7 @@ function synthesizeUnknownCatalogModel(
   baseURL: string | undefined,
   inputOverride: ModelInputValue | undefined,
   mapOverride: ThinkingLevelMapOverride | undefined,
+  reasoningOverride: boolean | undefined,
   protocol: ProviderProtocol,
 ): Model<Api> {
   const catalogModels = source.getModels();
@@ -458,7 +464,7 @@ function synthesizeUnknownCatalogModel(
       name: code,
       api: protocol,
       ...(protocol !== structural.api ? { compat: undefined } : {}),
-      reasoning: true,
+      reasoning: reasoningOverride ?? true,
       // No reasoning template and no override: drop any inherited map so the
       // default level set applies. `undefined` is equivalent to absent for
       // the optional access in getSupportedThinkingLevels. With an override,
@@ -499,7 +505,7 @@ function synthesizeUnknownCatalogModel(
     api: protocol,
     provider: piProvider,
     baseUrl: baseURL ?? source.baseUrl ?? "https://api.openai.com",
-    reasoning: true,
+    reasoning: reasoningOverride ?? true,
     // Same override semantics as the structural branch above: a stored
     // declaration replaces the stub default, absence keeps UNKNOWN via the
     // declaration map while the wire value stays the stub's `["text"]`.
@@ -624,6 +630,7 @@ function buildCatalogProvider(config: CatalogProviderConfig): Provider {
         config.baseURL,
         inputOverride,
         mapOverride,
+        config.reasoningOverrides?.[code],
         resolveProviderProtocol(config, code, source.getModels()[0]?.api) ?? "openai-completions",
       ),
     );
@@ -836,6 +843,16 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
     // levels of overridden catalog models. See the coupled registration
     // contracts on inputDeclarations/levelOverrides.
     const customBaseline = inputDeclarations.has(model);
+    // The id fallback is only truthful for the OpenAI-style dialects, whose
+    // wire code is `map[level] ?? level` (openai-completions.js:621,
+    // openai-responses.js:88). pi-ai's Anthropic path is the exception:
+    // anthropic-messages.js:716-730 maps `minimal` AND `low` to `"low"`
+    // (`medium`/`high` to themselves, anything else to `"high"`), so
+    // reporting the level id there would promise a value the dialect never
+    // sends. An explicit map value still wins on every dialect, including
+    // Anthropic, because pi-ai reads the map first.
+    const openAiStyleDialect =
+      model.api === "openai-completions" || model.api === "openai-responses";
     // Seam shared with inputDeclarations: every config-built model registers
     // its user-decided keys here so `overridden` can be answered per level.
     // Catalog and test-injected models are unregistered — without an
@@ -851,6 +868,7 @@ export function describeModelInfo(models: Models, providerId: string, code: stri
       const value = typeof mapped === "string"
         ? mapped
         : customBaseline
+          && openAiStyleDialect
           && id !== "off"
           && supportedLevels.includes(id as ModelThinkingLevel)
             ? id

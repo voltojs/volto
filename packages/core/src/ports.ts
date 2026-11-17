@@ -87,7 +87,12 @@ export interface ModelThinkingLevelInfo {
   id: ReasoningEffortId;
   /** Whether the merged map leaves this level usable. */
   supported: boolean;
-  /** Effective wire value after pi-ai's fallback; absent when the dialect omits it (off). */
+  /**
+   * Effective wire value after the adapter's fallback. Absent when there is
+   * no truthful value to report: an unsupported tier, a catalog tier left
+   * unmapped, `off` (which omits the reasoning parameter), or a dialect whose
+   * fallback is not simply the tier id (e.g. Anthropic's minimal/low → low).
+   */
   value?: string;
   /** True when a user override decided this level. */
   overridden: boolean;
