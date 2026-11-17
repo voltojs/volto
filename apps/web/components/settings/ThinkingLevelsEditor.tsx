@@ -34,6 +34,16 @@ const ALL_LEVELS: ThinkingLevelId[] = [
  * default, so an unlisted one is never encoded as `null`. */
 const DEFAULT_SUPPORTED: ThinkingLevelId[] = ['minimal', 'low', 'medium', 'high'];
 
+/** The order "添加档位" prefers: real effort tiers first, `off` as a fallback. */
+const EFFORT_ORDER: ThinkingLevelId[] = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
+
 /** One editor row: the tier plus the exact string that will be sent. */
 interface LevelRow {
   /** Stable per-tier identity (a tier appears at most once), so re-seeding
@@ -88,19 +98,29 @@ function seedRows(
 }
 
 /**
- * The map a row set emits. Every listed tier contributes its value; every
- * default-supported tier that is not listed contributes `null`, so pi-ai
- * drops it from the supported set and the chat picker loses it too. `off`,
- * `xhigh` and `max` are never nulled when unlisted — they are already not
- * offered by default. An empty map means "no stored override" → `undefined`,
- * which lets pi-ai report its defaults untouched.
+ * The map a row set emits. Every listed tier contributes its value. A
+ * default-supported tier that is not listed contributes `null` — but only
+ * when `levels` actually reports it as supported: an absent `levels` means
+ * "the gateway could not describe this model", not "the vendor does not
+ * support the tier", so it must never erase tiers the table never showed.
+ * `off`, `xhigh` and `max` are never nulled when unlisted — they are already
+ * not offered by default. An empty map means "no stored override" →
+ * `undefined`, which lets pi-ai report its defaults untouched.
  */
-function mapFromRows(rows: LevelRow[]): ThinkingLevelMap | undefined {
+function mapFromRows(
+  rows: LevelRow[],
+  levels: ThinkingLevelInfo[] | undefined,
+): ThinkingLevelMap | undefined {
   const map: ThinkingLevelMap = {};
   const listed = new Set(rows.map((row) => row.level));
   for (const row of rows) map[row.level] = row.value;
   for (const level of DEFAULT_SUPPORTED) {
-    if (!listed.has(level)) map[level] = null;
+    if (
+      !listed.has(level) &&
+      levels?.some((info) => info.id === level && info.supported)
+    ) {
+      map[level] = null;
+    }
   }
   return Object.keys(map).length > 0 ? map : undefined;
 }
@@ -140,7 +160,7 @@ export function ThinkingLevelsEditor({
     const next = edit(rowsRef.current);
     rowsRef.current = next;
     setRows(next);
-    onChange(mapFromRows(next));
+    onChange(mapFromRows(next, levels));
   };
 
   /** Rows are unique per tier by construction, so a full-length set is the
@@ -234,11 +254,19 @@ export function ThinkingLevelsEditor({
           className="text-muted-foreground gap-1"
           onClick={() => {
             const used = new Set(rows.map((r) => r.level));
-            const free = ALL_LEVELS.find((id) => !used.has(id));
+            // Prefer a real effort tier; `off` stays the last resort (and
+            // remains selectable in the dropdown).
+            const free =
+              EFFORT_ORDER.find((id) => !used.has(id)) ??
+              ALL_LEVELS.find((id) => !used.has(id));
             if (!free) return;
             commit((prev) => [
               ...prev,
-              { clientKey: `add-${nextKey.current++}`, level: free, value: free },
+              {
+                clientKey: `add-${nextKey.current++}`,
+                level: free,
+                value: wireValueFor(free, value, levels),
+              },
             ]);
           }}
         >

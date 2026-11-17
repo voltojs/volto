@@ -33,6 +33,17 @@ const levelsSeed: ThinkingLevelInfo[] = [
   { id: 'max', supported: false, overridden: false },
 ];
 
+/** All four pi-ai default-supported tiers reported as supported. */
+const levelsAllSupported: ThinkingLevelInfo[] = [
+  { id: 'off', supported: true, overridden: false },
+  { id: 'minimal', supported: true, value: 'minimal', overridden: false },
+  { id: 'low', supported: true, value: 'low', overridden: false },
+  { id: 'medium', supported: true, value: 'medium', overridden: false },
+  { id: 'high', supported: true, value: 'high', overridden: false },
+  { id: 'xhigh', supported: false, overridden: false },
+  { id: 'max', supported: false, overridden: false },
+];
+
 /** The value boxes in DOM order. */
 function valueBoxes(): HTMLInputElement[] {
   return screen.getAllByLabelText(/^API 参数值 \d+$/) as HTMLInputElement[];
@@ -111,14 +122,51 @@ describe('ThinkingLevelsEditor row semantics', () => {
       low: 'custom',
       medium: null,
       high: 'high',
-      // minimal was never listed either: it is a default-supported tier, so
-      // it is encoded as "not offered" too.
-      minimal: null,
     });
+    // minimal is default-supported but this model never reported it as
+    // supported, so it must not be nulled into a false "not offered".
+    expect(changes.at(-1)).not.toHaveProperty('minimal');
     // off/xhigh/max are not default-supported: never nulled when unlisted.
     expect(changes.at(-1)).not.toHaveProperty('off');
     expect(changes.at(-1)).not.toHaveProperty('xhigh');
     expect(changes.at(-1)).not.toHaveProperty('max');
+  });
+
+  it('still nulls a deleted tier that levels reports as supported', async () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    const user = userEvent.setup();
+    render(
+      <ThinkingLevelsEditor
+        value={undefined}
+        levels={levelsAllSupported}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    // Rows: minimal / low / medium / high. Delete minimal, then medium.
+    await user.click(screen.getByRole('button', { name: '删除推理等级行 1' }));
+    await user.click(screen.getByRole('button', { name: '删除推理等级行 2' }));
+    expect(changes.at(-1)).toEqual({
+      low: 'low',
+      high: 'high',
+      minimal: null,
+      medium: null,
+    });
+  });
+
+  it('does not null-suppress tiers when levels could not describe the model', async () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    const user = userEvent.setup();
+    render(
+      <ThinkingLevelsEditor value={undefined} levels={undefined} onChange={(next) => changes.push(next)} />,
+    );
+    // No levels means "unknown", not "unsupported": the table starts empty.
+    expect(screen.queryAllByLabelText(/^API 参数值 \d+$/)).toHaveLength(0);
+    // Add a row (the default pick is additive), then make it `low`.
+    await user.click(screen.getByRole('button', { name: '添加档位' }));
+    await user.click(screen.getByRole('combobox', { name: '档位 1' }));
+    await user.click(await screen.findByRole('option', { name: 'low' }));
+    // Only the listed tier is emitted — no `null` keys for unlisted ones.
+    expect(changes.at(-1)).toEqual({ low: 'low' });
   });
 
   it('deleting nothing and editing nothing emits undefined', () => {
@@ -132,7 +180,7 @@ describe('ThinkingLevelsEditor row semantics', () => {
     expect(valueBoxes()).toHaveLength(3);
   });
 
-  it('adding a tier appends it with its id as the value', async () => {
+  it('adding a tier prefers the first free effort tier over off', async () => {
     const changes: Array<ThinkingLevelMap | undefined> = [];
     const user = userEvent.setup();
     render(
@@ -143,14 +191,38 @@ describe('ThinkingLevelsEditor row semantics', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: '添加档位' }));
-    // First tier not listed yet: off.
+    // Rows low/medium/high are listed; minimal is the first free effort tier,
+    // so the new row is minimal — not the first free tier in display order.
     expect(changes.at(-1)).toMatchObject({
-      off: 'off',
+      minimal: 'minimal',
       low: 'custom',
       medium: 'medium',
       high: 'high',
     });
-    expect(valueBoxes()[3]).toHaveValue('off');
+    expect(valueBoxes()[3]).toHaveValue('minimal');
+    expect(screen.getByRole('combobox', { name: '档位 4' }).textContent).toContain('minimal');
+  });
+
+  it('falls back to off when every effort tier is already listed', async () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    const user = userEvent.setup();
+    render(
+      <ThinkingLevelsEditor
+        value={{
+          minimal: 'minimal',
+          low: 'low',
+          medium: 'medium',
+          high: 'high',
+          xhigh: 'xhigh',
+          max: 'max',
+        }}
+        levels={levelsAllSupported}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '添加档位' }));
+    expect(changes.at(-1)).toMatchObject({ off: 'off' });
+    expect(valueBoxes()[6]).toHaveValue('off');
   });
 
   it('emptying a value box refills the tier id immediately', () => {
@@ -229,7 +301,7 @@ describe('ThinkingLevelsEditor row semantics', () => {
       target: { value: 'edited' },
     });
     expect(changes).toEqual([
-      { low: 'edited', minimal: null, medium: 'medium', high: 'high' },
+      { low: 'edited', medium: 'medium', high: 'high' },
     ]);
   });
 

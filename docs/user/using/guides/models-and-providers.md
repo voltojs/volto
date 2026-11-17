@@ -45,10 +45,14 @@ Expand a model row in "Settings → Models": the "Reasoning levels" section is t
 
 - **Listed = offered.** Every row is a tier the model offers. The rows start from what pi-ai reports for the model, and each value box is prefilled with the real wire value: a stored value first, then the model's reported value, then the tier's own name.
 - **Deleted = removed.** Deleting a row removes that tier from this model, and it disappears from the chat picker too.
-- **The value is exactly what is sent.** Whatever the value box contains is the string sent to the endpoint for that tier (`high`, or a vendor-specific `enabled`, and so on). Editing the box changes what is sent; emptying it immediately refills the tier's name, so the box never hides the real value.
-- **Add tier** appends a row for a tier that is not listed yet, with the tier's name as its value; use the "Tier" column to pick a different tier.
+- **The value is what is sent.** Whatever the value box contains is the string sent to the endpoint for that tier (`high`, or a vendor-specific `enabled`, and so on) — with the Anthropic-protocol exception below. Editing the box changes what is sent; emptying it immediately refills the tier's name, so the box never hides the value.
+- **Add tier** appends a row for the first effort tier that is not listed yet (falling back to `off` only when all the others are listed), with the tier's name as its value; use the "Tier" column to pick a different tier.
 
 The tiers are seven: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+
+On Anthropic-protocol models, pi-ai translates a tier to its own effort name (for example, `minimal` and `low` both become `low`), so the value shown names the tier the request asks for, not the literal string transmitted.
+
+If the gateway cannot describe the model at all, the table starts empty; tiers you do not add are left as they are rather than removed.
 
 The table is editable at all times. If the model's "Reasoning" checkbox is off, the section only adds one sentence saying the tiers do not take effect: nothing is greyed out, and editing the table does not turn reasoning on for you.
 
