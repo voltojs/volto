@@ -506,16 +506,27 @@ fn request_page_report(app: &AppHandle<Wry>, state: &AppState) {
     let store = Arc::clone(&state.page_report);
     let script = r#"
       (() => {
-        const root = document.documentElement;
-        return {
-          title: document.title,
-          lang: root.lang,
-          theme: root.dataset.voltoTheme ?? null,
-          shell: root.dataset.voltoShell ?? null,
-          dark: root.classList.contains("dark"),
-          dragRegions: document.querySelectorAll("[data-tauri-drag-region]").length,
-          text: (document.body?.innerText ?? "").slice(0, 160),
-        };
+        try {
+          const root = document.documentElement;
+          const header = document.querySelector("header");
+          const strip = document.querySelector(".desktop-traffic-strip");
+          return {
+            ready: Boolean(header),
+            title: document.title,
+            lang: root.lang,
+            theme: root.dataset.voltoTheme ?? null,
+            shell: root.dataset.voltoShell ?? null,
+            dark: root.classList.contains("dark"),
+            fullscreen: root.hasAttribute("data-volto-fullscreen"),
+            internals: Boolean(window.__TAURI_INTERNALS__),
+            dragRegions: document.querySelectorAll("[data-tauri-drag-region]").length,
+            stripHeight: strip ? strip.getBoundingClientRect().height : 0,
+            headerPad: header ? getComputedStyle(header).paddingLeft : null,
+            text: (document.body?.innerText ?? "").slice(0, 160),
+          };
+        } catch (error) {
+          return { error: String(error) };
+        }
       })()
     "#;
     let _ = main.eval_with_callback(script, move |result| {
@@ -525,8 +536,34 @@ fn request_page_report(app: &AppHandle<Wry>, state: &AppState) {
 }
 
 pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Path) -> std::io::Result<()> {
-    request_page_report(app, state);
-    std::thread::sleep(Duration::from_millis(300));
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    while std::time::Instant::now() < deadline {
+        request_page_report(app, state);
+        std::thread::sleep(Duration::from_millis(200));
+        let ready = state
+            .page_report
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|value| value.get("ready"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if ready {
+            break;
+        }
+    }
+    if std::env::var("VOLTO_DESKTOP_SMOKE_FULLSCREEN_ATTR").as_deref() == Ok("1") {
+        // Native fullscreen cannot be held while the app is launched in the
+        // background; set the marker on the settled page to verify the CSS.
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.eval(
+                "document.documentElement.setAttribute('data-volto-fullscreen','true')",
+            );
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        request_page_report(app, state);
+        std::thread::sleep(Duration::from_millis(300));
+    }
     // The settings page reports itself after mounting; wait for a non-empty
     // report instead of racing it with an eval.
     let deadline = std::time::Instant::now() + Duration::from_secs(5);

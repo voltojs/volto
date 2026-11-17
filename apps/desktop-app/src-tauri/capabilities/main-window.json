@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window-drag",
+  "description": "The gateway page may only drag/maximize the window (Tauri's drag region); app commands still reject this webview.",
+  "webviews": ["main"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

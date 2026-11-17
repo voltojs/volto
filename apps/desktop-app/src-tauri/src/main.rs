@@ -255,6 +255,23 @@ fn setup(app: &mut tauri::App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
                     );
                     std::thread::sleep(Duration::from_millis(1200));
                 }
+                if std::env::var("VOLTO_DESKTOP_SMOKE_FULLSCREEN").as_deref() == Ok("1") {
+                    if let Some(main) = thread_handle.get_webview_window("main") {
+                        let _ = main.show();
+                        let _ = main.set_focus();
+                        std::thread::sleep(Duration::from_millis(600));
+                        let _ = main.set_fullscreen(true);
+                        // Native fullscreen animates; wait for the window to
+                        // report the state before letting the report run.
+                        for _ in 0..60 {
+                            if main.is_fullscreen().unwrap_or(false) {
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(800));
+                }
                 if let Err(error) = commands::write_smoke(&thread_handle, &state, &path) {
                     eprintln!("smoke: {error}");
                 }
@@ -289,6 +306,33 @@ fn main() {
             commands::report_ui,
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id()))
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::Resized(_) = event {
+                // Native fullscreen hides the traffic lights; publish that so
+                // the web layout can drop the reserved corner and padding.
+                // The resize stream also fires mid-transition, so re-check
+                // after the animation instead of trusting the first event.
+                let app = window.app_handle().clone();
+                if let Some(main) = app.get_webview_window("main") {
+                    let fullscreen = main.is_fullscreen().unwrap_or(false);
+                    let _ = main.eval(format!(
+                        "document.documentElement.toggleAttribute('data-volto-fullscreen', {fullscreen})"
+                    ));
+                }
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    if let Some(main) = app.get_webview_window("main") {
+                        let fullscreen = main.is_fullscreen().unwrap_or(false);
+                        let _ = main.eval(format!(
+                            "document.documentElement.toggleAttribute('data-volto-fullscreen', {fullscreen})"
+                        ));
+                    }
+                });
+            }
+        })
         .setup(|app| {
             setup(app)?;
             Ok(())

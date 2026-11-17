@@ -122,10 +122,12 @@ pub fn create(app: &AppHandle<Wry>) -> tauri::Result<Windows> {
     // full height; the web sidebar reserves their corner.
     #[cfg(target_os = "macos")]
     {
+        // Do not override trafficLightPosition: a custom inset makes the
+        // controls transparent while the window is inactive. Native placement
+        // keeps them visible and still lands inside the sidebar's top strip.
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(18.0, 20.0));
+            .hidden_title(true);
     }
     let main = builder
         .on_navigation(move |url| {
