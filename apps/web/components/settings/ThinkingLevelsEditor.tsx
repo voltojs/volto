@@ -99,24 +99,29 @@ function seedRows(
 
 /**
  * The map a row set emits. Every listed tier contributes its value. A
- * default-supported tier that is not listed contributes `null` — but only
- * when `levels` actually reports it as supported: an absent `levels` means
- * "the gateway could not describe this model", not "the vendor does not
- * support the tier", so it must never erase tiers the table never showed.
- * `off`, `xhigh` and `max` are never nulled when unlisted — they are already
- * not offered by default. An empty map means "no stored override" →
- * `undefined`, which lets pi-ai report its defaults untouched.
+ * default-supported tier that is not listed contributes `null` when `levels`
+ * reports it supported OR the incoming map already stored `null` for it: a
+ * deliberate removal must survive a reload, after which pi-ai reports the
+ * tier as unsupported and `levels` alone can no longer distinguish "removed
+ * by the user" from "never supported". An absent `levels` still means "the
+ * gateway could not describe this model", not "the vendor does not support
+ * the tier", so it never invents nulls. `off`, `xhigh` and `max` are never
+ * nulled when unlisted — they are already not offered by default. An empty
+ * map means "no stored override" → `undefined`, which lets pi-ai report its
+ * defaults untouched.
  */
 function mapFromRows(
   rows: LevelRow[],
   levels: ThinkingLevelInfo[] | undefined,
+  stored: ThinkingLevelMap | undefined,
 ): ThinkingLevelMap | undefined {
   const map: ThinkingLevelMap = {};
   const listed = new Set(rows.map((row) => row.level));
   for (const row of rows) map[row.level] = row.value;
   for (const level of DEFAULT_SUPPORTED) {
+    if (listed.has(level)) continue;
     if (
-      !listed.has(level) &&
+      stored?.[level] === null ||
       levels?.some((info) => info.id === level && info.supported)
     ) {
       map[level] = null;
@@ -160,7 +165,7 @@ export function ThinkingLevelsEditor({
     const next = edit(rowsRef.current);
     rowsRef.current = next;
     setRows(next);
-    onChange(mapFromRows(next, levels));
+    onChange(mapFromRows(next, levels, value));
   };
 
   /** Rows are unique per tier by construction, so a full-length set is the

@@ -44,6 +44,17 @@ const levelsAllSupported: ThinkingLevelInfo[] = [
   { id: 'max', supported: false, overridden: false },
 ];
 
+/** Reload state after the user deleted `medium`: pi-ai reports it unsupported. */
+const levelsAfterRemoval: ThinkingLevelInfo[] = [
+  { id: 'off', supported: true, overridden: false },
+  { id: 'minimal', supported: true, value: 'minimal', overridden: false },
+  { id: 'low', supported: true, value: 'low', overridden: false },
+  { id: 'medium', supported: false, overridden: false },
+  { id: 'high', supported: true, value: 'high', overridden: false },
+  { id: 'xhigh', supported: false, overridden: false },
+  { id: 'max', supported: false, overridden: false },
+];
+
 /** The value boxes in DOM order. */
 function valueBoxes(): HTMLInputElement[] {
   return screen.getAllByLabelText(/^API 参数值 \d+$/) as HTMLInputElement[];
@@ -167,6 +178,51 @@ describe('ThinkingLevelsEditor row semantics', () => {
     await user.click(await screen.findByRole('option', { name: 'low' }));
     // Only the listed tier is emitted — no `null` keys for unlisted ones.
     expect(changes.at(-1)).toEqual({ low: 'low' });
+  });
+
+  it('keeps a tier removed before a reload removed on the next edit', () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    render(
+      <ThinkingLevelsEditor
+        value={{ medium: null }}
+        levels={levelsAfterRemoval}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    // medium is not seeded (stored null); rows are minimal / low / high.
+    // Editing another cell must not drop the stored removal: after a reload
+    // pi-ai reports the tier as unsupported, so `levels` alone cannot say
+    // that it was deliberately removed.
+    fireEvent.change(screen.getByLabelText('API 参数值 1'), {
+      target: { value: 'minimalX' },
+    });
+    expect(changes.at(-1)).toEqual({
+      minimal: 'minimalX',
+      low: 'low',
+      high: 'high',
+      medium: null,
+    });
+  });
+
+  it('re-enables a removed tier when the user adds it back', async () => {
+    const changes: Array<ThinkingLevelMap | undefined> = [];
+    const user = userEvent.setup();
+    render(
+      <ThinkingLevelsEditor
+        value={{ medium: null }}
+        levels={levelsAfterRemoval}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    // medium is the first free effort tier; adding it back must emit its
+    // value, not the stored removal.
+    await user.click(screen.getByRole('button', { name: '添加档位' }));
+    expect(changes.at(-1)).toEqual({
+      minimal: 'minimal',
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+    });
   });
 
   it('deleting nothing and editing nothing emits undefined', () => {
