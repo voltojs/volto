@@ -19,11 +19,9 @@ files:
   - package.json
   - "!**/{.eslintrc.cjs,tsconfig*.json,electron.vite.config.ts}"
 
-# asar 打包：除了原生模块外都塞进 app.asar，减小体积 + 防止用户手动改源码
+# asar 打包：应用代码进 app.asar。桌面端不再内置 agent/原生模块，
+# 网关进程是运行期由用户环境（系统 Node）启动的独立程序。
 asar: true
-asarUnpack:
-  # electron-store 在某些平台需要原生 fs 操作；保留 unpacked 形态更稳
-  - "**/node_modules/electron-store/**"
 
 # 产物根目录
 directories:
