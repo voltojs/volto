@@ -337,6 +337,21 @@ Rust modules (all free of Tauri types, so `cargo test` runs them directly):
 - `main.rs` — single-instance lock (`instance.lock` + PID liveness), setup, menu events,
   `RunEvent::Exit` shutdown.
 
+**Presentation contract.** The main window's entry URL carries
+`volto_shell=desktop&volto_theme=…&volto_locale=…`; the web boot script (which already
+decides theme/language before paint from cookies) gives these query parameters precedence.
+It publishes `data-volto-shell="desktop"` on `<html>`, and the exported UI uses that for the
+desktop-only chrome: the sidebar reserves a 44px top strip (traffic lights + drag), and the
+right header exposes a drag region and, while the sidebar is collapsed, left padding for the
+traffic lights. The preference itself lives in the desktop's profile store (same file as the
+profiles, 0600), so it survives switches and restarts; the View menu updates it, persists it,
+rebuilds the native menu, retitles both windows, and navigates the main window to the same
+gateway with the new parameters. The settings window reacts live through `shell:state`.
+
+On macOS the main window uses `TitleBarStyle::Overlay` with a hidden title and custom
+traffic-light position, so the right pane uses the full height. Windows/Linux keep the native
+title bar.
+
 `src-tauri/capabilities/default.json` grants IPC to the `settings` webview only; the main
 window hosts remote content and therefore has no bridge. The main window's navigation
 allow-list contains the app origin and the current gateway origin; other http(s) targets go

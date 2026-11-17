@@ -6,8 +6,11 @@
 
 - **主窗口**：一个 webview，加载当前网关托管的 UI（`http://<gateway>/`）。切换网关 = 让这个 webview 重新导航。
 - **设置窗口**：一个本地 webview，渲染 React 设置页（网关列表、新增/编辑/删除、离线状态与重试）。它是**唯一**能调用 Rust 命令的 webview。
-- **原生菜单**：网关列表（当前项勾选）、管理网关…（`⌘⇧G`）、重新连接、在浏览器中打开。
-- 窗口标题实时显示「Volto Desktop · 档案名 · 已连接/连接中/未连接」。
+- **原生菜单**：网关列表（当前项勾选）、管理网关…（`⌘⇧G`）、重新连接、在浏览器中打开；
+  「视图」里可切换主题（跟随系统/浅色/深色）和语言（中文/English）。
+- **macOS 窗口**：隐藏原生标题栏（`Overlay`），红绿灯浮在左侧边栏上方，右侧内容占满高度；
+  边栏顶部预留 44px 拖拽/红绿灯区，侧栏收起时右侧头部左侧让出红绿灯位置。
+- 窗口标题实时显示「Volto Desktop · 档案名 · 已连接/连接中/未连接」（随语言切换）。
 
 ## 前置
 
@@ -69,6 +72,9 @@ pnpm --filter @voltojs/desktop-app test:rust  # cargo test
 | `VOLTO_DESKTOP_SMOKE` | 冒烟输出目录：等待连接终态、写 `smoke.json`、退出 |
 | `VOLTO_DESKTOP_SMOKE_PROFILE` | 冒烟时新增并切换到该档案（JSON：`{label,kind,url,token?}`） |
 | `VOLTO_DESKTOP_SMOKE_SETTINGS` | 设为 `1` 时打开设置窗并把它的 DOM 摘要写进报告 |
+| `VOLTO_DESKTOP_SMOKE_THEME` | `system` / `light` / `dark`，冒烟前写入偏好 |
+| `VOLTO_DESKTOP_SMOKE_LOCALE` | `zh` / `en`，冒烟前写入语言 |
+| `VOLTO_DESKTOP_SMOKE_TOGGLE` | 设为 `1` 时在写报告前切到 light + 中文，验证运行时切换 |
 | `VOLTO_CONFIG_DIR` | 被本机 gateway 继承；冒烟可指向临时目录 |
 
 ## 冒烟
@@ -91,7 +97,8 @@ env VOLTO_DESKTOP_SMOKE=/tmp/volto-smoke-remote \
     src-tauri/target/debug/volto-desktop
 ```
 
-产物：`smoke.json`（状态、档案、主窗口 URL/标题、设置窗 URL、设置页 DOM 摘要）。假 gateway 的日志（`/tmp/fake-gateway.log`）能证明主窗口真的请求并渲染了它的页面。
+产物：`smoke.json`（状态、档案、主窗口 URL/标题、设置窗 URL/标题、设置页 DOM 摘要，
+以及主窗口页面自检 `pageReport`：`lang`、`theme`、`shell`、`dark`、拖拽区数量）。假 gateway 的日志（`/tmp/fake-gateway.log`）能证明主窗口真的请求并渲染了它的页面。
 
 > `tauri build --debug` 仍被视为 dev 模式（`WebviewUrl::App` 指向 `devUrl`）。要验证内嵌资源与真实打包行为，用 release 构建。
 
@@ -127,7 +134,9 @@ apps/desktop-app/
 
 ## 已知边界
 
-- UI 版本跟随网关：连到旧网关看到的就是旧 UI。
+- UI 版本跟随网关：连到旧网关看到的就是旧 UI；旧版 web 不认 `volto_shell/volto_theme/volto_locale` 时，桌面端仍能连接，但不会得到新的红绿灯布局，主题/语言回退到 cookie/系统。
+- 红绿灯布局是 macOS 专用（`TitleBarStyle::Overlay`）；Windows/Linux 保留原生标题栏。
+- 主题/语言保存在 `gateway-profiles.json`（与档案同一文件），不写网关的 cookie；每次进入网关都由 `?volto_*` 查询参数覆盖，因此换网关也一致。
 - 打包产物不内嵌 gateway/web；本机托管需要 Node 与仓库里的 gateway 构建（或用 `VOLTO_GATEWAY_BIN` 指向已安装包）。
 - 探测依赖 curl 子进程；每请求有 4 秒超时。
 - 单实例用配置目录的 `instance.lock`（PID + 存活检查）；第二个实例直接退出，不会聚焦第一个窗口。
