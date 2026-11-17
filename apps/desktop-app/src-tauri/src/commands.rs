@@ -347,21 +347,6 @@ pub fn report_ui(
     Ok(())
 }
 
-fn request_ui_report(app: &AppHandle<Wry>) {
-    if let Some(settings) = app.get_webview_window("settings") {
-        let script = r#"
-          window.__TAURI_INTERNALS__?.invoke("report_ui", {
-            report: {
-              title: document.title,
-              text: (document.body?.innerText ?? "").slice(0, 800),
-              buttons: [...document.querySelectorAll("button")].map((b) => (b.textContent ?? "").trim()).filter(Boolean).slice(0, 30),
-            },
-          });
-        "#;
-        let _ = settings.eval(script);
-    }
-}
-
 /// Never write a launch token into an artifact.
 fn redact_url(value: &str) -> String {
     match url::Url::parse(value) {
@@ -420,8 +405,23 @@ pub fn wait_for_terminal(state: &AppState, timeout: Duration) -> Status {
 }
 
 pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Path) -> std::io::Result<()> {
-    request_ui_report(app);
-    std::thread::sleep(Duration::from_millis(400));
+    // The settings page reports itself after mounting; wait for a non-empty
+    // report instead of racing it with an eval.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let ready = state
+            .ui_report
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|value| value.get("text"))
+            .and_then(Value::as_str)
+            .is_some_and(|text| !text.is_empty());
+        if ready || std::time::Instant::now() > deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let value = smoke_context(app, state);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
