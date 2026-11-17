@@ -242,12 +242,17 @@ fn setup(app: &mut tauri::App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
                     std::thread::sleep(Duration::from_millis(600));
                 }
                 if std::env::var("VOLTO_DESKTOP_SMOKE_TOGGLE").as_deref() == Ok("1") {
-                    if let Err(error) = commands::apply_theme(&thread_handle, "light") {
-                        eprintln!("smoke toggle theme: {error}");
-                    }
-                    if let Err(error) = commands::apply_locale(&thread_handle, "zh") {
-                        eprintln!("smoke toggle locale: {error}");
-                    }
+                    // Go through the same handler the native menu calls, so
+                    // the toggle smoke covers the `theme:`/`locale:` dispatch
+                    // and not only the apply functions.
+                    handle_menu(
+                        &thread_handle,
+                        &MenuId(format!("{}{}", menu::THEME_PREFIX, "light")),
+                    );
+                    handle_menu(
+                        &thread_handle,
+                        &MenuId(format!("{}{}", menu::LOCALE_PREFIX, "zh")),
+                    );
                     std::thread::sleep(Duration::from_millis(1200));
                 }
                 if let Err(error) = commands::write_smoke(&thread_handle, &state, &path) {
