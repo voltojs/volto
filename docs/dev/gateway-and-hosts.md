@@ -27,9 +27,9 @@ There are three hosts in this repo, and only one of them is a server:
 - **Web** (`apps/web`) — a Next.js app built with `output: 'export'`; its plain files are
   served by the gateway (or `volto web`), and it talks to the API over `fetch` and
   `EventSource` using the protocol types from `@voltojs/sdk/sse`.
-- **Desktop** (`apps/desktop-app`) — an Electron shell that embeds the gateway + web stack:
-  it starts a local gateway (or connects to a remote one), then loads the UI that gateway
-  serves. It builds no agent and owns no chat UI.
+- **Desktop** (`apps/desktop-app`) — a Tauri (Rust) shell that embeds the gateway + web
+  stack: it starts a local gateway (or connects to a remote one), then shows the UI that
+  gateway serves in its main window. It builds no agent and owns no chat UI.
 
 The gateway is a wiring layer, not a second kernel: it constructs agents through
 `createWiredAgent` (`src/wiring.ts`), drives them through `createSessionRegistry`
@@ -296,64 +296,71 @@ What it wires:
 
 ### Desktop (`apps/desktop-app`)
 
-The Electron app is a **native shell around the gateway**, not a second agent host. It loads
-the UI the active gateway serves, so the repo has exactly one web frontend and one agent host.
+The desktop app is a **Tauri 2 shell around the gateway**, not a second agent host and not a
+second frontend. Its main window shows the active gateway's own UI; a separate local window
+holds the gateway profiles. There is one webview for remote content and one for the settings
+page — never two remote surfaces.
 
-- `src/main/index.ts` — single-instance lock; builds the profile store, the controller, the
-  two-view window and the IPC bridge in that order; `before-quit` awaits
-  `controller.dispose()` (SIGTERM, SIGKILL after 5 s) and then really quits.
-- `src/main/gateway/controller.ts` — the profile state machine (`idle → starting → online |
-  offline`), profile CRUD and `navigate` events; a generation counter drops late probe or
-  startup results after a switch. It imports no electron, so it is unit-tested on plain Node.
-- `src/main/gateway/supervisor.ts` — starts `apps/gateway/dist/bin.js` with
-  `--port <p> --no-open`, parses the CLI's two stdout lines for the URL and launch token,
-  treats "Sessions are now saved to …" on stderr as a degraded store, and stops the child
-  with SIGTERM. A process-exit hook kills any survivor of a hard exit (`app.exit`, a crash).
-- `src/main/gateway/runtime.ts` — resolves the Node runtime and the gateway entry.
-  Runtime: `VOLTO_NODE` → PATH `node` (major ≥ 22) → Electron-as-node fallback, marked
-  degraded because better-sqlite3 is built for the system ABI. Entry: `VOLTO_GATEWAY_BIN` →
-  packaged `resources/gateway/bin.js` → repo `apps/gateway/dist/bin.js` → PATH `volto`.
-- `src/main/gateway/probe.ts` — `/health` (liveness), `/` (a 503 means no web build) and
-  `/gateway-info` with `Authorization: Bearer <token>` (credentials + version/mode). Each
-  failure has its own sentence — a 401 without a token reads "需要访问令牌" instead of leaving
-  a blank UI — and the content view is never pointed at an unusable gateway.
-- `src/main/shell/window.ts` — one BrowserWindow, two `WebContentsView`s: a 44 px local shell
-  bar with the preload, and the gateway page with no preload, `sandbox: true`, its own
-  `persist:volto-gateway` partition, a navigation allow-list and external-open handling.
-  Opening the management page grows the shell view to the whole window (an opaque page, not
-  a transparent overlay, because view transparency differs across platforms).
-- `src/main/shell/ipc.ts` / `src/preload/index.ts` — `window.voltoShell` (`getState`,
-  `onState`, `saveProfile`, `removeProfile`, `switchProfile`, `restart`, `retry`,
-  `setSheetOpen`, `reload`, `openInBrowser`). Handlers reject every sender but the shell view
-  and turn exceptions into `{ ok: false, error }` instead of leaking a rejection.
-- `src/renderer` — the local shell bar and the gateway management page (list, add/edit/delete,
-  offline banner, degraded warning). The chat UI itself is the gateway's.
+Rust modules (all free of Tauri types, so `cargo test` runs them directly):
 
-Switching blanks the content view (`clearGateway`) before the new gateway is probed, so a
-failed switch never leaves the previous gateway's UI interactive under the new profile's name.
+- `profiles.rs` — profile types and the pure rules (URL normalization to an origin, draft
+  validation, delete constraint, token reuse only for the same destination, sanitizing a
+  hand-edited store).
+- `store.rs` — `gateway-profiles.json` in the platform config dir, written through a temp
+  file with `0600` on Unix; a corrupt or unreadable file falls back to the default profile.
+- `runtime.rs` — Node runtime and gateway entry resolution. Node: `VOLTO_NODE` → `PATH` →
+  **login shell** `command -v node` (a GUI app started from Finder does not inherit
+  fnm/homebrew PATH) → actionable error. Entry: `VOLTO_GATEWAY_BIN` → bundled
+  `resource_dir/gateway/bin.js` → the repo's `apps/gateway/dist/bin.js` → login-shell
+  `volto`.
+- `supervisor.rs` — spawns `node <entry> --port <p> --no-open`, parses the CLI's two stdout
+  lines for the URL and launch token, treats "Sessions are now saved to …" on stderr as a
+  degraded store, and kills the child on stop. A `libc` signal guard kills it on
+  SIGTERM/SIGINT/SIGHUP, because a forced termination does not run destructors.
+- `probe.rs` — liveness/auth checks through the system `curl` (the offline crate cache has no
+  HTTP client): `/health`, `/` (503 = no web build), `/gateway-info` with a Bearer token.
+  The token travels in a temporary `0600` curl config file, never in argv.
+- `controller.rs` — the profile state machine (`idle → starting → online | offline`), profile
+  CRUD and generation-guarded switch results; a stale worker's gateway is stopped instead of
+  adopted.
+- `windows.rs` — the main `WebviewWindow` (gateway UI, or the local `connecting.html` /
+  `offline.html` pages) and the local settings window; per-window navigation allow-lists.
+  `WebviewWindow::url()` is never read before a navigation commits — wry panics on it — so
+  the requested URL is tracked alongside.
+- `commands.rs` — the IPC surface (`get_state`, `save_profile`, `remove_profile`,
+  `switch_profile`, `restart_gateway`, `retry_gateway`, `reload`, `open_in_browser`,
+  `open_settings`, `close_settings`, `report_ui`) plus the worker that performs the blocking
+  start/probe. Every command rejects senders whose webview label is not `settings`.
+- `menu.rs` — a plain menu model (tested: labels, ids, checked active profile, enabled
+  "open in browser") rendered into a native menu; menu events feed the same controller
+  entry points as IPC.
+- `main.rs` — single-instance lock (`instance.lock` + PID liveness), setup, menu events,
+  `RunEvent::Exit` shutdown.
 
-Credential flow: the controller hands the content view `http://<gateway>/?token=…`. Electron's
-top-level navigation carries `Sec-Fetch-Mode: navigate`, so the gateway guard performs its
-302 + `Set-Cookie` exchange; later `fetch`/`EventSource` calls ride the cookie. The desktop
-implements no authentication of its own.
+`src-tauri/capabilities/default.json` grants IPC to the `settings` webview only; the main
+window hosts remote content and therefore has no bridge. The main window's navigation
+allow-list contains the app origin and the current gateway origin; other http(s) targets go
+to the system browser. The settings window only navigates on the app origin.
 
-The profile list is the one piece of state the desktop owns
-(`userData/gateway-profiles.json`). Everything else — providers, workspaces, sessions,
-permissions, approvals — belongs to the gateway and `~/.volto`, which a managed local gateway
-shares with a terminal `volto`.
+Credential flow: the controller hands the main window `http://<gateway>/?token=…`. That
+top-level navigation triggers the gateway's 302 + `Set-Cookie` exchange, and later requests
+ride the cookie; the desktop implements no authentication itself. On a failed switch the main
+window is moved to the static offline page, so the previous gateway's UI is never left live
+under the new profile's name.
 
 | Concern | Gateway + web | Desktop |
 | --- | --- | --- |
-| Transport | HTTP + SSE for one origin | the same, loaded from the active gateway's own origin |
+| Transport | HTTP + SSE on one origin | the same, in the main window at the gateway's origin |
 | Agent construction | `createWiredAgent` | none — the desktop builds no agent |
-| Transcript / providers / permissions / approvals | gateway config store, `~/.volto` | the same; the desktop has no second store |
-| UI | exported Next app served at `/` | that same build, in the content view |
+| Transcript / providers / permissions / approvals | gateway config store, `~/.volto` | the same; only the profile list is desktop-owned |
+| UI | exported Next app served at `/` | that same build, in the main window |
 | Auth | launch/access token → cookie/bearer | token in a `?token=` navigation, then the cookie |
-| Gateway selection | one origin per deployment | profile list in the shell; switching reloads the content view |
+| Gateway selection | one origin per deployment | settings window + native menu; switching navigates the main window |
 
 `@voltojs/desktop-app` is not in `docs/user/`: it is a repo-local host, not a published
-surface. Its gates are `typecheck`, `lint`, `test` (Node-only modules) and `build`, plus the
-`VOLTO_DESKTOP_SMOKE` run that launches the real app and captures both views.
+surface. Its gates are `cargo test`, `cargo clippy -- -D warnings`, `cargo build`, the
+frontend's `typecheck` / `lint` / `build:web`, plus the `VOLTO_DESKTOP_SMOKE` run against the
+fake gateway script.
 
 ## Invariants and boundaries
 
@@ -413,12 +420,16 @@ surface. Its gates are `typecheck`, `lint`, `test` (Node-only modules) and `buil
   tunnel-first remote access with no built-in TLS/ACME; one subscriber per session;
   `npx`-first packaging. Cross-origin web stays a degradation mode behind `Bearer` — the
   one-time `POST /stream-tickets` endpoint from that spec was never built.
-- **2026-11-17 — the desktop is a gateway shell** (`desktop-gateway-shell-design`). Chose
-  loading each gateway's own UI over an in-app proxy (rejected: duplicates `volto web`'s
-  SSE/WS/cookie forwarding and pins one web build inside the app) and over cross-origin web
-  driven by `gatewayUrl` (rejected: cross-site cookies cannot carry `SameSite=Strict`, so it
-  would break the gateway's same-origin CSRF boundary). Local gateways are supervised child
-  processes sharing `~/.volto`; a remote gateway is a URL plus an access token.
+- **2026-11-17 — the desktop is a gateway shell** (`desktop-gateway-shell-design`, then
+  `desktop-tauri-shell-design` after the host changed from Electron to Tauri at the user's
+  request). Chose loading each gateway's own UI over an in-app proxy (rejected: duplicates
+  `volto web`'s SSE/WS/cookie forwarding and pins one web build inside the app) and over
+  cross-origin web driven by `gatewayUrl` (rejected: cross-site cookies cannot carry
+  `SameSite=Strict`, breaking the same-origin CSRF boundary). A dual-webview shell (native
+  bar above the gateway view) was also rejected: it needs layout sync and duplicates chrome,
+  and the user judged it the wrong shape. A single main window plus a local settings window
+  gives the same switching without a second remote surface. Local gateways are supervised
+  child processes sharing `~/.volto`; a remote gateway is a URL plus an access token.
 - **Reversals recorded rather than honoured.** The spec's `GET /health` shape was
   `{ ok, version }`; the code returns `{ status: "ok" }`. The runtime config file was planned as
   `/volto-config.json` and is served as the script `/volto-config.js` so it can load
@@ -432,9 +443,9 @@ Run the package's own gates —
 `pnpm turbo run typecheck lint test --filter @voltojs/gateway` — plus
 `--filter @voltojs/sdk` when the frame types or `formatSSEFrame` change, and
 `--filter @voltojs/web` when a route shape changes. `@voltojs/desktop-app` stays out of
-repo-wide gates (Electron binaries, slow build), but it has its own Node-only suite and
-gates: `pnpm --filter @voltojs/desktop-app test typecheck lint build`, plus the smoke run
-below.
+repo-wide gates (Rust + Tauri build), but it has its own suite and gates:
+`cargo test` / `cargo clippy -- -D warnings` under `src-tauri`, plus the frontend's
+`typecheck` / `lint` / `build:web`, and the smoke run below.
 
 Where the existing coverage lives, by change:
 
@@ -446,7 +457,7 @@ Where the existing coverage lives, by change:
 | Remote posture / capabilities | `__tests__/capabilities.test.ts`, `directory-picker.test.ts`, `server.test.ts` |
 | Static hosting / `volto web` proxy | `__tests__/static-site.test.ts`, `web-server.test.ts`, `copy-web-assets.test.ts` |
 | Session lifecycle, approvals, steering | `__tests__/session-*.test.ts`, `approval-gate.test.ts`, `steering-gateway.test.ts`, `queue-route.test.ts`, `permission-modes.test.ts` |
-| Desktop shell / IPC / gateway switching | `apps/desktop-app/src/**/__tests__/*.test.ts`; then build and run the `VOLTO_DESKTOP_SMOKE` harness (see `apps/desktop-app/README.md`) |
+| Desktop shell / IPC / gateway switching | `apps/desktop-app/src-tauri` (`cargo test`); then build and run the `VOLTO_DESKTOP_SMOKE` harness with `scripts/smoke-gateway.mjs` |
 
 Contract impact to check before merging:
 
@@ -461,7 +472,7 @@ Contract impact to check before merging:
   helper module needs a notes entry (or a generator change) to become part of the contract.
 - Anything that changes the wire means the SSE types in `packages/sdk/src/sse/types.ts` and
   `apps/web/lib/agent-config.ts` change in the same commit; `@voltojs/sdk/sse` is the shared
-  contract; the desktop host does not consume the wire types directly because it loads the
+  contract; the desktop host does not consume the wire types because it loads the
   gateway-served web build, but the same change still lands in `packages/sdk` and `apps/web`.
 
 ## Further reading (archive links)
