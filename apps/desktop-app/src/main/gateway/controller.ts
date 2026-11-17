@@ -139,7 +139,9 @@ export class GatewayController {
     // profile drops it, because a local gateway supplies its own token.
     const token =
       normalized.value.token ??
-      (normalized.value.kind === "remote" ? existing?.token : undefined);
+      (normalized.value.kind === "remote" || !normalized.value.managed
+        ? existing?.token
+        : undefined);
     const profile: GatewayProfile = {
       id: draft.id ?? this.idFactory(),
       label: normalized.value.label,

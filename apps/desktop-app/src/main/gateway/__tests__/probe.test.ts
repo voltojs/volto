@@ -70,19 +70,38 @@ describe("probeGateway", () => {
     expect(info?.authorization).toBe("Bearer secret");
   });
 
-  it("does not call /gateway-info when there is no token", async () => {
+  it("asks for a token when the gateway rejects the anonymous probe", async () => {
     const server = await start((req, res) => {
       if (req.url === "/health") return json(200, { status: "ok" })(req, res);
       if (req.url === "/") {
         res.writeHead(200);
         return res.end("ok");
       }
-      res.writeHead(500);
-      res.end();
+      return json(401, { error: "Unauthorized" })(req, res);
     });
 
-    expect(await probeGateway(server.url, undefined)).toEqual({ ok: true });
-    expect(server.requests.some((entry) => entry.path === "/gateway-info")).toBe(false);
+    expect(await probeGateway(server.url, undefined)).toEqual({
+      ok: false,
+      error: "需要访问令牌：在网关机器上运行 volto token 获取",
+    });
+    expect(server.requests.some((entry) => entry.path === "/gateway-info")).toBe(true);
+  });
+
+  it("accepts a gateway that does not require auth", async () => {
+    const server = await start((req, res) => {
+      if (req.url === "/health") return json(200, { status: "ok" })(req, res);
+      if (req.url === "/") {
+        res.writeHead(200);
+        return res.end("ok");
+      }
+      return json(200, { version: "0.2.1", mode: "local" })(req, res);
+    });
+
+    expect(await probeGateway(server.url, undefined)).toEqual({
+      ok: true,
+      version: "0.2.1",
+      mode: "local",
+    });
   });
 
   it("reports an unreachable gateway", async () => {

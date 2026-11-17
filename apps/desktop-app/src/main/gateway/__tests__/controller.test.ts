@@ -232,6 +232,36 @@ describe("GatewayController", () => {
     expect(h.store.value().profiles[1]).toMatchObject({ label: "Renamed", token: "remote-token" });
   });
 
+  it("keeps the token of an unmanaged local profile across edits", async () => {
+    const local = defaultPersistedProfiles().profiles[0]!;
+    const h = harness({
+      store: {
+        profiles: [
+          local,
+          {
+            id: "existing",
+            label: "Running locally",
+            kind: "local",
+            url: "http://127.0.0.1:3100",
+            managed: false,
+            token: "local-token",
+          },
+        ],
+        activeProfileId: "local",
+      },
+    });
+    await h.controller.init();
+    const result = await h.controller.saveProfile({
+      id: "existing",
+      label: "Running locally",
+      kind: "local",
+      url: "http://127.0.0.1:3100",
+      managed: false,
+    });
+    expect(result.ok).toBe(true);
+    expect(h.store.value().profiles[1]).toMatchObject({ managed: false, token: "local-token" });
+  });
+
   it("reconnects when the active profile is edited", async () => {
     const h = harness();
     await h.controller.init();

@@ -72,20 +72,27 @@ export async function probeGateway(
     // Reachability already proved; the UI check is advisory.
   }
 
-  if (token === undefined || token === "") return { ok: true };
-
   let info: Response;
   try {
     info = await fetchFn(`${base}/gateway-info`, {
       signal: timeoutSignal(timeoutMs),
-      headers: { authorization: `Bearer ${token}`, "cache-control": "no-store" },
+      headers: {
+        ...(token !== undefined && token !== "" ? { authorization: `Bearer ${token}` } : {}),
+        "cache-control": "no-store",
+      },
     });
   } catch (error) {
     return { ok: false, error: `无法连接网关：${describeError(error)}` };
   }
   if (info.status === 401 || info.status === 403) {
     drain(info);
-    return { ok: false, error: "访问令牌无效或已过期" };
+    return {
+      ok: false,
+      error:
+        token === undefined || token === ""
+          ? "需要访问令牌：在网关机器上运行 volto token 获取"
+          : "访问令牌无效或已过期",
+    };
   }
   if (info.status !== 200) {
     drain(info);

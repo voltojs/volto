@@ -164,8 +164,8 @@ export function createShellWindow(options: CreateShellWindowOptions): ShellWindo
   });
 
   win.on("closed", () => {
-    shellView.webContents.close();
-    contentView.webContents.close();
+    if (!shellView.webContents.isDestroyed()) shellView.webContents.close();
+    if (!contentView.webContents.isDestroyed()) contentView.webContents.close();
   });
 
   return {

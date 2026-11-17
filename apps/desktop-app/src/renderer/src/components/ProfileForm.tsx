@@ -55,6 +55,9 @@ export function ProfileForm(props: ProfileFormProps) {
 
   const isRemote = draft.kind === "remote";
   const managed = draft.managed !== false;
+  // A gateway the app did not start still needs its access token; only the
+  // managed local process hands us a fresh one on every launch.
+  const needsToken = isRemote || !managed;
 
   return (
     <form
@@ -102,33 +105,18 @@ export function ProfileForm(props: ProfileFormProps) {
       </div>
 
       {isRemote ? (
-        <>
-          <div className="space-y-1.5">
-            <Label htmlFor="profile-url">网关地址</Label>
-            <Input
-              id="profile-url"
-              value={draft.url ?? ""}
-              placeholder="https://gateway.example.com"
-              onChange={(event) => update({ url: event.target.value })}
-            />
-            <p className="text-xs text-muted-foreground">
-              填到端口即可，不要带路径；协议默认 http。
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="profile-token">访问令牌</Label>
-            <Input
-              id="profile-token"
-              type="password"
-              value={draft.token ?? ""}
-              placeholder={props.hasSavedToken ? "已保存（留空则不修改）" : "在网关机器上运行 volto token 获取"}
-              onChange={(event) => update({ token: event.target.value })}
-            />
-            <p className="text-xs text-muted-foreground">
-              令牌只交给主进程保存，不会出现在页面或日志里。
-            </p>
-          </div>
-        </>
+        <div className="space-y-1.5">
+          <Label htmlFor="profile-url">网关地址</Label>
+          <Input
+            id="profile-url"
+            value={draft.url ?? ""}
+            placeholder="https://gateway.example.com"
+            onChange={(event) => update({ url: event.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            填到端口即可，不要带路径；协议默认 http。
+          </p>
+        </div>
       ) : (
         <>
           <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5">
@@ -157,6 +145,24 @@ export function ProfileForm(props: ProfileFormProps) {
           </div>
         </>
       )}
+
+      {needsToken ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="profile-token">访问令牌</Label>
+          <Input
+            id="profile-token"
+            type="password"
+            value={draft.token ?? ""}
+            placeholder={
+              props.hasSavedToken ? "已保存（留空则不修改）" : "在网关机器上运行 volto token 获取"
+            }
+            onChange={(event) => update({ token: event.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            令牌只交给主进程保存，不会出现在页面或日志里。
+          </p>
+        </div>
+      ) : null}
 
       {error !== null ? (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>

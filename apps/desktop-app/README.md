@@ -47,7 +47,7 @@ pnpm --filter @voltojs/desktop-app build
 
 - **系统 Node ≥ 22 优先**：better-sqlite3 与系统 Node 的 ABI 匹配，会话写 `~/.volto/db/sessions.db`。
 - 找不到系统 Node 时回退到 Electron 内置 Node：SQLite 模块 ABI 不匹配，gateway 自动降级到文件 session store；外壳栏/管理页会显示降级警告。
-- 想固定端口或连到已运行的本机 gateway：管理页里关掉「由应用启动」，填 `http://127.0.0.1:3100`。
+- 想固定端口或连到已运行的本机 gateway：管理页里关掉「由应用启动」，填地址（如 `http://127.0.0.1:3100`）与该网关的访问令牌（`volto token`）。gateway 同样要求鉴权，桌面端不会绕过它。
 
 ### 远程网关
 
