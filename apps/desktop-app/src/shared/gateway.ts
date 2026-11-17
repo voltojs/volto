@@ -1,7 +1,7 @@
 /**
- * Shared contract between the Electron main process, the preload bridge and
- * the local shell renderer. Nothing here imports electron or node builtins so
- * the renderer can reuse the same types and pure rules.
+ * Types shared by the Rust side and the settings renderer. The Rust structs
+ * serialize to these shapes (`camelCase`); nothing here runs at runtime in the
+ * desktop host, and nothing imports Node or Tauri.
  */
 
 /** Label of the profile the app creates on first launch. */
