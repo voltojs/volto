@@ -135,6 +135,20 @@ describe("readWebSearchSettingsView / updateWebSearchConfig", () => {
     expect(document.webSearch.brave.apiKeyEnc).toEqual(expect.any(String));
   });
 
+  it("shows the saved key as configured in the settings view", async () => {
+    await updateWebSearchConfig(dir, { source: "deepseek", deepseek: { apiKey: "sk-1234567890" } });
+    const view = await readWebSearchSettingsView(dir);
+    expect(view.resolved.sourceId).toBe("deepseek");
+    expect(view.resolved.reason).toBe("configured");
+  });
+
+  it("surfaces resolution warnings in the view", async () => {
+    await writeConfig({ source: "deepseek", deepseek: { sourceProviderId: "ghost" } });
+    const view = await readWebSearchSettingsView(dir);
+    expect(view.resolved.reason).toBe("unconfigured");
+    expect(view.warnings.join(" ")).toContain("no API key");
+  });
+
   it("rejects a base URL that is not http(s)", async () => {
     await expect(
       updateWebSearchConfig(dir, { deepseek: { baseUrl: "file:///etc/passwd" } }),

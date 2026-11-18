@@ -44,8 +44,41 @@ describe("resolveWebSearch", () => {
       source: "deepseek",
       deepseek: { ...defaults.deepseek, sourceProviderId: "deepseek" },
     };
-    const { options } = resolveWebSearch(config, { provider: deepSeekProvider });
+    const { options } = resolveWebSearch(config, {
+      reused: { id: "deepseek", piProvider: "deepseek", baseURL: null, apiKey: "sk-deep" },
+    });
     expect(options).toMatchObject({ source: "deepseek", apiKey: "sk-deep" });
+  });
+
+  it("reuses the selected channel's key even when the session runs on another channel", () => {
+    const config = {
+      ...defaults,
+      source: "deepseek",
+      deepseek: { ...defaults.deepseek, sourceProviderId: "ds-a" },
+    };
+    const { options, reason } = resolveWebSearch(config, {
+      provider: { id: "ds-b", piProvider: "deepseek", baseURL: null, apiKey: "sk-b" },
+      reused: { id: "ds-a", piProvider: "deepseek", baseURL: "https://api.deepseek.com", apiKey: "sk-a" },
+    });
+    expect(options).toMatchObject({
+      source: "deepseek",
+      apiKey: "sk-a",
+      baseUrl: "https://api.deepseek.com",
+    });
+    expect(reason).toBe("reuse-channel");
+  });
+
+  it("falls back to the slot key when the reused channel lost its key", () => {
+    const config = {
+      ...defaults,
+      source: "deepseek",
+      deepseek: { ...defaults.deepseek, sourceProviderId: "ds-a" },
+    };
+    const { options, warnings } = resolveWebSearch(config, {
+      reused: { id: "ds-a", piProvider: "deepseek", baseURL: null, apiKey: null },
+    });
+    expect(options).toEqual({ source: "none" });
+    expect(warnings.join(" ")).toContain("ds-a");
   });
 
   it("uses the builtin slot key when no channel is reused", () => {

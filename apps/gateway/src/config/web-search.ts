@@ -281,7 +281,18 @@ export async function readWebSearchSettingsView(
   const candidates = await listDeepSeekCandidates(configDir);
   const preferences = await readPreferences(configDir);
   const provider = await readChannel(configDir, preferences.lastProviderId);
-  const resolution = resolveWebSearch(config, provider !== null ? { provider } : {});
+  const reused =
+    config.deepseek.sourceProviderId === null
+      ? null
+      : await readChannel(configDir, config.deepseek.sourceProviderId);
+  const keys = await readSearchKeys(configDir, config);
+  // Resolve with the real keys so the card cannot say "saved" and "not
+  // configured" in the same breath.
+  const resolution = resolveWebSearch(config, {
+    ...(provider !== null ? { provider } : {}),
+    ...(reused !== null ? { reused } : {}),
+    keys,
+  });
   const custom = await Promise.all(
     config.custom.map(async (entry) => ({
       id: entry.id,
@@ -316,7 +327,9 @@ export async function readWebSearchSettingsView(
       label: resolution.label,
       reason: resolution.reason,
     },
-    warnings,
+    // Both the document problems and the resolution ones: the card is where
+    // "the channel you picked is gone" has to be visible.
+    warnings: [...warnings, ...resolution.warnings],
   };
 }
 
@@ -635,6 +648,13 @@ export async function deleteCustomSource(
 export interface WebSearchResolutionContext {
   /** The session's model channel, with its decrypted key. */
   provider?: { id: string; piProvider: string; baseURL: string | null; apiKey: string | null } | null;
+  /**
+   * The channel the user explicitly picked for reuse
+   * (`deepseek.sourceProviderId`), with its decrypted key. Loaded
+   * independently of the session's channel: picking a channel that is not the
+   * current model channel is the normal case, not an edge case.
+   */
+  reused?: { id: string; piProvider: string; baseURL: string | null; apiKey: string | null } | null;
   /** Decrypted keys for the builtin slots and the custom sources. */
   keys?: {
     deepseek?: string | null;
@@ -696,15 +716,16 @@ export function resolveWebSearch(
     const label = name === "deepseek" ? "DeepSeek" : name === "brave" ? "Brave" : "GLM";
     if (name === "deepseek") {
       const slot = config.deepseek;
-      if (slot.sourceProviderId !== null && provider !== null && provider.id === slot.sourceProviderId) {
-        if (channelDeepSeek) {
+      if (slot.sourceProviderId !== null) {
+        const channel = ctx.reused?.id === slot.sourceProviderId ? ctx.reused : null;
+        if (channel !== null && channel.apiKey !== null) {
           return {
             options: {
               source: name,
               sourceId: name,
               label,
-              apiKey: provider.apiKey as string,
-              ...(channelBaseUrl !== undefined ? { baseUrl: channelBaseUrl } : {}),
+              apiKey: channel.apiKey,
+              ...(channel.baseURL !== null ? { baseUrl: channel.baseURL } : {}),
             },
             warnings,
             label,
@@ -845,21 +866,18 @@ export async function resolveWebSearchForSession(
 ): Promise<WebSearchToolOptions> {
   const { config } = await loadWebSearchConfig(configDir);
   const provider = await readChannel(configDir, providerId);
+  const reused =
+    config.deepseek.sourceProviderId === null
+      ? null
+      : await readChannel(configDir, config.deepseek.sourceProviderId);
   const keys = await readSearchKeys(configDir, config);
-  const resolved = resolveWebSearch(config, { ...(provider !== null ? { provider } : {}), keys });
+  const resolved = resolveWebSearch(config, {
+    ...(provider !== null ? { provider } : {}),
+    ...(reused !== null ? { reused } : {}),
+    keys,
+  });
   for (const warning of resolved.warnings) console.warn(`web search: ${warning}`);
   return resolved.options;
-}
-
-/** The resolution line the settings page shows above the source picker. */
-export async function readWebSearchResolution(
-  configDir: string,
-  providerId: string | undefined,
-): Promise<{ sourceId: string; label: string; reason: string }> {
-  const { config } = await loadWebSearchConfig(configDir);
-  const provider = await readChannel(configDir, providerId);
-  const resolved = resolveWebSearch(config, provider !== null ? { provider } : {});
-  return { sourceId: resolved.sourceId, label: resolved.label, reason: resolved.reason };
 }
 
 export interface WebSearchTestResult {
@@ -882,8 +900,16 @@ export async function testWebSearch(
   const preferences = await readPreferences(configDir);
   const providerId = opts.providerId ?? preferences.lastProviderId;
   const provider = await readChannel(configDir, providerId);
+  const reused =
+    config.deepseek.sourceProviderId === null
+      ? null
+      : await readChannel(configDir, config.deepseek.sourceProviderId);
   const keys = await readSearchKeys(configDir, config);
-  const resolved = resolveWebSearch(config, { ...(provider !== null ? { provider } : {}), keys });
+  const resolved = resolveWebSearch(config, {
+    ...(provider !== null ? { provider } : {}),
+    ...(reused !== null ? { reused } : {}),
+    keys,
+  });
   const summary = { sourceId: resolved.sourceId, label: resolved.label, reason: resolved.reason };
 
   if (resolved.options.source === "none" || resolved.options.source === "off") {
