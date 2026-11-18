@@ -423,3 +423,63 @@ export const updateBrowserSettings = (executablePath: string | null) =>
     method: 'PUT',
     body: JSON.stringify({ executablePath }),
   });
+// ── Web search (设置 → 工具配置 → 网页搜索) ──────────────────────────────
+
+export interface WebSearchCandidate {
+  id: string;
+  name: string;
+  apiKeyMasked: string | null;
+}
+
+export interface WebSearchSettingsView {
+  source: string;
+  builtins: {
+    deepseek: { apiKeyMasked: string | null; sourceProviderId: string | null; baseUrl: string | null };
+    brave: { apiKeyMasked: string | null; baseUrl: string | null };
+    glm: { apiKeyMasked: string | null; baseUrl: string | null };
+  };
+  custom: Array<{ id: string; name: string; method: string; url: string; apiKeyMasked: string | null }>;
+  candidates: WebSearchCandidate[];
+  resolved: { sourceId: string; label: string; reason: string };
+  warnings: string[];
+}
+
+export interface WebSearchUpdateBody {
+  source?: string;
+  deepseek?: { apiKey?: string | null; sourceProviderId?: string | null; baseUrl?: string | null };
+  brave?: { apiKey?: string | null; baseUrl?: string | null };
+  glm?: { apiKey?: string | null; baseUrl?: string | null };
+}
+
+export interface WebSearchHit {
+  title: string;
+  url: string;
+  snippet?: string;
+  summary?: string;
+  siteName?: string;
+  publishedAt?: string;
+}
+
+export interface WebSearchTestResult {
+  resolved: { sourceId: string; label: string; reason: string };
+  durationMs?: number;
+  hits?: WebSearchHit[];
+  error?: string;
+}
+
+export const fetchWebSearchSettings = () =>
+  request<WebSearchSettingsView>('/config/web-search');
+
+export const updateWebSearchSettings = (body: WebSearchUpdateBody) =>
+  request<WebSearchSettingsView>('/config/web-search', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const testWebSearch = (body: { source?: string; query?: string } = {}) =>
+  request<WebSearchTestResult>('/config/web-search/test', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });

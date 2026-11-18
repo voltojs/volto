@@ -26,6 +26,7 @@ import {
   updateBrowserSettings,
   type BrowserSettingsView,
 } from '@/lib/config-api';
+import { WebSearchCard } from './WebSearchCard';
 
 const AUTO = '__auto__';
 const CUSTOM = '__custom__';
@@ -112,23 +113,28 @@ export function ToolsPanel() {
 
   if (view === null) {
     return (
-      <ItemGroup>
-        <Item variant="outline">
-          <ItemMedia variant="icon">
-            <Monitor className="opacity-60" />
-          </ItemMedia>
-          <ItemContent>
-            <ItemTitle>{t('tools.browserTitle')}</ItemTitle>
-            <ItemDescription>
-              {error ?? t('tools.loading')}
-            </ItemDescription>
-          </ItemContent>
-        </Item>
-      </ItemGroup>
+      <div className="space-y-3">
+        <WebSearchCard />
+        <ItemGroup>
+          <Item variant="outline">
+            <ItemMedia variant="icon">
+              <Monitor className="opacity-60" />
+            </ItemMedia>
+            <ItemContent>
+              <ItemTitle>{t('tools.browserTitle')}</ItemTitle>
+              <ItemDescription>
+                {error ?? t('tools.loading')}
+              </ItemDescription>
+            </ItemContent>
+          </Item>
+        </ItemGroup>
+      </div>
     );
   }
 
   return (
+    <div className="space-y-3">
+    <WebSearchCard />
     <ItemGroup>
       <Item variant="outline" className="items-start">
         <ItemMedia variant="icon">
@@ -219,5 +225,6 @@ export function ToolsPanel() {
         </ItemContent>
       </Item>
     </ItemGroup>
+    </div>
   );
 }
