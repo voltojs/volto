@@ -84,6 +84,11 @@ impl Notifier for AppNotifier {
         if let Ok(menu) = menu::build_menu(&self.app, state) {
             let _ = self.app.set_menu(menu);
         }
+        if let Some(tray) = self.app.tray_by_id(menu::TRAY_ID) {
+            if let Ok(menu) = menu::build_tray_menu(&self.app, &state.locale) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        }
     }
 
     fn navigate(&self, url: &str) {
@@ -116,6 +121,16 @@ pub fn detect_running_local(
     let env_url = std::env::var("VOLTO_LOCAL_GATEWAY").ok();
     let candidates = crate::discovery::candidates(env_url.as_deref(), active_url);
     crate::discovery::detect(&|url, token| (hooks.probe)(url, token), &token, &candidates)
+}
+
+/// Bring the hidden main window back (Dock reopen, tray click, tray menu).
+pub fn show_main(app: &AppHandle<Wry>) {
+    let _ = app.show();
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+    }
 }
 
 pub fn build_hooks(resource_dir: Option<PathBuf>) -> Hooks {
@@ -516,6 +531,7 @@ pub fn smoke_context(app: &AppHandle<Wry>, state: &AppState) -> Value {
     let snapshot = state.core.lock().unwrap().state();
     let main_url = redact_url(&state.windows.current_url().unwrap_or_default());
     let main_title = state.windows.main.title().unwrap_or_default();
+    let main_visible = state.windows.main.is_visible().unwrap_or(false);
     let settings_window = app.get_webview_window("settings");
     let settings_url = if settings_window.is_some() {
         format!("{}/index.html", state.windows.app_origin.trim_end_matches('/'))
@@ -537,6 +553,7 @@ pub fn smoke_context(app: &AppHandle<Wry>, state: &AppState) -> Value {
         "appVersion": snapshot.app_version,
         "mainUrl": main_url,
         "mainTitle": main_title,
+        "mainVisible": main_visible,
         "settingsUrl": settings_url,
         "settingsTitle": settings_title,
         "uiReport": ui_report,
@@ -610,6 +627,12 @@ fn request_page_report(app: &AppHandle<Wry>, state: &AppState) {
 }
 
 pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Path) -> std::io::Result<()> {
+    if std::env::var("VOLTO_DESKTOP_SMOKE_CLOSE").as_deref() == Ok("1") {
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.close();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
     let deadline = std::time::Instant::now() + Duration::from_secs(6);
     while std::time::Instant::now() < deadline {
         request_page_report(app, state);

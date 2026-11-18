@@ -218,6 +218,29 @@ fn setup(app: &mut tauri::App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
     let initial_state = app.state::<AppState>().core.lock().unwrap().state();
     app.set_menu(menu::build_menu(&handle, &initial_state)?)?;
 
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+    tauri::tray::TrayIconBuilder::with_id(menu::TRAY_ID)
+        .icon(tray_icon)
+        .icon_as_template(true)
+        .menu(&menu::build_tray_menu(&handle, &initial_state.locale)?)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                commands::show_main(tray.app_handle());
+            }
+        })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            menu::TRAY_SHOW_ID => commands::show_main(app),
+            menu::TRAY_QUIT_ID => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+
     if let Ok(raw) = std::env::var("VOLTO_DESKTOP_SMOKE_PROFILE") {
         match serde_json::from_str::<ProfileDraft>(&raw) {
             Ok(draft) => {
@@ -352,6 +375,13 @@ fn main() {
             if window.label() != "main" {
                 return;
             }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // The red button backgrounds the app; only the tray/app menu
+                // Quit may end the process.
+                api.prevent_close();
+                let _ = window.hide();
+                return;
+            }
             if let tauri::WindowEvent::Resized(_) = event {
                 // Native fullscreen hides the traffic lights; publish that so
                 // the web layout can drop the reserved corner and padding.
@@ -381,13 +411,16 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("failed to build Volto Desktop")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
+        .run(|app, event| match event {
+            RunEvent::Exit => {
                 let state = app.state::<AppState>();
                 state.core.lock().unwrap().shutdown();
                 if let Some(path) = &state.lock_path {
                     let _ = fs::remove_file(path);
                 }
             }
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => commands::show_main(app),
+            _ => {}
         });
 }

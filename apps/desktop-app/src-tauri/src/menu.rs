@@ -20,6 +20,9 @@ pub const RELOAD_ID: &str = "reload";
 #[cfg(debug_assertions)]
 pub const DEVTOOLS_ID: &str = "devtools";
 pub const PROFILE_PREFIX: &str = "profile:";
+pub const TRAY_ID: &str = "volto-tray";
+pub const TRAY_SHOW_ID: &str = "tray-show";
+pub const TRAY_QUIT_ID: &str = "tray-quit";
 pub const THEME_PREFIX: &str = "theme:";
 pub const LOCALE_PREFIX: &str = "locale:";
 
@@ -62,6 +65,8 @@ pub struct MenuText {
     pub restart: String,
     pub open_browser: String,
     pub window: String,
+    pub tray_show: String,
+    pub tray_quit: String,
     pub minimize: String,
     pub close_window: String,
 }
@@ -95,6 +100,8 @@ pub fn menu_text(locale: &str) -> MenuText {
         restart: pick("重新连接", "Reconnect"),
         open_browser: pick("在浏览器中打开", "Open in Browser"),
         window: pick("窗口", "Window"),
+        tray_show: pick("显示 Volto Desktop", "Show Volto Desktop"),
+        tray_quit: pick("退出 Volto Desktop", "Quit Volto Desktop"),
         minimize: pick("最小化", "Minimize"),
         close_window: pick("关闭窗口", "Close Window"),
     }
@@ -119,6 +126,17 @@ pub fn gateway_menu_model(state: &ShellState) -> GatewayMenuModel {
         checked_theme: state.theme.clone(),
         checked_locale: state.locale.clone(),
     }
+}
+
+/// Menu-bar (tray) menu: show the hidden main window, then quit for real.
+pub fn build_tray_menu(app: &AppHandle<Wry>, locale: &str) -> tauri::Result<Menu<Wry>> {
+    let text = menu_text(locale);
+    let show = MenuItem::with_id(app, TRAY_SHOW_ID, &text.tray_show, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, &text.tray_quit, true, None::<&str>)?;
+    Menu::with_items(
+        app,
+        &[&show, &PredefinedMenuItem::separator(app)?, &quit],
+    )
 }
 
 pub fn build_menu(app: &AppHandle<Wry>, state: &ShellState) -> tauri::Result<Menu<Wry>> {
