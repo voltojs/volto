@@ -95,6 +95,15 @@ import {
   unknownProjectMessage,
 } from "./config/projects.js";
 import { createProviderStore, type PublicProvider } from "./config/providers.js";
+import {
+  WebSearchConfigError,
+  createCustomSource,
+  deleteCustomSource,
+  readWebSearchSettingsView,
+  testWebSearch,
+  updateCustomSource,
+  updateWebSearchConfig,
+} from "./config/web-search.js";
 import { isProviderProtocol, type ProviderProtocol } from "@voltojs/providers/pi-ai";
 import { createPiAiModelPort, listCatalogProviders, type PiAiProviderConfig } from "@voltojs/providers/pi-ai";
 import { getConfigDir } from "./config/paths.js";
@@ -1666,6 +1675,127 @@ export async function createServer(opts: ServerOptions = {}): Promise<HeadlessSe
         jsonResponse(res, err instanceof BrowserPathError ? 400 : 500, {
           error: err instanceof Error ? err.message : String(err),
         });
+      }
+      return;
+    }
+
+    // GET|PUT /config/web-search — the selected search source, the per-source
+    // credential slots (masked on the way out) and the user's own REST
+    // sources. GET also carries `resolved`: what a new session would use now.
+    if (url.pathname === "/config/web-search" && (req.method === "GET" || req.method === "PUT")) {
+      if (req.method === "GET") {
+        try {
+          jsonResponse(res, 200, await readWebSearchSettingsView(getConfigDir()));
+        } catch (err: unknown) {
+          jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      let body: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(await readBody(req));
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          jsonResponse(res, 400, { error: "request body must be a JSON object" });
+          return;
+        }
+        body = parsed as Record<string, unknown>;
+      } catch {
+        jsonResponse(res, 400, { error: "request body must be valid JSON" });
+        return;
+      }
+      try {
+        jsonResponse(res, 200, await updateWebSearchConfig(getConfigDir(), body));
+      } catch (err: unknown) {
+        jsonResponse(res, err instanceof WebSearchConfigError ? 400 : 500, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+
+    // POST /config/web-search/custom — add a user-declared REST search source.
+    if (req.method === "POST" && url.pathname === "/config/web-search/custom") {
+      let body: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(await readBody(req));
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          jsonResponse(res, 400, { error: "request body must be a JSON object" });
+          return;
+        }
+        body = parsed as Record<string, unknown>;
+      } catch {
+        jsonResponse(res, 400, { error: "request body must be valid JSON" });
+        return;
+      }
+      try {
+        jsonResponse(res, 200, await createCustomSource(getConfigDir(), body as never));
+      } catch (err: unknown) {
+        jsonResponse(res, err instanceof WebSearchConfigError ? 400 : 500, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+
+    // PUT|DELETE /config/web-search/custom/<id> — edit or remove one.
+    if (url.pathname.startsWith("/config/web-search/custom/")) {
+      const id = decodeURIComponent(url.pathname.slice("/config/web-search/custom/".length));
+      if (req.method === "PUT") {
+        let body: Record<string, unknown>;
+        try {
+          const parsed: unknown = JSON.parse(await readBody(req));
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            jsonResponse(res, 400, { error: "request body must be a JSON object" });
+            return;
+          }
+          body = parsed as Record<string, unknown>;
+        } catch {
+          jsonResponse(res, 400, { error: "request body must be valid JSON" });
+          return;
+        }
+        try {
+          jsonResponse(res, 200, await updateCustomSource(getConfigDir(), id, body as never));
+        } catch (err: unknown) {
+          jsonResponse(res, err instanceof WebSearchConfigError ? 400 : 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
+      if (req.method === "DELETE") {
+        try {
+          jsonResponse(res, 200, await deleteCustomSource(getConfigDir(), id));
+        } catch (err: unknown) {
+          jsonResponse(res, err instanceof WebSearchConfigError ? 400 : 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
+    }
+
+    // POST /config/web-search/test — run one search with the resolution a new
+    // session would get, through the same egress-wrapped Network port.
+    if (req.method === "POST" && url.pathname === "/config/web-search/test") {
+      let body: Record<string, unknown> = {};
+      try {
+        const raw = await readBody(req);
+        const parsed: unknown = raw.trim() === "" ? {} : JSON.parse(raw);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          body = parsed as Record<string, unknown>;
+        }
+      } catch {
+        jsonResponse(res, 400, { error: "request body must be valid JSON" });
+        return;
+      }
+      try {
+        jsonResponse(res, 200, await testWebSearch(getConfigDir(), {
+          ...(typeof body["source"] === "string" ? { source: body["source"] } : {}),
+          ...(typeof body["query"] === "string" ? { query: body["query"] } : {}),
+          ...(typeof body["providerId"] === "string" ? { providerId: body["providerId"] } : {}),
+        }));
+      } catch (err: unknown) {
+        jsonResponse(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }

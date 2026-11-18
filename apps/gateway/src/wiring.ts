@@ -16,6 +16,7 @@ import {
 import { createPiAiModelPort, type PiAiProviderConfig } from "@voltojs/providers/pi-ai";
 import { BUILT_IN_COMMANDS } from "./commands.js";
 import { loadEgressPolicy } from "./config/egress.js";
+import { resolveWebSearchForSession } from "./config/web-search.js";
 import { loadHooksConfig } from "./config/hooks.js";
 import { loadLspServers } from "./config/lsp.js";
 import { loadPermissionRules, mergePermissionRules } from "./config/permissions.js";
@@ -661,6 +662,11 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
   // failIfUnavailable. Scope: the Network port only; model traffic and
   // bash-launched processes are untouched by design.
   const egressPolicy = await loadEgressPolicy(getConfigDir());
+  // Web search source: same reload discipline as egress — read on every
+  // session build, so a settings change reaches the next new session without
+  // a gateway restart. Unconfigured sources resolve to { source: "none" },
+  // which keeps the tool visible and answers with setup guidance.
+  const webSearch = await resolveWebSearchForSession(getConfigDir(), opts.providerId);
   const browserAdapter =
     opts.browserHost !== undefined && opts.chatSessionId !== undefined
       ? opts.browserHost.page(opts.chatSessionId, { egressPolicy: egressPolicy ?? undefined })
@@ -784,6 +790,7 @@ export async function createWiredAgent(opts: WiringOptions = {}) {
     ...(egressPolicy ? { egressPolicy } : {}),
     auditSink,
     network,
+    webSearch,
     sessionStore,
     lsp,
     db: { opener: db, allowWrite: opts.sandboxMode !== "read-only" },

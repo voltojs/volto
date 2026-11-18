@@ -14,9 +14,18 @@
  * sources.
  */
 
-import { createEndpointAdapter, type EndpointSourceSpec } from "@voltojs/tools/web";
+import {
+  createEndpointAdapter,
+  createSearchAdapter,
+  type EndpointSourceSpec,
+  type SearchHit,
+  type WebSearchToolOptions,
+} from "@voltojs/tools/web";
+import { createNodeNetwork, wrapNetworkWithEgress } from "@voltojs/runtime-node";
 import { createCipher } from "./crypto.js";
+import { loadEgressPolicy } from "./egress.js";
 import { getConfigDir } from "./paths.js";
+import { readPreferences } from "./preferences.js";
 import { createProviderStore } from "./providers.js";
 import { getConfigStore } from "./store.js";
 
@@ -57,6 +66,8 @@ export interface WebSearchSettingsView {
   };
   custom: Array<{ id: string; name: string; method: string; url: string; apiKeyMasked: string | null }>;
   candidates: Array<{ id: string; name: string; apiKeyMasked: string | null }>;
+  /** What a new session would actually use, shown above the source picker. */
+  resolved: { sourceId: string; label: string; reason: string };
   warnings: string[];
 }
 
@@ -260,6 +271,9 @@ export async function readWebSearchSettingsView(
   const { config, warnings } = await loadWebSearchConfig(configDir);
   const cipher = createCipher(configDir);
   const candidates = await listDeepSeekCandidates(configDir);
+  const preferences = await readPreferences(configDir);
+  const provider = await readChannel(configDir, preferences.lastProviderId);
+  const resolution = resolveWebSearch(config, provider !== null ? { provider } : {});
   const custom = await Promise.all(
     config.custom.map(async (entry) => ({
       id: entry.id,
@@ -288,6 +302,11 @@ export async function readWebSearchSettingsView(
     },
     custom,
     candidates,
+    resolved: {
+      sourceId: resolution.sourceId,
+      label: resolution.label,
+      reason: resolution.reason,
+    },
     warnings,
   };
 }
@@ -603,4 +622,295 @@ export async function deleteCustomSource(
       ...view.warnings,
     ],
   };
+}
+export interface WebSearchResolutionContext {
+  /** The session's model channel, with its decrypted key. */
+  provider?: { id: string; piProvider: string; baseURL: string | null; apiKey: string | null } | null;
+  /** Decrypted keys for the builtin slots and the custom sources. */
+  keys?: {
+    deepseek?: string | null;
+    brave?: string | null;
+    glm?: string | null;
+    custom?: Record<string, string | null>;
+  };
+}
+
+export interface ResolvedWebSearch {
+  options: WebSearchToolOptions;
+  warnings: string[];
+  /** Display name for the resolution line in the settings page. */
+  label: string;
+  sourceId: string;
+  /** Why this source was picked: "auto-channel", "configured", "off", "unconfigured". */
+  reason: string;
+}
+
+/**
+ * Pure: turn the stored section plus the session's channel into the options the
+ * SDK receives. Keys only ever travel in memory (this object), never into a
+ * state, event or log.
+ */
+export function resolveWebSearch(
+  config: WebSearchConfig,
+  ctx: WebSearchResolutionContext = {},
+): ResolvedWebSearch {
+  const warnings: string[] = [];
+  const provider = ctx.provider ?? null;
+  const keys = ctx.keys ?? {};
+
+  const channelDeepSeek =
+    provider !== null && isDeepSeekChannel(provider) && provider.apiKey !== null;
+  const channelBaseUrl = provider?.baseURL ?? undefined;
+
+  const deepseekOwn = keys.deepseek ?? null;
+
+  const custom = (id: string): ResolvedWebSearch | null => {
+    const entry = config.custom.find((candidate) => candidate.id === id);
+    if (entry === undefined) return null;
+    const apiKey = keys.custom?.[id] ?? null;
+    return {
+      options: {
+        source: "endpoint",
+        sourceId: entry.id,
+        label: entry.name,
+        ...(apiKey !== null ? { apiKey } : {}),
+        endpoint: entry.endpoint,
+      },
+      warnings,
+      label: entry.name,
+      sourceId: entry.id,
+      reason: "custom",
+    };
+  };
+
+  const builtin = (name: "deepseek" | "brave" | "glm"): ResolvedWebSearch => {
+    const label = name === "deepseek" ? "DeepSeek" : name === "brave" ? "Brave" : "GLM";
+    if (name === "deepseek") {
+      const slot = config.deepseek;
+      if (slot.sourceProviderId !== null && provider !== null && provider.id === slot.sourceProviderId) {
+        if (channelDeepSeek) {
+          return {
+            options: {
+              source: name,
+              sourceId: name,
+              label,
+              apiKey: provider.apiKey as string,
+              ...(channelBaseUrl !== undefined ? { baseUrl: channelBaseUrl } : {}),
+            },
+            warnings,
+            label,
+            sourceId: name,
+            reason: "reuse-channel",
+          };
+        }
+        warnings.push(
+          `webSearch.deepseek.sourceProviderId "${slot.sourceProviderId}" has no usable key; using the slot key`,
+        );
+      }
+      if (deepseekOwn !== null) {
+        return {
+          options: {
+            source: name,
+            sourceId: name,
+            label,
+            apiKey: deepseekOwn,
+            ...(slot.baseUrl !== null ? { baseUrl: slot.baseUrl } : {}),
+          },
+          warnings,
+          label,
+          sourceId: name,
+          reason: "configured",
+        };
+      }
+      warnings.push("DeepSeek search has no API key; pick a channel or enter one in Settings");
+      return { options: { source: "none" }, warnings, label, sourceId: "none", reason: "unconfigured" };
+    }
+
+    const slot = name === "brave" ? config.brave : config.glm;
+    const apiKey = name === "brave" ? keys.brave ?? null : keys.glm ?? null;
+    return {
+      options: {
+        source: name,
+        sourceId: name,
+        label,
+        ...(apiKey !== null ? { apiKey } : {}),
+        ...(slot.baseUrl !== null ? { baseUrl: slot.baseUrl } : {}),
+      },
+      warnings,
+      label,
+      sourceId: name,
+      reason: "configured",
+    };
+  };
+
+  if (config.source === "off") {
+    return { options: { source: "off" }, warnings, label: "Off", sourceId: "off", reason: "off" };
+  }
+  if (config.source === "deepseek" || config.source === "brave" || config.source === "glm") {
+    return builtin(config.source);
+  }
+  if (config.source !== "auto") {
+    const resolved = custom(config.source);
+    if (resolved !== null) return resolved;
+    warnings.push(`webSearch.source "${config.source}" no longer exists; falling back to auto`);
+  }
+
+  if (channelDeepSeek) {
+    return {
+      options: {
+        source: "deepseek",
+        sourceId: "deepseek",
+        label: "DeepSeek",
+        apiKey: provider.apiKey as string,
+        ...(channelBaseUrl !== undefined ? { baseUrl: channelBaseUrl } : {}),
+      },
+      warnings,
+      label: "DeepSeek",
+      sourceId: "deepseek",
+      reason: "auto-channel",
+    };
+  }
+  return {
+    options: { source: "none" },
+    warnings,
+    label: "Not configured",
+    sourceId: "none",
+    reason: "unconfigured",
+  };
+}
+
+async function decryptSlot(
+  cipher: ReturnType<typeof createCipher>,
+  enc: string | null,
+): Promise<string | null> {
+  if (enc === null) return null;
+  try {
+    return await cipher.decrypt(enc);
+  } catch {
+    return null;
+  }
+}
+
+/** Decrypt every stored search credential for one resolution pass. */
+async function readSearchKeys(
+  configDir: string,
+  config: WebSearchConfig,
+): Promise<NonNullable<WebSearchResolutionContext["keys"]>> {
+  const cipher = createCipher(configDir);
+  const custom: Record<string, string | null> = {};
+  for (const entry of config.custom) {
+    custom[entry.id] = await decryptSlot(cipher, entry.apiKeyEnc);
+  }
+  return {
+    deepseek: await decryptSlot(cipher, config.deepseek.apiKeyEnc),
+    brave: await decryptSlot(cipher, config.brave.apiKeyEnc),
+    glm: await decryptSlot(cipher, config.glm.apiKeyEnc),
+    custom,
+  };
+}
+
+async function readChannel(
+  configDir: string,
+  providerId: string | undefined,
+): Promise<NonNullable<WebSearchResolutionContext["provider"]> | null> {
+  if (providerId === undefined) return null;
+  const store = createProviderStore(configDir);
+  const providers = await store.listPublic();
+  const channel = providers.find((provider) => provider.id === providerId);
+  if (channel === undefined) return null;
+  return {
+    id: channel.id,
+    piProvider: channel.kind === "catalog" ? channel.piProvider : "custom",
+    baseURL: channel.baseURL,
+    apiKey: await store.readApiKey(channel.id),
+  };
+}
+
+/**
+ * Host-side entry point used when building a session: read, decrypt, resolve.
+ * Warnings go to the gateway log; the settings view shows them too.
+ */
+export async function resolveWebSearchForSession(
+  configDir: string,
+  providerId: string | undefined,
+): Promise<WebSearchToolOptions> {
+  const { config } = await loadWebSearchConfig(configDir);
+  const provider = await readChannel(configDir, providerId);
+  const keys = await readSearchKeys(configDir, config);
+  const resolved = resolveWebSearch(config, { ...(provider !== null ? { provider } : {}), keys });
+  for (const warning of resolved.warnings) console.warn(`web search: ${warning}`);
+  return resolved.options;
+}
+
+/** The resolution line the settings page shows above the source picker. */
+export async function readWebSearchResolution(
+  configDir: string,
+  providerId: string | undefined,
+): Promise<{ sourceId: string; label: string; reason: string }> {
+  const { config } = await loadWebSearchConfig(configDir);
+  const provider = await readChannel(configDir, providerId);
+  const resolved = resolveWebSearch(config, provider !== null ? { provider } : {});
+  return { sourceId: resolved.sourceId, label: resolved.label, reason: resolved.reason };
+}
+
+export interface WebSearchTestResult {
+  resolved: { sourceId: string; label: string; reason: string };
+  durationMs?: number;
+  hits?: SearchHit[];
+  error?: string;
+}
+
+/**
+ * Run one search with the exact resolution a new session would get, through the
+ * same egress-wrapped Network port, so "test" cannot disagree with the agent.
+ */
+export async function testWebSearch(
+  configDir: string,
+  opts: { source?: string; query?: string; providerId?: string } = {},
+): Promise<WebSearchTestResult> {
+  const { config: stored } = await loadWebSearchConfig(configDir);
+  const config = opts.source === undefined ? stored : { ...stored, source: opts.source };
+  const preferences = await readPreferences(configDir);
+  const providerId = opts.providerId ?? preferences.lastProviderId;
+  const provider = await readChannel(configDir, providerId);
+  const keys = await readSearchKeys(configDir, config);
+  const resolved = resolveWebSearch(config, { ...(provider !== null ? { provider } : {}), keys });
+  const summary = { sourceId: resolved.sourceId, label: resolved.label, reason: resolved.reason };
+
+  if (resolved.options.source === "none" || resolved.options.source === "off") {
+    return {
+      resolved: summary,
+      error:
+        "Web search is not configured. Pick a source in Settings → Tools → Web Search " +
+        "(DeepSeek can reuse a model channel's key).",
+    };
+  }
+
+  const query = opts.query ?? "DeepSeek";
+  const startedAt = Date.now();
+  try {
+    const adapter = createSearchAdapter({
+      source: resolved.options.source,
+      id: resolved.options.sourceId,
+      label: resolved.options.label,
+      ...(resolved.options.endpoint !== undefined ? { endpoint: resolved.options.endpoint } : {}),
+    });
+    const request = adapter.buildRequest(query, {
+      ...(resolved.options.apiKey !== undefined ? { apiKey: resolved.options.apiKey } : {}),
+      ...(resolved.options.baseUrl !== undefined ? { baseUrl: resolved.options.baseUrl } : {}),
+      count: 5,
+    });
+    const egress = await loadEgressPolicy(configDir);
+    const raw = createNodeNetwork();
+    const network = egress === null ? raw : wrapNetworkWithEgress(raw, egress);
+    const response = await network.fetch(request);
+    const hits = adapter.parseResponse(response, { count: 5 });
+    return { resolved: summary, durationMs: Date.now() - startedAt, hits };
+  } catch (error) {
+    return {
+      resolved: summary,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
