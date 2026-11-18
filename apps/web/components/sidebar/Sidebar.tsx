@@ -168,7 +168,7 @@ export function Sidebar({
         ) : null}
 
         {/* Nameplate */}
-        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
+        <div className="flex h-9 items-center gap-2.5 px-3">
           <svg
             viewBox="0 0 24 24"
             className="text-primary h-6 w-6 shrink-0"
@@ -192,7 +192,7 @@ export function Sidebar({
           )}
         </div>
 
-        <div className="px-3 pb-3">
+        <div className="p-3">
           <Button
             variant="secondary"
             className="w-full justify-start gap-2 font-medium"
