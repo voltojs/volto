@@ -60,6 +60,22 @@ pnpm --filter @voltojs/gateway web:export   # next export + copy → apps/gatewa
 - 确认自己改的是**当前 worktree** 的 `apps/web`，而不是主 checkout 的同名目录。
 - 排查：`stat apps/web/out/index.html apps/gateway/web/index.html` 的 mtime 应接近；`apps/gateway/web` 旧就是没复制。
 
+### 本机网关自动发现
+
+启动时如果当前选中的是本机档案，应用会先尝试接管**已经在运行**的本机网关，而不是再起一个：
+
+1. 读取网关配置目录的 `access-token`（默认 `~/.volto`，`VOLTO_CONFIG_DIR` 可覆盖）；
+2. 依次探测 `VOLTO_LOCAL_GATEWAY`、当前档案地址、默认 `http://127.0.0.1:3100`；
+3. 用该令牌请求 `/gateway-info`，通过才认为找到；
+4. 成功后新增/更新「本机网关（已检测）」档案并连接，不再启动托管进程；
+5. 没找到则回退到默认「本机网关」：启动托管进程；如果连 Node/Volto 都没有，按安装指南引导。
+
+设置页的「扫描本机网关」可以随时手动触发同样的探测。注意：
+
+- 手动网关如果用了别的 `--config-dir`，令牌不在默认目录，探测会 401，需要手动添加档案或设置 `VOLTO_CONFIG_DIR`。
+- 只在启动时和手动扫描时探测；已连接远程网关时不会自动抢过去。
+- 探测会校验 `/health` 与带令牌的 `/gateway-info`，不会把普通本地 HTTP 服务当成网关。
+
 ## 打包 macOS 应用
 
 应用本身**不内置** Node、gateway 或 web：它是一个网关外壳，本机网关需要按

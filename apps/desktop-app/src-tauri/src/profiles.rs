@@ -47,6 +47,8 @@ pub const THEME_LIGHT: &str = "light";
 pub const THEME_DARK: &str = "dark";
 pub const LOCALE_ZH: &str = "zh";
 pub const LOCALE_EN: &str = "en";
+/// Reserved id for the profile adopted when a gateway is already running.
+pub const DETECTED_LOCAL_ID: &str = "local-live";
 
 /// Unknown values fall back to the default instead of failing the whole store.
 pub fn normalize_theme(value: &str) -> String {

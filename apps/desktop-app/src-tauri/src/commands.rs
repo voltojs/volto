@@ -13,7 +13,9 @@ use tauri::{AppHandle, Emitter, Manager, State, Webview, Wry};
 use crate::controller::{ConnectResult, ConnectTicket, Core, Hooks, Notifier, StartedGateway};
 use crate::menu;
 use crate::probe::Probe;
-use crate::profiles::{Kind, Profile, ProfileDraft, ShellState, Status};
+use crate::profiles::{
+    Kind, Profile, ProfileDraft, ShellState, Status, DETECTED_LOCAL_ID,
+};
 use crate::runtime;
 use crate::supervisor;
 use crate::windows::{self, Windows};
@@ -100,6 +102,20 @@ fn page_for(base: &str, english: bool) -> &'static str {
         windows::CONNECTING_PAGE => windows::CONNECTING_EN_PAGE,
         _ => windows::OFFLINE_EN_PAGE,
     }
+}
+
+/// Probe for a gateway the user already started, using the token it keeps in
+/// the gateway config dir. Returns `None` when no token exists or nothing
+/// authenticates.
+pub fn detect_running_local(
+    hooks: &Hooks,
+    active_url: Option<&str>,
+) -> Option<crate::discovery::Detected> {
+    let dir = crate::discovery::config_dir()?;
+    let token = crate::discovery::read_access_token(&dir)?;
+    let env_url = std::env::var("VOLTO_LOCAL_GATEWAY").ok();
+    let candidates = crate::discovery::candidates(env_url.as_deref(), active_url);
+    crate::discovery::detect(&|url, token| (hooks.probe)(url, token), &token, &candidates)
 }
 
 pub fn build_hooks(resource_dir: Option<PathBuf>) -> Hooks {
@@ -405,6 +421,49 @@ pub fn close_settings(app: AppHandle<Wry>, webview: Webview<Wry>) -> Result<(), 
     ensure_settings(&webview)?;
     windows::close_settings(&app);
     Ok(())
+}
+
+/// Settings action: look for a running local gateway and adopt it. This is the
+/// manual equivalent of the detection that runs at startup.
+#[tauri::command]
+pub fn scan_local_gateway(
+    app: AppHandle<Wry>,
+    webview: Webview<Wry>,
+    state: State<'_, AppState>,
+) -> Result<ShellState, String> {
+    ensure_settings(&webview)?;
+    let snapshot = state.core.lock().unwrap().state();
+    let active_url = snapshot
+        .profiles
+        .iter()
+        .find(|profile| profile.id == snapshot.active_profile_id)
+        .map(|profile| profile.url.clone())
+        .filter(|url| !url.is_empty());
+    let dir = crate::discovery::config_dir()
+        .ok_or_else(|| "无法定位网关配置目录".to_string())?;
+    let token = crate::discovery::read_access_token(&dir).ok_or_else(|| {
+        "未找到本机网关令牌：请先运行 volto 完成初始化（~/.volto/access-token）".to_string()
+    })?;
+    let env_url = std::env::var("VOLTO_LOCAL_GATEWAY").ok();
+    let candidates = crate::discovery::candidates(env_url.as_deref(), active_url.as_deref());
+    let detected = crate::discovery::detect(
+        &|url, token| (state.hooks.probe)(url, token),
+        &token,
+        &candidates,
+    )
+    .ok_or_else(|| "未发现运行中的本机网关（默认 127.0.0.1:3100）".to_string())?;
+    {
+        let mut core = state.core.lock().unwrap();
+        core.adopt_detected_local(&detected.url, &detected.token)?;
+    }
+    let ticket = state
+        .core
+        .lock()
+        .unwrap()
+        .begin_connect(DETECTED_LOCAL_ID)?
+        .1;
+    spawn_connect(app, ticket);
+    Ok(state.core.lock().unwrap().state())
 }
 
 #[tauri::command]

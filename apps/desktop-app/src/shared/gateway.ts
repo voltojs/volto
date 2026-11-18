@@ -91,6 +91,7 @@ export interface ShellApi {
   restart(): Promise<void>;
   retry(): Promise<void>;
   openInstallDocs(): Promise<void>;
+  scanLocal(): Promise<ActionResult>;
   closeSettings(): Promise<void>;
   reload(): Promise<void>;
   openInBrowser(): Promise<void>;

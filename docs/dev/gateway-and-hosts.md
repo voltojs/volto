@@ -317,6 +317,12 @@ Rust modules (all free of Tauri types, so `cargo test` runs them directly):
   lines for the URL and launch token, treats "Sessions are now saved to …" on stderr as a
   degraded store, and kills the child on stop. A `libc` signal guard kills it on
   SIGTERM/SIGINT/SIGHUP, because a forced termination does not run destructors.
+- `discovery.rs` — finds a gateway the user started by hand: reads the stable
+  `access-token` from the gateway config dir and probes `VOLTO_LOCAL_GATEWAY`, the active
+  profile URL and `127.0.0.1:3100` for an authenticated `/gateway-info`. Startup adopts the
+  result as a persisted `local-live` profile (unmanaged) and skips spawning its own gateway;
+  if detection fails while that profile is active, the controller falls back to the managed
+  local profile. The settings window's "Scan for local gateway" runs the same detection.
 - `probe.rs` — liveness/auth checks through the system `curl` (the offline crate cache has no
   HTTP client): `/health`, `/` (503 = no web build), `/gateway-info` with a Bearer token.
   The token travels in a temporary `0600` curl config file, never in argv.

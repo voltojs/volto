@@ -2,6 +2,7 @@
 
 mod commands;
 mod controller;
+mod discovery;
 mod menu;
 mod probe;
 mod profiles;
@@ -176,6 +177,44 @@ fn setup(app: &mut tauri::App<Wry>) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // A gateway the user started by hand should be used instead of spawning a
+    // second one. Detection runs only for local profiles and never overrides a
+    // remote selection.
+    if std::env::var("VOLTO_DESKTOP_SMOKE_PROFILE").is_err() {
+        let (is_local, active_url) = {
+            let state = app.state::<AppState>();
+            let snapshot = state.core.lock().unwrap().state();
+            let active = snapshot
+                .profiles
+                .iter()
+                .find(|profile| profile.id == snapshot.active_profile_id);
+            (
+                active.is_some_and(|profile| {
+                    profile.kind == profiles::Kind::Local
+                        && (profile.managed || profile.id == profiles::DETECTED_LOCAL_ID)
+                }),
+                active
+                    .map(|profile| profile.url.clone())
+                    .filter(|url| !url.is_empty()),
+            )
+        };
+        if is_local {
+            let state = app.state::<AppState>();
+            let hooks = Arc::clone(&state.hooks);
+            let detected =
+                commands::detect_running_local(hooks.as_ref(), active_url.as_deref());
+            let mut core = state.core.lock().unwrap();
+            match detected {
+                Some(found) => {
+                    let _ = core.adopt_detected_local(&found.url, &found.token);
+                }
+                None => {
+                    let _ = core.fallback_from_detected();
+                }
+            }
+        }
+    }
+
     let initial_state = app.state::<AppState>().core.lock().unwrap().state();
     app.set_menu(menu::build_menu(&handle, &initial_state)?)?;
 
@@ -305,6 +344,7 @@ fn main() {
             commands::set_locale,
             commands::report_ui,
             commands::open_install_docs,
+            commands::scan_local_gateway,
 
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id()))

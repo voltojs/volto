@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::probe::Probe;
 use crate::profiles::{
     self, entry_url, remove, to_public, upsert, validate_draft, Kind, Persisted, Profile,
-    ProfileDraft, ShellState, Status,
+    ProfileDraft, ShellState, Status, DETECTED_LOCAL_ID,
 };
 
 pub trait StoreLike: Send + Sync {
@@ -116,6 +116,56 @@ impl Core {
             theme: persisted.theme,
             locale: persisted.locale,
         }
+    }
+
+    /// Adopt a gateway the user already started. The profile is persisted so
+    /// the next launch can reconnect, but it stays unmanaged: if detection
+    /// later fails, `fallback_from_detected` returns to the managed default.
+    pub fn adopt_detected_local(&mut self, url: &str, token: &str) -> Result<(), String> {
+        let url = profiles::normalize_url(url)?;
+        let profile = Profile {
+            id: DETECTED_LOCAL_ID.to_string(),
+            label: crate::discovery::detected_label(&self.locale).to_string(),
+            kind: Kind::Local,
+            url,
+            managed: false,
+            token: Some(token.to_string()),
+        };
+        let previous = self.persisted();
+        self.profiles = upsert(&self.profiles, profile);
+        self.active_profile_id = DETECTED_LOCAL_ID.to_string();
+        if let Err(error) = self.store.save(&self.persisted()) {
+            self.profiles = previous.profiles;
+            self.active_profile_id = previous.active_profile_id;
+            return Err(format!("保存检测到的网关失败：{error}"));
+        }
+        self.emit();
+        Ok(())
+    }
+
+    /// If the detected profile is active but nothing is listening any more,
+    /// return to the managed local profile so the app can start its own.
+    pub fn fallback_from_detected(&mut self) -> Result<bool, String> {
+        if self.active_profile_id != DETECTED_LOCAL_ID {
+            return Ok(false);
+        }
+        let Some(fallback) = self
+            .profiles
+            .iter()
+            .find(|profile| profile.kind == Kind::Local && profile.managed)
+            .or_else(|| self.profiles.first())
+            .cloned()
+        else {
+            return Ok(false);
+        };
+        let previous_active = self.active_profile_id.clone();
+        self.active_profile_id = fallback.id;
+        if let Err(error) = self.store.save(&self.persisted()) {
+            self.active_profile_id = previous_active;
+            return Err(format!("保存网关设置失败：{error}"));
+        }
+        self.emit();
+        Ok(true)
     }
 
     pub fn last_entry_url(&self) -> Option<&str> {
@@ -589,6 +639,34 @@ mod tests {
         assert!(result.is_none());
         assert_eq!(h.stops.load(Ordering::SeqCst), 1);
         assert!(h.notifier.lock().unwrap().navigations.is_empty());
+    }
+
+    #[test]
+    fn adopts_a_detected_local_gateway_and_falls_back() {
+        let mut h = harness(Probe::Online {
+            version: None,
+            mode: None,
+        });
+        h.core
+            .adopt_detected_local("http://127.0.0.1:3100/", "d".repeat(43).as_str())
+            .unwrap();
+        let state = h.core.state();
+        assert_eq!(state.active_profile_id, DETECTED_LOCAL_ID);
+        let detected = state
+            .profiles
+            .iter()
+            .find(|profile| profile.id == DETECTED_LOCAL_ID)
+            .unwrap();
+        assert_eq!(detected.url, "http://127.0.0.1:3100");
+        assert!(!detected.managed);
+        assert!(detected.has_token);
+        assert_eq!(
+            h.store.saved.lock().unwrap().last().unwrap().active_profile_id,
+            DETECTED_LOCAL_ID
+        );
+
+        assert!(h.core.fallback_from_detected().unwrap());
+        assert_eq!(h.core.state().active_profile_id, "local");
     }
 
     #[test]

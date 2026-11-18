@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Pencil, Plus, RotateCw, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, RefreshCw, RotateCw, Trash2, X } from "lucide-react";
 
 import type { ProfileDraft, PublicGatewayProfile, ShellState } from "@shared/gateway";
 
@@ -31,6 +31,7 @@ export function Connections({ state }: { state: ShellState }) {
   const [editing, setEditing] = useState<ProfileDraft | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -152,18 +153,39 @@ export function Connections({ state }: { state: ShellState }) {
 
         <div className="mt-6 flex items-center justify-between">
           <h2 className="text-sm font-medium">{t.gatewayList}</h2>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setActionError(null);
-              setEditing({ label: "", kind: "local", url: "", managed: true, token: "" });
-            }}
-          >
-            <Plus className="size-4" />
-            {t.addGateway}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={scanning}
+              onClick={async () => {
+                setActionError(null);
+                setScanning(true);
+                try {
+                  const result = await api.scanLocal();
+                  if (!result.ok) setActionError(result.error);
+                } finally {
+                  setScanning(false);
+                }
+              }}
+            >
+              <RefreshCw className={cn("size-4", scanning && "animate-spin")} />
+              {t.scanLocal}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setActionError(null);
+                setEditing({ label: "", kind: "local", url: "", managed: true, token: "" });
+              }}
+            >
+              <Plus className="size-4" />
+              {t.addGateway}
+            </Button>
+          </div>
         </div>
 
         <ul className="mt-3 space-y-2">
