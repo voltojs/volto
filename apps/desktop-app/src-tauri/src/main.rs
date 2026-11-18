@@ -304,6 +304,7 @@ fn main() {
             commands::set_theme,
             commands::set_locale,
             commands::report_ui,
+            commands::open_install_docs,
 
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id()))

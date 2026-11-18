@@ -90,6 +90,7 @@ export interface ShellApi {
   removeProfile(id: string): Promise<ActionResult>;
   restart(): Promise<void>;
   retry(): Promise<void>;
+  openInstallDocs(): Promise<void>;
   closeSettings(): Promise<void>;
   reload(): Promise<void>;
   openInBrowser(): Promise<void>;

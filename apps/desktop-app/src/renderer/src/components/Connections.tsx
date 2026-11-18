@@ -95,18 +95,32 @@ export function Connections({ state }: { state: ShellState }) {
               {format(t.cannotConnect, { label: activeLabel })}
             </div>
             <div className="mt-1 text-sm text-destructive/90">{state.status.error}</div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="mt-3"
-              onClick={() => {
-                setActionError(null);
-                void api.retry();
-              }}
-            >
-              {t.retry}
-            </Button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setActionError(null);
+                  void api.retry();
+                }}
+              >
+                {t.retry}
+              </Button>
+              {active?.kind === "local" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void api.openInstallDocs()}
+                >
+                  {t.installDocs}
+                </Button>
+              ) : null}
+            </div>
+            {active?.kind === "local" ? (
+              <p className="mt-2 text-xs text-destructive/80">{t.installHint}</p>
+            ) : null}
           </div>
         ) : null}
 

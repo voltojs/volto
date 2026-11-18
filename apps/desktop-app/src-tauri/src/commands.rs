@@ -18,6 +18,10 @@ use crate::runtime;
 use crate::supervisor;
 use crate::windows::{self, Windows};
 
+/// Setup guide shown when the local gateway is not available.
+pub const INSTALL_DOCS_URL: &str =
+    "https://voltojs.github.io/volto/zh/using/tutorial/01-install.html";
+
 pub struct AppState {
     pub core: Arc<Mutex<Core>>,
     pub hooks: Arc<Hooks>,
@@ -400,6 +404,13 @@ pub fn apply_locale(app: &AppHandle<Wry>, locale: &str) -> Result<(), String> {
 pub fn close_settings(app: AppHandle<Wry>, webview: Webview<Wry>) -> Result<(), String> {
     ensure_settings(&webview)?;
     windows::close_settings(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_install_docs(webview: Webview<Wry>) -> Result<(), String> {
+    ensure_settings(&webview)?;
+    windows::open_external(INSTALL_DOCS_URL);
     Ok(())
 }
 

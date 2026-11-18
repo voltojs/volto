@@ -8,6 +8,8 @@ const zh = {
   closeWindowHint: "关闭窗口（Esc）",
   cannotConnect: "无法连接「{label}」",
   retry: "重试",
+  installHint: "本机没有可用网关？按安装指南安装 Node 22+ 与 Volto，或改用远程网关。",
+  installDocs: "查看安装指南",
   gatewayList: "网关列表",
   addGateway: "添加网关",
   kindLocal: "本机",
@@ -67,6 +69,9 @@ const en: Record<MessageKey, string> = {
   closeWindowHint: "Close window (Esc)",
   cannotConnect: "Cannot connect to “{label}”",
   retry: "Retry",
+  installHint:
+    "No local gateway available? Install Node 22+ and Volto with the setup guide, or use a remote gateway.",
+  installDocs: "Open the setup guide",
   gatewayList: "Gateways",
   addGateway: "Add Gateway",
   kindLocal: "Local",

@@ -237,9 +237,16 @@ fn resolve_entry(
     if let Some(path) = login_shell_lookup("volto") {
         return Ok(entry(PathBuf::from(path)));
     }
+    let dev_hint = if cfg!(debug_assertions) {
+        format!(
+            "（开发环境入口：{}，可用 VOLTO_GATEWAY_BIN 指定）",
+            cwd.join("../gateway/dist/bin.js").display()
+        )
+    } else {
+        String::new()
+    };
     Err(format!(
-        "找不到本地网关：请先运行 pnpm turbo run build --filter @voltojs/gateway（生成 {}），或设置 VOLTO_GATEWAY_BIN。",
-        cwd.join("../gateway/dist/bin.js").display()
+        "本机没有可用的 Volto 网关。请按安装指南安装 Node 22+ 与 Volto，或添加远程网关。{dev_hint}"
     ))
 }
 
