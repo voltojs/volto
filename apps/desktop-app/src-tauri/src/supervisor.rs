@@ -139,10 +139,16 @@ pub fn start(
     profile: &Profile,
     timeout: Duration,
 ) -> Result<RunningGateway, String> {
-    let mut command = Command::new(&node.command);
-    if entry.kind == EntryKind::Script {
-        command.arg(&entry.path);
-    }
+    // A JS entry needs the resolved Node; a binary entry (a `volto` shim or a
+    // packaged executable) runs directly and carries its own interpreter.
+    let mut command = match entry.kind {
+        EntryKind::Script => {
+            let mut command = Command::new(&node.command);
+            command.arg(&entry.path);
+            command
+        }
+        EntryKind::Binary => Command::new(&entry.path),
+    };
     command
         .arg("--port")
         .arg(gateway_port(profile).to_string())
