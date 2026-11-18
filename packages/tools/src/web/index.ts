@@ -2,6 +2,7 @@ export type { Tool as WebTool, ToolHandler } from "../common/index.js";
 export { createWebFetchTool } from "./web-fetch.js";
 export { createWebSearchTool, type WebSearchToolOptions } from "./web-search.js";
 export { createSearchAdapter, type SearchAdapterInput } from "./search/index.js";
+export { createEndpointAdapter } from "./search/endpoint.js";
 export {
   SearchAdapterError,
   type BuiltinSearchSourceId,

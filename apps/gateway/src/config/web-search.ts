@@ -14,7 +14,7 @@
  * sources.
  */
 
-import type { EndpointSourceSpec } from "@voltojs/tools/web";
+import { createEndpointAdapter, type EndpointSourceSpec } from "@voltojs/tools/web";
 import { createCipher } from "./crypto.js";
 import { getConfigDir } from "./paths.js";
 import { createProviderStore } from "./providers.js";
@@ -432,4 +432,175 @@ export async function updateWebSearchConfig(
   });
 
   return readWebSearchSettingsView(configDir);
+}
+export interface CustomSourceInput {
+  name: string;
+  /** Plaintext key; omitted on edit means "keep the stored one". */
+  apiKey?: string | null;
+  endpoint: EndpointSourceSpec;
+}
+
+/** Validate a user-authored endpoint spec, including a dry render. */
+export function validateEndpointSpec(raw: unknown): EndpointSourceSpec {
+  if (!isObject(raw)) throw new WebSearchConfigError("endpoint must be an object");
+  const method = raw["method"];
+  if (method !== "GET" && method !== "POST") {
+    throw new WebSearchConfigError('endpoint.method must be "GET" or "POST"');
+  }
+  const url = raw["url"];
+  if (typeof url !== "string" || !isHttpUrl(url)) {
+    throw new WebSearchConfigError("endpoint.url must be an http(s) URL");
+  }
+  const headers = raw["headers"];
+  if (headers !== undefined) {
+    if (!isObject(headers) || Object.values(headers).some((value) => typeof value !== "string")) {
+      throw new WebSearchConfigError("endpoint.headers must be an object of strings");
+    }
+  }
+  const auth = raw["auth"];
+  if (auth !== undefined) {
+    if (!isObject(auth) || typeof auth["header"] !== "string" || typeof auth["prefix"] !== "string") {
+      throw new WebSearchConfigError("endpoint.auth must be { header, prefix }");
+    }
+  }
+  const bodyTemplate = raw["bodyTemplate"];
+  if (method === "POST" && typeof bodyTemplate !== "string") {
+    throw new WebSearchConfigError("endpoint.bodyTemplate is required for POST");
+  }
+  if (method === "GET" && bodyTemplate !== undefined && typeof bodyTemplate !== "string") {
+    throw new WebSearchConfigError("endpoint.bodyTemplate must be a string");
+  }
+  const paths = raw["paths"];
+  if (!isObject(paths)) throw new WebSearchConfigError("endpoint.paths must be an object");
+  const list = paths["list"];
+  const title = paths["title"];
+  const resultUrl = paths["url"];
+  for (const [name, value] of [["list", list], ["title", title], ["url", resultUrl]] as const) {
+    if (typeof value !== "string" || value === "") {
+      throw new WebSearchConfigError(`endpoint.paths.${name} is required`);
+    }
+  }
+
+  const spec = raw as unknown as EndpointSourceSpec;
+  // Dry render: a template that cannot produce a request never reaches a user
+  // as a saved source that fails on every call.
+  try {
+    createEndpointAdapter({ id: "validate", label: "validate", spec }).buildRequest("volto", {
+      count: 5,
+    });
+  } catch (error) {
+    throw new WebSearchConfigError(
+      `endpoint cannot build a request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return spec;
+}
+
+function slugify(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug === "" ? "search" : slug;
+}
+
+async function readCustomSources(configDir: string): Promise<CustomSearchSourceConfig[]> {
+  return (await loadWebSearchConfig(configDir)).config.custom;
+}
+
+async function writeCustomSources(
+  configDir: string,
+  mutate: (sources: CustomSearchSourceConfig[]) => {
+    sources: CustomSearchSourceConfig[];
+    source?: string;
+  },
+): Promise<WebSearchSettingsView> {
+  await getConfigStore(configDir).update<Record<string, unknown>>("webSearch", (current) => {
+    const { config } = normalizeSection(current);
+    const next = mutate(config.custom);
+    const base = isObject(current) ? current : {};
+    return {
+      ...base,
+      ...(next.source !== undefined ? { source: next.source } : {}),
+      custom: next.sources,
+    };
+  });
+  return readWebSearchSettingsView(configDir);
+}
+
+export async function createCustomSource(
+  configDir: string,
+  input: CustomSourceInput,
+): Promise<WebSearchSettingsView> {
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (name === "") throw new WebSearchConfigError("name must not be empty");
+  const endpoint = validateEndpointSpec(input.endpoint);
+  const cipher = createCipher(configDir);
+  const apiKeyEnc = typeof input.apiKey === "string" && input.apiKey !== ""
+    ? await cipher.encrypt(input.apiKey)
+    : null;
+
+  const existing = await readCustomSources(configDir);
+  const base = slugify(name);
+  let id = base;
+  for (let suffix = 2; existing.some((entry) => entry.id === id); suffix += 1) {
+    id = `${base}-${suffix}`;
+  }
+
+  return writeCustomSources(configDir, (sources) => ({
+    sources: [...sources, { id, name, apiKeyEnc, endpoint }],
+  }));
+}
+
+export async function updateCustomSource(
+  configDir: string,
+  id: string,
+  input: Partial<CustomSourceInput>,
+): Promise<WebSearchSettingsView> {
+  const existing = await readCustomSources(configDir);
+  const current = existing.find((entry) => entry.id === id);
+  if (current === undefined) throw new WebSearchConfigError(`custom search source "${id}" does not exist`);
+
+  const name = input.name === undefined ? current.name : input.name.trim();
+  if (name === "") throw new WebSearchConfigError("name must not be empty");
+  const endpoint = input.endpoint === undefined ? current.endpoint : validateEndpointSpec(input.endpoint);
+  const cipher = createCipher(configDir);
+  const apiKeyEnc =
+    input.apiKey === undefined
+      ? current.apiKeyEnc
+      : typeof input.apiKey === "string" && input.apiKey !== ""
+        ? await cipher.encrypt(input.apiKey)
+        : null;
+
+  return writeCustomSources(configDir, (sources) => ({
+    sources: sources.map((entry) =>
+      entry.id === id ? { id, name, apiKeyEnc, endpoint } : entry,
+    ),
+  }));
+}
+
+export async function deleteCustomSource(
+  configDir: string,
+  id: string,
+): Promise<WebSearchSettingsView> {
+  const existing = await readCustomSources(configDir);
+  if (!existing.some((entry) => entry.id === id)) {
+    throw new WebSearchConfigError(`custom search source "${id}" does not exist`);
+  }
+  const { config } = await loadWebSearchConfig(configDir);
+  const fellBack = config.source === id;
+
+  const view = await writeCustomSources(configDir, (sources) => ({
+    sources: sources.filter((entry) => entry.id !== id),
+    ...(fellBack ? { source: "auto" } : {}),
+  }));
+  if (!fellBack) return view;
+  return {
+    ...view,
+    warnings: [
+      `The selected search source "${id}" was deleted; the source fell back to auto.`,
+      ...view.warnings,
+    ],
+  };
 }
