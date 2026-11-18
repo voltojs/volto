@@ -60,6 +60,41 @@ pnpm --filter @voltojs/gateway web:export   # next export + copy → apps/gatewa
 - 确认自己改的是**当前 worktree** 的 `apps/web`，而不是主 checkout 的同名目录。
 - 排查：`stat apps/web/out/index.html apps/gateway/web/index.html` 的 mtime 应接近；`apps/gateway/web` 旧就是没复制。
 
+## 打包 macOS 应用
+
+应用本身**不内置** Node、gateway 或 web：它是一个网关外壳，本机网关需要按
+[安装指南](https://voltojs.github.io/volto/zh/using/tutorial/01-install.html) 安装 Node ≥ 22 与 Volto，
+否则请在设置里添加远程网关。
+
+```bash
+cd apps/desktop-app
+pnpm build          # = tauri build，产出 .app 与 .dmg
+```
+
+产物：
+
+```
+src-tauri/target/release/bundle/macos/Volto Desktop.app
+src-tauri/target/release/bundle/dmg/Volto Desktop_0.0.1_aarch64.dmg
+```
+
+首次打包前如果还没生成图标：
+
+```bash
+pnpm tauri icon resources/icon.svg
+```
+
+说明：
+
+- 当前构建是 **ad-hoc 签名**，在本机直接运行没问题；拷到其他 Mac 可能被 Gatekeeper 拦截，
+  可右键「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/Volto Desktop.app"`。
+- 正式分发需要 Apple Developer ID 签名与公证（Tauri 支持 `APPLE_SIGNING_IDENTITY`、
+  `APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID`）。
+- `bundle.active = true`、`targets = ["app", "dmg"]`、图标与 `minimumSystemVersion` 在
+  `src-tauri/tauri.conf.json`。
+- 只想要可执行文件、不打包：`pnpm tauri build --no-bundle`。
+- 本机没有可用网关时，设置窗会显示「查看安装指南」，打开上面的文档链接。
+
 ## 使用
 
 ### 本机网关（默认）

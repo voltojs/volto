@@ -11,10 +11,28 @@
   },
   "app": {
     "windows": [],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
-    "active": false,
-    "icon": ["icons/icon.png"]
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Native shell for Volto gateways",
+    "longDescription": "Volto Desktop connects to a local or remote Volto gateway and shows the gateway's own web UI.",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   }
 }

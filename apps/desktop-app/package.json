@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tauri dev",
     "dev:web": "vite",
-    "build": "tauri build --no-bundle",
+    "build": "tauri build",
     "build:web": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
