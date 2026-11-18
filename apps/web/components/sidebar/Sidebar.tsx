@@ -161,7 +161,7 @@ export function Sidebar({
         {/* Desktop traffic lights float over this corner; the strip also
             provides a drag handle for the overlay title bar. */}
         {trafficLights ? (
-          <div data-volto-drag className="desktop-traffic-strip shrink-0" />
+          <div data-tauri-drag-region className="desktop-traffic-strip shrink-0" />
         ) : null}
 
         {/* Nameplate */}

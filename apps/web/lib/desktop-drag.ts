@@ -1,22 +1,23 @@
 /**
  * Window dragging for the desktop host's overlay title bar.
  *
- * Tauri's built-in drag script is not injected into the remote gateway page,
- * so the shell installs its own listener and calls the window plugin command
- * the main-window capability allows (`remote` URLs, any port). Interactive
- * elements are excluded so header buttons stay clickable.
+ * Markup uses Tauri's official `data-tauri-drag-region` attribute. The
+ * built-in drag script is not injected into the remote gateway page in this
+ * setup, so this capture-phase handler calls the same official command
+ * (`plugin:window|start_dragging`). Capture runs before the built-in bubble
+ * listener, so there is still exactly one drag start if the script appears.
  */
 interface TauriInternals {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
 const INTERACTIVE =
-  'button, a, input, textarea, select, [role="button"], [contenteditable="true"]';
+  'button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [role="radio"], [role="switch"], [contenteditable="true"]';
 
 function inDragRegion(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
-    target.closest('[data-volto-drag]') !== null &&
+    target.closest('[data-tauri-drag-region]') !== null &&
     target.closest(INTERACTIVE) === null
   );
 }
@@ -32,6 +33,7 @@ export function installDesktopDrag(): () => void {
   const onMouseDown = (event: MouseEvent): void => {
     if (event.button !== 0 || !inDragRegion(event.target)) return;
     event.preventDefault();
+    event.stopPropagation();
     void internals
       .invoke('plugin:window|start_dragging')
       .catch((error: unknown) => console.error('start_dragging', error));
@@ -39,6 +41,7 @@ export function installDesktopDrag(): () => void {
 
   const onDoubleClick = (event: MouseEvent): void => {
     if (!inDragRegion(event.target)) return;
+    event.stopPropagation();
     void internals
       .invoke('plugin:window|internal_toggle_maximize')
       .catch((error: unknown) => console.error('toggle_maximize', error));

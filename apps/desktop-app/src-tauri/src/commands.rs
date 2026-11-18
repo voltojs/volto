@@ -569,12 +569,12 @@ pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Pat
                   if (command === 'plugin:window|start_dragging') return Promise.resolve('probe');
                   return original(command, ...rest);
                 };
-                const strip = document.querySelector('.desktop-traffic-strip');
+                const strip = document.querySelector('[data-tauri-drag-region]');
                 if (strip) {
                   strip.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, detail: 1, clientX: 40, clientY: 20 }));
                   document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
                 }
-                window.__VOLTO_DRAG_EVENT__ = seen.join(',') || 'none';
+                window.__VOLTO_DRAG_EVENT__ = (strip ? 'found:' : 'missing:') + (seen.join(',') || 'none');
                 root.invoke = original;
               })()
             "#;

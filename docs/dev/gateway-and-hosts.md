@@ -355,9 +355,10 @@ On macOS the main window uses `TitleBarStyle::Overlay` with a hidden title, so t
 uses the full height. The traffic lights keep AppKit's native position: overriding
 `trafficLightPosition` makes them transparent while the window is inactive. The sidebar
 reserves their corner; fullscreen publishes `data-volto-fullscreen` (from `Resized`, re-checked
-after the animation) and the web drops the reserved strip/padding. The web shell installs its
-own drag handler on `[data-volto-drag]` (the built-in drag script is not injected into the
-remote page) and the main webview's capability allows only `start_dragging` /
+after the animation) and the web drops the reserved strip/padding. The web shell keeps Tauri's official
+`data-tauri-drag-region` markup and adds a capture-phase handler that calls the same
+`start_dragging` command, because the built-in drag script is not injected into the remote
+page in this setup. The main webview's capability allows only `start_dragging` /
 `internal_toggle_maximize`. That capability must set `local: false` and list
 `remote.urls` with an explicit port wildcard (`http://*:*`); the default
 `http://*` does not match a gateway on a non-default port and the capability is
