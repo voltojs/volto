@@ -59,7 +59,12 @@ describe("TC-E11: web_fetch 输出截断 + web_search 认证头", () => {
       },
     };
 
-    const tool = createWebSearchTool(mockNetwork, { apiKey: "test-key" });
+    const tool = createWebSearchTool(mockNetwork, {
+      source: "brave",
+      sourceId: "brave",
+      label: "Brave",
+      apiKey: "test-key",
+    });
     await tool.handler({ query: "test" });
 
     expect(capturedHeaders).toBeDefined();
@@ -80,7 +85,11 @@ describe("TC-E11: web_fetch 输出截断 + web_search 认证头", () => {
       },
     };
 
-    const tool = createWebSearchTool(mockNetwork);
+    const tool = createWebSearchTool(mockNetwork, {
+      source: "brave",
+      sourceId: "brave",
+      label: "Brave",
+    });
     await tool.handler({ query: "test" });
 
     expect(capturedHeaders).toBeDefined();

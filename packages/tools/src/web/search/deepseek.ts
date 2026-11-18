@@ -72,7 +72,7 @@ export function createDeepSeekAdapter(): SearchAdapter {
         }),
       };
     },
-    parseResponse(resp, opts): SearchHit[] {
+    parseResponse(resp): SearchHit[] {
       assertOk(resp, LABEL);
       return toHits(parseJsonBody(resp, LABEL));
     },

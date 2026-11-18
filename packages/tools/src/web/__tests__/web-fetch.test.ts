@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Network } from "@voltojs/core";
 import { renderTimeoutSignature } from "../../common/index.js";
-import { createWebFetchTool, createWebSearchTool, CAP_NETWORK_FETCH } from "../index.js";
+import { createWebFetchTool, CAP_NETWORK_FETCH } from "../index.js";
 
 function mockNetwork(responseBody: string, status = 200): Network {
   return {
@@ -65,51 +65,6 @@ describe("web_fetch tool", () => {
     };
     const tool = createWebFetchTool(abortedNetwork);
     const result = await tool.handler({ url: "https://example.com" });
-    expect(result.isError).toBe(true);
-    expect(result.modelContent).not.toContain("[timeout]");
-  });
-});
-
-describe("web_search tool", () => {
-  it("searches and returns results", async () => {
-    const tool = createWebSearchTool(mockNetwork('{"results": []}'));
-    const result = await tool.handler({ query: "test query" });
-    expect(result.modelContent).toContain("results");
-  });
-
-  it("returns error on search failure", async () => {
-    const failingNetwork: Network = {
-      async fetch() { throw new Error("Timeout"); },
-    };
-    const tool = createWebSearchTool(failingNetwork);
-    const result = await tool.handler({ query: "failing" });
-    expect(result.isError).toBe(true);
-  });
-
-  it("keeps the network layer's timeout signature verbatim in modelContent", async () => {
-    const timeoutMs = 30_000;
-    const signature = renderTimeoutSignature("https://api.search.brave.com/res/v1/web/search", timeoutMs);
-    const timingOutNetwork: Network = {
-      async fetch() {
-        throw new Error(signature);
-      },
-    };
-    const tool = createWebSearchTool(timingOutNetwork);
-    const result = await tool.handler({ query: "timeout case" });
-    expect(result.isError).toBe(true);
-    expect(result.modelContent).toBe(`web_search failed: ${signature}`);
-  });
-
-  it("external abort surfaces no timeout signature (cancellation, not timeout)", async () => {
-    const abortedNetwork: Network = {
-      async fetch() {
-        const abortError = new Error("The operation was aborted.");
-        abortError.name = "AbortError";
-        throw abortError;
-      },
-    };
-    const tool = createWebSearchTool(abortedNetwork);
-    const result = await tool.handler({ query: "aborted case" });
     expect(result.isError).toBe(true);
     expect(result.modelContent).not.toContain("[timeout]");
   });

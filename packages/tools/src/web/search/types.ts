@@ -91,9 +91,14 @@ export function clampQuery(query: string, limit: number): string {
   return points.length <= limit ? query : points.slice(0, limit).join("");
 }
 
-/** Shared HTTP status handling: 401/403 are auth, everything else non-2xx is http. */
+/**
+ * Shared HTTP status handling. Only 401 is treated as an auth failure: the
+ * Network port answers an egress denial with 403, and that body carries the
+ * host name the user needs to fix their allowlist — swallowing it behind an
+ * "invalid key" message would send them to the wrong place.
+ */
 export function assertOk(resp: NetworkResponse, label: string): void {
-  if (resp.status === 401 || resp.status === 403) {
+  if (resp.status === 401) {
     throw new SearchAdapterError(
       "auth",
       `${label} search rejected the API key (HTTP ${resp.status})`,

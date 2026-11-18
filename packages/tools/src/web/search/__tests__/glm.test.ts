@@ -57,8 +57,8 @@ describe("glm search adapter", () => {
     ]);
   });
 
-  it("throws auth on 403 and shape when search_result is missing", () => {
-    const auth = catchError(() => createGlmAdapter().parseResponse({ status: 403, headers: {}, body: "" }, { count: 5 }));
+  it("throws auth on 401 and shape when search_result is missing", () => {
+    const auth = catchError(() => createGlmAdapter().parseResponse({ status: 401, headers: {}, body: "" }, { count: 5 }));
     expect(auth.kind).toBe("auth");
 
     const shape = catchError(() => createGlmAdapter().parseResponse({ status: 200, headers: {}, body: "{}" }, { count: 5 }));
