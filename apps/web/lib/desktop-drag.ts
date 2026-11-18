@@ -1,10 +1,10 @@
 /**
  * Window dragging for the desktop host's overlay title bar.
  *
- * Tauri's built-in drag script is not guaranteed to run in the gateway webview
- * (remote origin), so the Web shell installs its own handler and calls the two
- * window commands the main-window capability allows. Interactive elements are
- * excluded, so buttons inside the header stay clickable.
+ * Tauri's built-in drag script is not injected into the remote gateway page,
+ * so the shell installs its own listener and calls the window plugin command
+ * the main-window capability allows (`remote` URLs, any port). Interactive
+ * elements are excluded so header buttons stay clickable.
  */
 interface TauriInternals {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;

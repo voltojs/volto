@@ -304,6 +304,7 @@ fn main() {
             commands::set_theme,
             commands::set_locale,
             commands::report_ui,
+
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id()))
         .on_window_event(|window, event| {

@@ -519,6 +519,8 @@ fn request_page_report(app: &AppHandle<Wry>, state: &AppState) {
             dark: root.classList.contains("dark"),
             fullscreen: root.hasAttribute("data-volto-fullscreen"),
             internals: Boolean(window.__TAURI_INTERNALS__),
+            dragCommand: window.__VOLTO_DRAG_RESULT__ ?? null,
+            dragEvent: window.__VOLTO_DRAG_EVENT__ ?? null,
             dragReady: Boolean(window.__VOLTO_DRAG_READY__),
             dragRegions: document.querySelectorAll("[data-tauri-drag-region]").length,
             stripHeight: strip ? strip.getBoundingClientRect().height : 0,
@@ -553,6 +555,44 @@ pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Pat
         if ready {
             break;
         }
+    }
+    if std::env::var("VOLTO_DESKTOP_SMOKE_DRAG_EVENT").as_deref() == Ok("1") {
+        std::thread::sleep(Duration::from_millis(800));
+        if let Some(main) = app.get_webview_window("main") {
+            let script = r#"
+              (() => {
+                const seen = [];
+                const root = window.__TAURI_INTERNALS__;
+                const original = root.invoke;
+                root.invoke = (command, ...rest) => {
+                  seen.push(command);
+                  if (command === 'plugin:window|start_dragging') return Promise.resolve('probe');
+                  return original(command, ...rest);
+                };
+                const strip = document.querySelector('.desktop-traffic-strip');
+                if (strip) {
+                  strip.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, detail: 1, clientX: 40, clientY: 20 }));
+                  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+                }
+                window.__VOLTO_DRAG_EVENT__ = seen.join(',') || 'none';
+                root.invoke = original;
+              })()
+            "#;
+            let _ = main.eval(script);
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        request_page_report(app, state);
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    if std::env::var("VOLTO_DESKTOP_SMOKE_DRAG_PROBE").as_deref() == Ok("1") {
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.eval(
+                "window.__VOLTO_DRAG_RESULT__='pending';window.__TAURI_INTERNALS__.invoke('plugin:window|start_dragging').then(()=>{window.__VOLTO_DRAG_RESULT__='ok'}).catch((e)=>{window.__VOLTO_DRAG_RESULT__=String(e)})",
+            );
+        }
+        std::thread::sleep(Duration::from_millis(600));
+        request_page_report(app, state);
+        std::thread::sleep(Duration::from_millis(200));
     }
     if std::env::var("VOLTO_DESKTOP_SMOKE_COLLAPSE").as_deref() == Ok("1") {
         if let Some(main) = app.get_webview_window("main") {
