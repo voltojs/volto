@@ -55,8 +55,14 @@ function main(argv) {
   if (dryRun) return;
 
   // `--force`: never replay a cached task. The output this run produces is the
-  // only output the pack gate below may see.
-  execFileSync("pnpm", ["turbo", "run", "build", "--force"], { cwd: ROOT, stdio: "inherit" });
+  // only output the pack gate below may see. The desktop app is a private Tauri
+  // bundle that only builds on macOS with Rust/WebKit installed; excluding it
+  // keeps the npm release (Linux) from invoking `tauri build`.
+  execFileSync(
+    "pnpm",
+    ["turbo", "run", "build", "--force", "--filter", "!@voltojs/desktop-app"],
+    { cwd: ROOT, stdio: "inherit" },
+  );
 
   // The release additionally needs the static web export, which `turbo run
   // build` does not produce (it runs Next in server mode). The gateway's
