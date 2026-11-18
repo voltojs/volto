@@ -83,10 +83,10 @@ export const ToolCallCard = memo(function ToolCallCard({
     call.name === 'task_output' ? verificationBadge(t, call.verification) : undefined;
   const ref = toolCallFileRef(call.name, call.args);
   const images: ConversationImage[] = call.images ?? [];
-  // A screenshot's value is the picture: open the result body as soon as it
-  // lands instead of hiding it behind the row disclosure. A manual collapse
-  // still wins (manualOpen below).
-  const autoOpen = failed || images.length > 0;
+  // A screenshot's value is the picture and a search's value is its hits:
+  // open the result body as soon as they land instead of hiding it behind the
+  // row disclosure. A manual collapse still wins (manualOpen below).
+  const autoOpen = failed || images.length > 0 || call.search !== undefined;
   const renderDetail = () => {
     if (summary === undefined) return undefined;
     if (ref === null || fileProjectId === null) return summary;
@@ -128,6 +128,48 @@ export const ToolCallCard = memo(function ToolCallCard({
       onOpenChange={setManualOpen}
       scrollable
     >
+      {call.search !== undefined && (
+        <div>
+          <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
+            {t('tool.webSearchSource')}
+          </div>
+          <p className="text-xs">
+            <span className="font-medium">{call.search.sourceLabel}</span>
+            <span className="text-muted-foreground">
+              {' · '}
+              {call.search.query}
+              {' · '}
+              {t('tool.webSearchHits', { count: call.search.count })}
+              {call.search.durationMs !== undefined ? ` · ${call.search.durationMs}ms` : ''}
+            </span>
+          </p>
+          {call.search.hits.length > 0 && (
+            <ol className="mt-1 space-y-1 text-xs">
+              {call.search.hits.map((hit) => (
+                <li key={hit.url} className="leading-relaxed">
+                  <a
+                    className="underline"
+                    href={hit.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {hit.title}
+                  </a>
+                  {(hit.snippet ?? hit.summary) !== undefined && (
+                    <span className="text-muted-foreground"> — {hit.snippet ?? hit.summary}</span>
+                  )}
+                  {(hit.publishedAt ?? hit.siteName) !== undefined && (
+                    <span className="text-muted-foreground/70">
+                      {' '}
+                      {[hit.publishedAt, hit.siteName].filter((part) => part !== undefined).join(' · ')}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
       <div>
         <div className="text-muted-foreground/50 mb-0.5 font-mono text-[10px] tracking-wide uppercase">
           {t('tool.params')}

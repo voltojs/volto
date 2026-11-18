@@ -62,7 +62,14 @@ export function ActivitySteps({
       <ToolCallCard
         key={`c-${index}-${block.call.id}`}
         call={block.call}
-        label={toolCallSummary(block.call.name, block.call.args, t)}
+        label={toolCallSummary(
+          block.call.name,
+          block.call.args,
+          t,
+          block.call.search === undefined
+            ? undefined
+            : { sourceLabel: block.call.search.sourceLabel, count: block.call.search.count },
+        )}
         fileProjectId={fileProjectId}
         sessionId={sessionId}
       />
@@ -87,7 +94,14 @@ export function ActivitySteps({
     running !== undefined
       ? t('activity.running', {
           name: running.call.name,
-          summary: toolCallSummary(running.call.name, running.call.args, t),
+          summary: toolCallSummary(
+            running.call.name,
+            running.call.args,
+            t,
+            running.call.search === undefined
+              ? undefined
+              : { sourceLabel: running.call.search.sourceLabel, count: running.call.search.count },
+          ),
         })
       : calls.length > 0
         ? failed

@@ -16,6 +16,15 @@ describe('toolCallSummary', () => {
     expect(toolCallSummary('read_file', { path: 42 })).toBe('read_file');
   });
 
+  it('labels a web search with its source and hit count', () => {
+    const t = (key: string, params?: Record<string, string | number>): string =>
+      key === 'tool.webSearchHits' ? `${String(params?.['count'])} 条` : key;
+    expect(
+      toolCallSummary('web_search', { query: 'q' }, t, { sourceLabel: 'GLM', count: 5 }),
+    ).toBe('GLM · q · 5 条');
+    expect(toolCallSummary('web_search', { query: 'q' })).toBe('q');
+  });
+
   it('truncates by code point without splitting a surrogate pair', () => {
     const label = toolCallSummary('bash', { command: '🚀'.repeat(100) });
     expect(Array.from(label).length).toBeLessThanOrEqual(80);

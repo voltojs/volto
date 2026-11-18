@@ -156,6 +156,8 @@
     "output": "Output",
     "failed": "Failed",
     "todoItems": "{count} items",
+    "webSearchHits": "{count} results",
+    "webSearchSource": "Source",
     "screenshot": "Screenshot",
     "expandScreenshot": "Open screenshot",
     "zoomIn": "Zoom in",

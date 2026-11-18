@@ -29,10 +29,17 @@ function clip(value: string): string {
 }
 
 /** Human-facing one-liner for a call; never throws, never empty. */
+/** Extra facts a call carries beyond its arguments (today: the search report). */
+export interface ToolCallSummaryHints {
+  sourceLabel?: string;
+  count?: number;
+}
+
 export function toolCallSummary(
   name: string,
   args: Record<string, unknown>,
   t?: (key: string, params?: Record<string, string | number>) => string,
+  hints?: ToolCallSummaryHints,
 ): string {
   switch (name) {
     case 'bash': {
@@ -71,7 +78,10 @@ export function toolCallSummary(
     }
     case 'web_search': {
       const query = str(args, 'query');
-      return clip(query ?? name);
+      const label = clip(query ?? name);
+      if (hints?.sourceLabel === undefined || hints.count === undefined) return label;
+      const hits = t?.('tool.webSearchHits', { count: hints.count }) ?? `${hints.count} results`;
+      return `${hints.sourceLabel} · ${label} · ${hits}`;
     }
     default:
       return name;
