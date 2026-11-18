@@ -75,10 +75,12 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
       // The overlay title bar has no native drag strip; an empty header area
       // drags the window, and the collapsed sidebar leaves room for the
       // traffic lights on the left.
-      data-tauri-drag-region={trafficLights ? 'deep' : undefined}
+      data-volto-drag={trafficLights ? '' : undefined}
       className={cn(
         'flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5',
-        trafficLights && !sidebarOpen && 'desktop-traffic-pad',
+        trafficLights &&
+          !sidebarOpen &&
+          'desktop-traffic-pad desktop-traffic-compact',
       )}
     >
       {/* The collapse toggle lives in the sidebar nameplate; when the sidebar

@@ -519,9 +519,11 @@ fn request_page_report(app: &AppHandle<Wry>, state: &AppState) {
             dark: root.classList.contains("dark"),
             fullscreen: root.hasAttribute("data-volto-fullscreen"),
             internals: Boolean(window.__TAURI_INTERNALS__),
+            dragReady: Boolean(window.__VOLTO_DRAG_READY__),
             dragRegions: document.querySelectorAll("[data-tauri-drag-region]").length,
             stripHeight: strip ? strip.getBoundingClientRect().height : 0,
             headerPad: header ? getComputedStyle(header).paddingLeft : null,
+            headerHeight: header ? header.getBoundingClientRect().height : null,
             text: (document.body?.innerText ?? "").slice(0, 160),
           };
         } catch (error) {
@@ -551,6 +553,16 @@ pub fn write_smoke(app: &AppHandle<Wry>, state: &AppState, path: &std::path::Pat
         if ready {
             break;
         }
+    }
+    if std::env::var("VOLTO_DESKTOP_SMOKE_COLLAPSE").as_deref() == Ok("1") {
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.eval(
+                "document.querySelector('[aria-label=\"收起侧栏\"],[aria-label=\"Collapse sidebar\"]')?.click()",
+            );
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        request_page_report(app, state);
+        std::thread::sleep(Duration::from_millis(300));
     }
     if std::env::var("VOLTO_DESKTOP_SMOKE_FULLSCREEN_ATTR").as_deref() == Ok("1") {
         // Native fullscreen cannot be held while the app is launched in the

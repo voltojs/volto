@@ -355,7 +355,10 @@ On macOS the main window uses `TitleBarStyle::Overlay` with a hidden title, so t
 uses the full height. The traffic lights keep AppKit's native position: overriding
 `trafficLightPosition` makes them transparent while the window is inactive. The sidebar
 reserves their corner; fullscreen publishes `data-volto-fullscreen` (from `Resized`, re-checked
-after the animation) and the web drops the reserved strip/padding. Windows/Linux keep the
+after the animation) and the web drops the reserved strip/padding. The web shell installs its
+own drag handler on `[data-volto-drag]` (the built-in drag script is not relied on for the
+remote page) and the main webview's capability allows only `start_dragging` /
+`internal_toggle_maximize`. Windows/Linux keep the
 native title bar.
 
 `src-tauri/capabilities/default.json` grants app commands to the `settings` webview only; the

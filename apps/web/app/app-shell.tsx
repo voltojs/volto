@@ -9,7 +9,7 @@
  * The providers below only react to later changes — a locale switch, or the
  * stored preferences arriving from the gateway.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatPanel } from '@/components/chat/ChatPanel';
 import { I18nProvider } from '@/components/i18n-provider';
@@ -19,10 +19,13 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { readBrowserBoot } from '@/lib/browser-boot';
+import { installDesktopDrag } from '@/lib/desktop-drag';
 
 export default function AppShell() {
   // Read once: a remount must not adopt a theme the boot script never saw.
   const [boot] = useState(readBrowserBoot);
+
+  useEffect(() => installDesktopDrag(), []);
 
   return (
     <I18nProvider locale={boot.locale}>
