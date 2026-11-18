@@ -359,6 +359,9 @@ rebuilds the native menu, retitles both windows, and navigates the main window t
 gateway with the new parameters. The settings window reacts live through `shell:state`. Because the URL parameters are a
 desktop *override*, the web app skips its stored gateway preference (theme/locale) while
 they are present; otherwise a saved gateway preference would immediately flip the page back.
+The resolved light/dark value is also passed to next-themes as `forcedTheme`, which beats
+`localStorage.theme` (a stored value would otherwise win after mount). The desktop never
+writes the gateway's `config.json`: browser/CLI preferences stay independent.
 Within the desktop shell the View menu is therefore the authoritative theme/language control.
 
 On macOS the main window uses `TitleBarStyle::Overlay` with a hidden title, so the right pane

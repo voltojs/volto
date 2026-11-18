@@ -18,17 +18,21 @@ function ThemeProvider({
   children,
   initialTheme = 'system',
   lockTheme = false,
+  forcedTheme,
   ...props
 }: React.ComponentProps<typeof NextThemesProvider> & {
   /** Preference the page booted with (from the `volto_theme` cookie). */
   initialTheme?: ThemePreference;
   /** The desktop host passed the theme in the URL; gateway prefs must not win. */
   lockTheme?: boolean;
+  /** Resolved light/dark that must also beat `localStorage.theme`. */
+  forcedTheme?: 'light' | 'dark';
 }) {
   return (
     <NextThemesProvider
       attribute="class"
       defaultTheme={initialTheme}
+      forcedTheme={forcedTheme}
       enableSystem
       disableTransitionOnChange
       // The shell mounts client-only (`ssr: false` in `app/page.tsx`), so

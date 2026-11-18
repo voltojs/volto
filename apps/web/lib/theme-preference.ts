@@ -23,3 +23,22 @@ export type ThemePreference = (typeof THEME_VALUES)[number];
 export function isThemePreference(value: unknown): value is ThemePreference {
   return (THEME_VALUES as readonly unknown[]).includes(value);
 }
+
+/**
+ * The theme next-themes must be forced to in the desktop shell.
+ *
+ * `next-themes` initialises from `localStorage.theme` before `defaultTheme`,
+ * so a stored dark value would override the URL theme after mount. Forcing the
+ * *resolved* value (system is resolved here, never passed as "system") closes
+ * that path. `undefined` means no forced value: the browser build keeps its
+ * normal storage behaviour.
+ */
+export function forcedThemeValue(
+  theme: ThemePreference,
+  forced: boolean,
+  systemDark: boolean,
+): 'light' | 'dark' | undefined {
+  if (!forced) return undefined;
+  if (theme === 'system') return systemDark ? 'dark' : 'light';
+  return theme === 'dark' ? 'dark' : 'light';
+}

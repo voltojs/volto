@@ -19,19 +19,48 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { readBrowserBoot } from '@/lib/browser-boot';
+import { forcedThemeValue } from '@/lib/theme-preference';
 import { installDesktopDrag } from '@/lib/desktop-drag';
 
 export default function AppShell() {
   // Read once: a remount must not adopt a theme the boot script never saw.
   const [boot] = useState(readBrowserBoot);
+  const [systemDark, setSystemDark] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false,
+  );
 
   useEffect(() => installDesktopDrag(), []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = (): void => setSystemDark(media.matches);
+    update();
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', update);
+      return () => media.removeEventListener('change', update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   return (
     <I18nProvider locale={boot.locale}>
       <LocalePreferenceSync lockLocale={boot.forcedLocale} />
       <CapabilitiesBoot />
-      <ThemeProvider initialTheme={boot.theme} lockTheme={boot.forcedTheme}>
+      <ThemeProvider
+        initialTheme={boot.theme}
+        lockTheme={boot.forcedTheme}
+        forcedTheme={forcedThemeValue(
+          boot.theme,
+          boot.forcedTheme,
+          systemDark,
+        )}
+      >
         <TooltipProvider>
           <div className="bg-background flex h-screen">
             <Sidebar
