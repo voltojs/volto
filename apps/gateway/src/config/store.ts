@@ -40,7 +40,7 @@ export const LEGACY_FILES = {
  * it replaced no legacy per-domain file, so it has no entry in
  * `LEGACY_FILES` and the migration never writes it.
  */
-export type ConfigSection = keyof typeof LEGACY_FILES | "sidebar";
+export type ConfigSection = keyof typeof LEGACY_FILES | "sidebar" | "webSearch";
 
 /**
  * Domains whose existing readers refuse to build on a corrupt config. The

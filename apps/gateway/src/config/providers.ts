@@ -422,6 +422,22 @@ export function createProviderStore(dir: string = getConfigDir()) {
       return Promise.all((await readAll()).map(toPublic));
     },
 
+    /**
+     * Decrypt one provider's key for a host-side use (the web search source
+     * reuse). Server-only: the value must never reach an HTTP response.
+     */
+    async readApiKey(providerId: string): Promise<string | null> {
+      const provider = (await readAll()).find((p) => p.id === providerId);
+      if (provider?.apiKeyEnc === undefined || provider.apiKeyEnc === null) return null;
+      try {
+        return await cipher.decrypt(provider.apiKeyEnc);
+      } catch {
+        // A key we can no longer decrypt reads as "no key": the caller falls
+        // back to a state the user can see and fix.
+        return null;
+      }
+    },
+
     async create(input: ProviderInput): Promise<PublicProvider> {
       if (input.kind === "catalog") {
         await assertPiProviderFree(input.piProvider);
