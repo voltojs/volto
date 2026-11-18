@@ -1062,6 +1062,12 @@ export interface ConversationToolCall {
    * the diff is exact per edit and survives reloads and replays.
    */
   fileChange?: FileChange;
+  /**
+   * Structured trace of a `web_search` call: which source answered, the query,
+   * the hit count and the (capped) hits. Captured by the tool into
+   * `displayMetadata.webSearch`, so the panel survives reloads and replays.
+   */
+  search?: WebSearchReport;
   /** Set when this call delegated to a sub-agent; points at its own session. */
   childSessionId?: string;
   /** Dispatch-supplied task title, when the session records one. */
@@ -1199,6 +1205,76 @@ function fileChangeFields(displayMetadata: Record<string, unknown> | undefined):
 } {
   const change = extractFileChange(displayMetadata);
   return change === null ? {} : { fileChange: change };
+}
+
+/** One hit as the web_search tool reports it for display (never the model text). */
+export interface WebSearchHitReport {
+  title: string;
+  url: string;
+  snippet?: string;
+  summary?: string;
+  siteName?: string;
+  publishedAt?: string;
+}
+
+/** Structured trace of one web_search call, carried through `displayMetadata.webSearch`. */
+export interface WebSearchReport {
+  sourceId: string;
+  sourceLabel: string;
+  query: string;
+  count: number;
+  durationMs?: number;
+  status?: number;
+  hits: WebSearchHitReport[];
+}
+
+function reportText(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/**
+ * The optional `search` slice of a conversation tool call — same discipline as
+ * `fileChangeFields`: only a well-formed report is projected, so a tool that
+ * reported a malformed payload simply produces a call without the block.
+ */
+function searchReportFields(displayMetadata: Record<string, unknown> | undefined): {
+  search?: WebSearchReport;
+} {
+  const raw = displayMetadata?.["webSearch"];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const record = raw as Record<string, unknown>;
+  const sourceId = reportText(record, "sourceId");
+  const sourceLabel = reportText(record, "sourceLabel");
+  const query = reportText(record, "query");
+  const count = record["count"];
+  const hits = record["hits"];
+  if (sourceId === undefined || sourceLabel === undefined || query === undefined) return {};
+  if (typeof count !== "number" || !Array.isArray(hits)) return {};
+
+  const mapped: WebSearchHitReport[] = [];
+  for (const entry of hits) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return {};
+    const hit = entry as Record<string, unknown>;
+    const title = reportText(hit, "title");
+    const url = reportText(hit, "url");
+    if (title === undefined || url === undefined) return {};
+    const report: WebSearchHitReport = { title, url };
+    const snippet = reportText(hit, "snippet");
+    if (snippet !== undefined) report.snippet = snippet;
+    const summary = reportText(hit, "summary");
+    if (summary !== undefined) report.summary = summary;
+    const siteName = reportText(hit, "siteName");
+    if (siteName !== undefined) report.siteName = siteName;
+    const publishedAt = reportText(hit, "publishedAt");
+    if (publishedAt !== undefined) report.publishedAt = publishedAt;
+    mapped.push(report);
+  }
+
+  const report: WebSearchReport = { sourceId, sourceLabel, query, count, hits: mapped };
+  if (typeof record["durationMs"] === "number") report.durationMs = record["durationMs"] as number;
+  if (typeof record["status"] === "number") report.status = record["status"] as number;
+  return { search: report };
 }
 
 /** Image blocks from a tool result, projected as attachment refs. */
@@ -1395,6 +1471,7 @@ export function toConversationView(records: readonly TurnRecord[]): Conversation
                   ...(call?.isError !== undefined ? { isError: call.isError } : {}),
                   ...(call?.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
                   ...fileChangeFields(call?.displayMetadata),
+                  ...searchReportFields(call?.displayMetadata),
                   ...(call?.childSessionId !== undefined ? { childSessionId: call.childSessionId } : {}),
                   ...(call?.subagentTitle !== undefined ? { subagentTitle: call.subagentTitle } : {}),
                   ...(call?.subagentDroppedTools !== undefined
