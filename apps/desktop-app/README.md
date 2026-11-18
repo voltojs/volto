@@ -79,6 +79,7 @@ pnpm --filter @voltojs/desktop-app test:rust  # cargo test
 | `VOLTO_DESKTOP_SMOKE_THEME` | `system` / `light` / `dark`，冒烟前写入偏好 |
 | `VOLTO_DESKTOP_SMOKE_LOCALE` | `zh` / `en`，冒烟前写入语言 |
 | `VOLTO_DESKTOP_SMOKE_TOGGLE` | 设为 `1` 时在写报告前切到 light + 中文，验证运行时切换 |
+| `VOLTO_TRAFFIC_LIGHT_X` / `_Y` | 调试用：覆盖 macOS 红绿灯位置（不设则用 AppKit 原生位置） |
 | `VOLTO_CONFIG_DIR` | 被本机 gateway 继承；冒烟可指向临时目录 |
 
 ## 冒烟

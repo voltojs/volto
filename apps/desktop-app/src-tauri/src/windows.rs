@@ -108,6 +108,17 @@ fn configured_app_origin(app: &AppHandle<Wry>) -> String {
     }
 }
 
+/// Development override for the macOS traffic-light inset. Leaving both
+/// variables unset keeps AppKit's native placement (the default). Setting them
+/// reintroduces the known inactive-window transparency of a custom inset, so
+/// use this only while tuning.
+#[cfg(target_os = "macos")]
+fn traffic_light_position() -> Option<tauri::LogicalPosition<f64>> {
+    let x = std::env::var("VOLTO_TRAFFIC_LIGHT_X").ok()?.parse().ok()?;
+    let y = std::env::var("VOLTO_TRAFFIC_LIGHT_Y").ok()?.parse().ok()?;
+    Some(tauri::LogicalPosition::new(x, y))
+}
+
 pub fn create(app: &AppHandle<Wry>) -> tauri::Result<Windows> {
     let app_origin: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let gateway_origin: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -122,12 +133,12 @@ pub fn create(app: &AppHandle<Wry>) -> tauri::Result<Windows> {
     // full height; the web sidebar reserves their corner.
     #[cfg(target_os = "macos")]
     {
-        // Do not override trafficLightPosition: a custom inset makes the
-        // controls transparent while the window is inactive. Native placement
-        // keeps them visible and still lands inside the sidebar's top strip.
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
+        if let Some(position) = traffic_light_position() {
+            builder = builder.traffic_light_position(position);
+        }
     }
     let main = builder
         .on_navigation(move |url| {
