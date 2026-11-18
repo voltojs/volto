@@ -120,3 +120,13 @@ Model routing tier table. An array; each item is `{ id, label, description, targ
 
 Sidebar layout (pinned sessions, groups). Runtime state written by the interface; hand edits are overwritten on the next layout change.
 
+
+## `webSearch`
+
+The web search source behind the `web_search` tool. `auto` follows the session's model channel: a DeepSeek channel is reused with its own key, anything else answers with setup guidance until you pick a source. Built-in sources (DeepSeek, Brave, GLM) each keep their own encrypted key; a custom source is a REST endpoint you describe yourself (method, URL, auth header, request body template, result paths). Credentials are encrypted in the gateway config directory and never leave the server.
+
+| Field | Description |
+| --- | --- |
+| `custom` | User-declared REST search sources: name, endpoint spec and encrypted key. Adding or editing them happens in Settings → Tools → Web Search. |
+| `deepseek.sourceProviderId` | Reuse a configured DeepSeek model channel's key instead of entering one here. Only DeepSeek-capable channels are accepted; the search endpoint is derived from that channel's base URL. |
+| `source` | "auto" (default), "deepseek", "brave", "glm", a custom source id, or "off". "off" removes the tool from the model's tool set entirely. |

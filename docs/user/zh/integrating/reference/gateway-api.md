@@ -29,6 +29,10 @@ verified: 2026-11-11
 | `PUT` | `/config/browser` | 把 `executablePath` 写入 config.json；null 表示删除并回到自动探测。需重启网关生效。 |
 | `GET` | `/config/routing-tiers` | 模型路由档位表；首次写入前是出厂模板。 |
 | `PUT` | `/config/routing-tiers` | 整体替换路由档位表；删除仍被引用的档位会返回 409。 |
+| `*` | `/config/web-search` | 网页搜索设置：选中的搜索源、各源凭据槽（已掩码）、自定义 REST 源，以及新会话当前的解析结果。PUT 更新选择与内置槽位。 |
+| `POST` | `/config/web-search/custom` | 新增一个用户自己描述的 REST 搜索源。端点规格保存前会做一次干跑校验。 |
+| `*` | `/config/web-search/custom/*` | 编辑或删除某个自定义搜索源。删除的正是当前选中的源时，会回落到「自动」。 |
+| `POST` | `/config/web-search/test` | 用与新会话相同的解析结果、经过同一个 egress 包装的网络端口跑一次搜索。绝不返回凭据。 |
 | `GET` | `/events` | 一个会话的 SSE 长连接：模型增量、工具调用、审批请求、回合结束都从这里出。**一段会话同时只服务一个连接**——新连接会顶掉旧连接，被顶掉瞬间仍在等待的审批按 `connection-lost` 拒绝（不是默认允许）。 |
 | `GET` | `/gateway-info` | 这个网关实例的模式与能力事实：`mode` 为 `local` 或 `remote`（用 `--serve-remote` 启动时为 `remote`）。`capabilities.nativeDialogs`：本实例是否提供原生目录选择与「在文件管理器中显示」；`remote` 模式下为 `false`，此时 `/fs/pick-directory`、`/fs/reveal` 的任何方法都返回 `501 capability_unavailable`（不是 404——路由存在，能力被撤下）。`capabilities.browserAutomation`：是否真的创建了桌面浏览器自动化宿主——Playwright 驱动本机真实的 Chrome/Chromium，供浏览器工具使用；浏览器配置关闭或找不到可执行文件时为 `false`（「有浏览器」不在这个字段的含义里，Web 客户端自己就是浏览器）；`capabilities.lsp`：是否至少配置了一个语言服务器（`lsp.servers` 为空时为 `false`）。需要鉴权。 |
 | `GET` | `/health` | 存活检查：网关进程是否已就绪。 |

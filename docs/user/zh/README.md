@@ -18,6 +18,7 @@ Volto 是一个跑在本机的编程 agent：读你的仓库、改文件、执�
 - [工作区与会话](using/guides/workspace-and-sessions.md) — 工作区、会话找回、附件、导出
 - [权限与审批](using/guides/permissions-and-approvals.md) — 四档权限、规则、一键记住
 - [沙箱与平台支持](using/guides/sandbox-and-platforms.md) — 哪些平台能隔离、挡什么
+- [配置网页搜索](using/guides/web-search.md) — 把 agent 的搜索工具接到 DeepSeek、Brave、GLM 或你自己的 REST 服务
 - [网络出口名单](using/guides/network-egress.md) — 限制 agent 联网，以及它的边界
 - [子代理与后台任务](using/guides/subagents-and-tasks.md) — 派活、收窄权限、自定义类型
 - [用浏览器测网页](using/guides/browser-testing.md) — 让 Agent 自己点页面、读 console/网络、复用测试登录态

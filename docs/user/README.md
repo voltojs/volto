@@ -18,6 +18,7 @@ Common guides:
 - [Workspaces and sessions](using/guides/workspace-and-sessions.md) — workspaces, recovering sessions, attachments, export
 - [Permissions and approvals](using/guides/permissions-and-approvals.md) — the four permission modes, rules, one-click remember
 - [Sandbox and platform support](using/guides/sandbox-and-platforms.md) — which platforms can isolate, and what it stops
+- [Configuring web search](using/guides/web-search.md) — pointing the agent's search tool at DeepSeek, Brave, GLM or your own REST service
 - [Network egress allowlist](using/guides/network-egress.md) — limiting the agent's network access, and where that boundary lies
 - [Subagents and background tasks](using/guides/subagents-and-tasks.md) — delegating work, narrowing permissions, custom types
 - [Testing a web page with the browser](using/guides/browser-testing.md) — letting the agent click through pages itself, read the console / network, and reuse a test login state

@@ -243,7 +243,9 @@ export function extractConfigSections() {
   const sections = block
     ? [...block[1].matchAll(/^\s*(\w+):\s*"/gm)].map((match) => match[1])
     : [];
-  return [...new Set([...sections, "sidebar"])].sort();
+  // Sections that have no legacy per-domain file but are still user-facing:
+  // `sidebar` is runtime view state, `webSearch` is the search-source config.
+  return [...new Set([...sections, "sidebar", "webSearch"])].sort();
 }
 
 /** Keys each config validator accepts, harvested from its `*_KEYS` constant arrays. */

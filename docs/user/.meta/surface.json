@@ -55,9 +55,11 @@
       ]
     },
     "httpRoutes": {
-      "hash": "0dee94909e94c76bae10056df0e661c7e90dd1a2e4da74e4163826d7365e5114",
+      "hash": "c97fa30835bd6da5499b0c930c82e292d70d5a172881e4076af9151480c2badc",
       "names": [
         "* /config/routing-tiers",
+        "* /config/web-search",
+        "* /config/web-search/custom/*",
         "DELETE /agents/*",
         "DELETE /projects/*",
         "DELETE /providers/*",
@@ -88,6 +90,8 @@
         "PATCH /sessions/*",
         "POST /agents",
         "POST /approvals",
+        "POST /config/web-search/custom",
+        "POST /config/web-search/test",
         "POST /fs/pick-directory",
         "POST /fs/reveal",
         "POST /git/branches",
@@ -108,7 +112,7 @@
       ]
     },
     "config": {
-      "hash": "ee9ef99d2ff4b1e35d1378501def037e0bbcffa95e1e5231145092fdd0c108d4",
+      "hash": "c927297add361c5d280111965050e44238c74c1c7e6608ed905374c60312a345",
       "names": [
         "browser.enabled",
         "browser.executablePath",
@@ -138,7 +142,15 @@
         "section:projects",
         "section:providers",
         "section:routingTiers",
-        "section:sidebar"
+        "section:sidebar",
+        "section:webSearch",
+        "web-search.apiKey",
+        "web-search.apiKeyEnc",
+        "web-search.baseUrl",
+        "web-search.endpoint",
+        "web-search.id",
+        "web-search.name",
+        "web-search.sourceProviderId"
       ]
     },
     "sdkExports": {

@@ -60,7 +60,7 @@ Every tool the agent can call. **Tool visibility does not mean approval** — pe
 | unwatch_files | fs | Stop a file watch. |
 | watch_files | fs | Watch files or directories for changes. |
 | web_fetch | web | Fetch the body text of a web page. |
-| web_search | web | Search the web. |
+| web_search | web | Search the web through the source configured in Settings → Tools → Web Search (DeepSeek, Brave, GLM, or your own REST endpoint). Unconfigured, it answers with setup guidance instead of failing silently. |
 | write_file | fs | Create or fully overwrite a file; overwriting an existing file requires reading it first. |
 
 48 tools in total. Groups map to `packages/tools/<group>`; tools in the same group share a permission capability.

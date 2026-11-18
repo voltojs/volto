@@ -303,6 +303,38 @@
         "en": "The single-action family for providers: currently `POST /providers/:id/probe` (really send one minimal request with the current configuration to verify the route works).",
         "zh": "供应商的单个动作族：目前是 `POST /providers/:id/probe`（用当前配置真发一次最小请求，验证路由可用）。"
       }
+    },
+    {
+      "method": "*",
+      "path": "/config/web-search",
+      "note": {
+        "en": "Web search settings: the selected source, the per-source credential slots (masked), the custom REST sources and what a new session currently resolves to. PUT updates the selection and the built-in slots.",
+        "zh": "网页搜索设置：选中的搜索源、各源凭据槽（已掩码）、自定义 REST 源，以及新会话当前的解析结果。PUT 更新选择与内置槽位。"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/config/web-search/custom",
+      "note": {
+        "en": "Add a user-declared REST search source. The endpoint spec is validated with a dry render before it is stored.",
+        "zh": "新增一个用户自己描述的 REST 搜索源。端点规格保存前会做一次干跑校验。"
+      }
+    },
+    {
+      "method": "*",
+      "path": "/config/web-search/custom/*",
+      "note": {
+        "en": "Edit or delete one custom search source. Deleting the selected source falls back to auto.",
+        "zh": "编辑或删除某个自定义搜索源。删除的正是当前选中的源时，会回落到「自动」。"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/config/web-search/test",
+      "note": {
+        "en": "Run one search with the resolution a new session would get, through the same egress-wrapped network port. Never returns credentials.",
+        "zh": "用与新会话相同的解析结果、经过同一个 egress 包装的网络端口跑一次搜索。绝不返回凭据。"
+      }
     }
   ],
   "internal": [

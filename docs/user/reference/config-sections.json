@@ -231,4 +231,25 @@
       }
     }
   }
+,
+  "webSearch": {
+    "summary": {
+      "en": "The web search source behind the `web_search` tool. `auto` follows the session's model channel: a DeepSeek channel is reused with its own key, anything else answers with setup guidance until you pick a source. Built-in sources (DeepSeek, Brave, GLM) each keep their own encrypted key; a custom source is a REST endpoint you describe yourself (method, URL, auth header, request body template, result paths). Credentials are encrypted in the gateway config directory and never leave the server.",
+      "zh": "`web_search` 背后的搜索源。`auto` 跟随会话的模型渠道：DeepSeek 渠道会直接复用它的 key，其它渠道在配好搜索源之前调用会返回配置指引。内置源（DeepSeek、Brave、GLM）各自保存加密的 key；自定义源由你描述一个 REST 端点（方法、URL、鉴权头、请求体模板、结果路径）。密钥加密保存在网关配置目录里，不出服务端。"
+    },
+    "fields": {
+      "source": {
+        "en": "\"auto\" (default), \"deepseek\", \"brave\", \"glm\", a custom source id, or \"off\". \"off\" removes the tool from the model's tool set entirely.",
+        "zh": "\"auto\"（默认）、\"deepseek\"、\"brave\"、\"glm\"、某个自定义源 id，或 \"off\"。\"off\" 会把该工具从模型可见的工具集里移除。"
+      },
+      "deepseek.sourceProviderId": {
+        "en": "Reuse a configured DeepSeek model channel's key instead of entering one here. Only DeepSeek-capable channels are accepted; the search endpoint is derived from that channel's base URL.",
+        "zh": "复用某条已配置的 DeepSeek 模型渠道的 key，而不是另填一个。只接受 DeepSeek 渠道；搜索端点由该渠道的 base URL 派生。"
+      },
+      "custom": {
+        "en": "User-declared REST search sources: name, endpoint spec and encrypted key. Adding or editing them happens in Settings → Tools → Web Search.",
+        "zh": "用户自己添加的 REST 搜索源：名称、端点规格与加密的 key。增删改在「设置 → 工具配置 → 网页搜索」里完成。"
+      }
+    }
+  }
 }

@@ -164,8 +164,8 @@
     "zh": "抓取一个网页的正文。"
   },
   "web_search": {
-    "en": "Search the web.",
-    "zh": "联网搜索。"
+    "en": "Search the web through the source configured in Settings → Tools → Web Search (DeepSeek, Brave, GLM, or your own REST endpoint). Unconfigured, it answers with setup guidance instead of failing silently.",
+    "zh": "通过「设置 → 工具配置 → 网页搜索」配置的搜索源联网（DeepSeek、Brave、GLM 或你自己的 REST 端点）。未配置时返回配置指引，而不是静默失败。"
   },
   "write_file": {
     "en": "Create or fully overwrite a file; overwriting an existing file requires reading it first.",

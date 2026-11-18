@@ -113,7 +113,7 @@ export function ToolsPanel() {
 
   if (view === null) {
     return (
-      <div className="space-y-3">
+      <>
         <WebSearchCard />
         <ItemGroup>
           <Item variant="outline">
@@ -128,12 +128,12 @@ export function ToolsPanel() {
             </ItemContent>
           </Item>
         </ItemGroup>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <>
     <WebSearchCard />
     <ItemGroup>
       <Item variant="outline" className="items-start">
@@ -225,6 +225,6 @@ export function ToolsPanel() {
         </ItemContent>
       </Item>
     </ItemGroup>
-    </div>
+    </>
   );
 }

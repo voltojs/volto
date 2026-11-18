@@ -60,7 +60,7 @@ agent 能调用的每一个工具。**工具可见不等于被放行**——三�
 | unwatch_files | fs | 停止一个文件监听。 |
 | watch_files | fs | 监听文件或目录的变化。 |
 | web_fetch | web | 抓取一个网页的正文。 |
-| web_search | web | 联网搜索。 |
+| web_search | web | 通过「设置 → 工具配置 → 网页搜索」配置的搜索源联网（DeepSeek、Brave、GLM 或你自己的 REST 端点）。未配置时返回配置指引，而不是静默失败。 |
 | write_file | fs | 新建或整体覆盖一个文件；覆盖已存在的文件要求先 read_file。 |
 
 共 48 个。分组对应 `packages/tools/<分组>`；同一分组的工具共享一组权限能力。
