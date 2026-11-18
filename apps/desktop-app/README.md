@@ -44,6 +44,22 @@ pnpm --filter @voltojs/desktop-app test:rust  # cargo test
 
 `tauri dev` 需要 `src-tauri` 依赖可解析；离线环境用 `CARGO_NET_OFFLINE=true pnpm ...`。
 
+### 改了 web 代码为什么没生效
+
+主窗口加载的是**网关（gateway）托管的静态导出**，不是 `apps/web` 源码，也不是 Vite 开发服务器：
+
+- 只跑 `pnpm --filter @voltojs/web build` 只会更新 `apps/web/out`，不会进网关。
+- 必须重新导出并复制到 `apps/gateway/web`：
+
+```bash
+pnpm --filter @voltojs/gateway web:export   # next export + copy → apps/gateway/web
+```
+
+- 然后重启桌面应用（`pnpm --filter @voltojs/desktop-app dev` 或重新 build），让新网关进程提供新文件；至少也要在主窗口按 `⌘R` 重载。
+- `tauri dev` 只对**设置页**（`src/renderer`，Vite 1420）热更新；主窗口里的 web UI 不会 HMR，必须走上面的导出。
+- 确认自己改的是**当前 worktree** 的 `apps/web`，而不是主 checkout 的同名目录。
+- 排查：`stat apps/web/out/index.html apps/gateway/web/index.html` 的 mtime 应接近；`apps/gateway/web` 旧就是没复制。
+
 ## 使用
 
 ### 本机网关（默认）
