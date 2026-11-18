@@ -181,7 +181,12 @@ import {
   SHELL_TOOL_NAMES,
   type BashSessionLike,
 } from "@voltojs/tools/shell";
-import { createWebFetchTool, createWebSearchTool, NETWORK_TOOL_NAMES } from "@voltojs/tools/web";
+import {
+  createWebFetchTool,
+  createWebSearchTool,
+  NETWORK_TOOL_NAMES,
+  type WebSearchToolOptions,
+} from "@voltojs/tools/web";
 import {
   createLspDefinitionTool,
   createLspReferencesTool,
@@ -1005,6 +1010,18 @@ export interface CreateAgentOptions {
   network?: Network;
 
   /**
+   * Search source for the `web_search` tool. The host resolves it from its own
+   * configuration (which engine, which key) and passes only the resulting
+   * spec here; secrets stay in the host's memory.
+   *
+   * `source: "off"` leaves the tool out of the model's tool set entirely.
+   * `"none"` (and omitting the option) still registers it, and every call
+   * answers with setup guidance — a generic host has no other way to make the
+   * capability discoverable.
+   */
+  webSearch?: WebSearchToolOptions;
+
+  /**
    * Optional egress policy for the Network port (web_fetch / web_search /
    * http_query). Exact-hostname matching, denylist wins; denied requests
    * answer with a structured 403 and never reach the adapter. The model's
@@ -1747,7 +1764,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
     );
   }
   if (network) {
-    adapterTools.push(createWebFetchTool(network), createWebSearchTool(network));
+    adapterTools.push(createWebFetchTool(network));
+    // "off" means the user turned search off: the tool must disappear from the
+    // model's set rather than exist only to answer with an error.
+    if (opts.webSearch?.source !== "off") {
+      adapterTools.push(createWebSearchTool(network, opts.webSearch));
+    }
     adapterTools.push(createHttpQueryTool(network));
   }
   if (opts.lsp) {
@@ -2333,7 +2355,12 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
         describeWorkspace: describeWorkspaceForBash,
       })
     : undefined;
-  const networkExecutor = network ? createNetworkToolExecutor({ network }) : undefined;
+  const networkExecutor = network
+    ? createNetworkToolExecutor({
+        network,
+        ...(opts.webSearch !== undefined ? { webSearch: opts.webSearch } : {}),
+      })
+    : undefined;
 
   const toolExecutor: ToolExecutor = async (
     call: PendingToolCall,
@@ -4354,7 +4381,12 @@ function createSubAgentExecutor(
         describeWorkspace: describeWorkspaceForBash,
       })
       : undefined;
-    const subNetworkExecutor = opts.network ? createNetworkToolExecutor({ network: opts.network }) : undefined;
+    const subNetworkExecutor = opts.network
+      ? createNetworkToolExecutor({
+          network: opts.network,
+          ...(opts.webSearch !== undefined ? { webSearch: opts.webSearch } : {}),
+        })
+      : undefined;
 
     const subExecutor: ToolExecutor = async (call, ctx) => {
       if (subFsExecutor && FS_EXECUTOR_TOOL_NAMES.has(call.name)) {

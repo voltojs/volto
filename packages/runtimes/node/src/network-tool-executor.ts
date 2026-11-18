@@ -1,17 +1,23 @@
 import type { PendingToolCall, ToolResult, Network } from "@voltojs/core";
-import type { WebTool } from "@voltojs/tools/web";
+import type { WebTool, WebSearchToolOptions } from "@voltojs/tools/web";
 import { createWebFetchTool, createWebSearchTool } from "@voltojs/tools/web";
 import type { ToolExecutor } from "./runner.js";
 
 export interface CreateNetworkToolExecutorOptions {
   network: Network;
+  /**
+   * Search source forwarded to `web_search`. "off" drops the tool from this
+   * executor as well, so a model that still names it gets "Unknown tool"
+   * instead of a half-configured answer.
+   */
+  webSearch?: WebSearchToolOptions;
 }
 
 export function createNetworkToolExecutor(options: CreateNetworkToolExecutorOptions): ToolExecutor {
-  const tools: WebTool[] = [
-    createWebFetchTool(options.network),
-    createWebSearchTool(options.network),
-  ];
+  const tools: WebTool[] = [createWebFetchTool(options.network)];
+  if (options.webSearch?.source !== "off") {
+    tools.push(createWebSearchTool(options.network, options.webSearch));
+  }
 
   return async (call: PendingToolCall, ctx): Promise<ToolResult> => {
     const tool = tools.find((entry) => entry.definition.name === call.name);
