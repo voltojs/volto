@@ -294,6 +294,24 @@
     "webSearchCustomDeleteConfirm": "确认删除",
     "webSearchWarnings": "配置提示",
     "webSearchLoadFailed": "加载网页搜索配置失败：{error}",
-    "webSearchLoading": "正在加载网页搜索配置…"
+    "webSearchLoading": "正在加载网页搜索配置…",
+    "webSearchCustomName": "名称",
+    "webSearchCustomMethod": "请求方法",
+    "webSearchCustomUrl": "URL",
+    "webSearchCustomAuthHeader": "鉴权头",
+    "webSearchCustomAuthPrefix": "鉴权前缀",
+    "webSearchCustomHeaders": "额外请求头（JSON）",
+    "webSearchCustomBody": "请求体模板",
+    "webSearchCustomBodyHint": "用 {{query}} 与 {{count}} 占位；{{query}} 会按 JSON 转义插入，引号要自己写。",
+    "webSearchCustomList": "结果列表路径",
+    "webSearchCustomPathTitle": "标题路径",
+    "webSearchCustomPathUrl": "链接路径",
+    "webSearchCustomPathSnippet": "摘要路径",
+    "webSearchCustomPathSiteName": "站点名路径",
+    "webSearchCustomPathDate": "日期路径",
+    "webSearchCustomEdit": "编辑 {name}",
+    "webSearchCustomSave": "保存",
+    "webSearchCustomCancel": "取消",
+    "webSearchCustomHeadersInvalid": "额外请求头必须是合法 JSON。"
   }
 }

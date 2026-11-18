@@ -294,6 +294,24 @@
     "webSearchCustomDeleteConfirm": "Delete",
     "webSearchWarnings": "Configuration notes",
     "webSearchLoadFailed": "Could not load web search settings: {error}",
-    "webSearchLoading": "Loading web search settings…"
+    "webSearchLoading": "Loading web search settings…",
+    "webSearchCustomName": "Name",
+    "webSearchCustomMethod": "Method",
+    "webSearchCustomUrl": "URL",
+    "webSearchCustomAuthHeader": "Auth header",
+    "webSearchCustomAuthPrefix": "Auth prefix",
+    "webSearchCustomHeaders": "Extra headers (JSON)",
+    "webSearchCustomBody": "Request body template",
+    "webSearchCustomBodyHint": "Use {{query}} and {{count}}; {{query}} is inserted JSON-escaped, so write the quotes yourself.",
+    "webSearchCustomList": "Results list path",
+    "webSearchCustomPathTitle": "Title path",
+    "webSearchCustomPathUrl": "Link path",
+    "webSearchCustomPathSnippet": "Snippet path",
+    "webSearchCustomPathSiteName": "Site name path",
+    "webSearchCustomPathDate": "Date path",
+    "webSearchCustomEdit": "Edit {name}",
+    "webSearchCustomSave": "Save",
+    "webSearchCustomCancel": "Cancel",
+    "webSearchCustomHeadersInvalid": "Extra headers must be valid JSON."
   }
 }

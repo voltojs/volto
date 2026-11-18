@@ -438,7 +438,14 @@ export interface WebSearchSettingsView {
     brave: { apiKeyMasked: string | null; baseUrl: string | null };
     glm: { apiKeyMasked: string | null; baseUrl: string | null };
   };
-  custom: Array<{ id: string; name: string; method: string; url: string; apiKeyMasked: string | null }>;
+  custom: Array<{
+    id: string;
+    name: string;
+    method: string;
+    url: string;
+    apiKeyMasked: string | null;
+    endpoint?: CustomSearchSourceInput['endpoint'];
+  }>;
   candidates: WebSearchCandidate[];
   resolved: { sourceId: string; label: string; reason: string };
   warnings: string[];
@@ -482,4 +489,41 @@ export const testWebSearch = (body: { source?: string; query?: string } = {}) =>
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  });
+export interface CustomSearchSourceInput {
+  name: string;
+  apiKey?: string | null;
+  endpoint: {
+    method: 'GET' | 'POST';
+    url: string;
+    headers?: Record<string, string>;
+    auth?: { header: string; prefix: string };
+    bodyTemplate?: string;
+    paths: {
+      list: string;
+      title: string;
+      url: string;
+      snippet?: string;
+      summary?: string;
+      siteName?: string;
+      date?: string;
+    };
+  };
+}
+
+export const createCustomSearchSource = (body: CustomSearchSourceInput) =>
+  request<WebSearchSettingsView>('/config/web-search/custom', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const updateCustomSearchSource = (id: string, body: Partial<CustomSearchSourceInput>) =>
+  request<WebSearchSettingsView>(`/config/web-search/custom/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const deleteCustomSearchSource = (id: string) =>
+  request<WebSearchSettingsView>(`/config/web-search/custom/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   });

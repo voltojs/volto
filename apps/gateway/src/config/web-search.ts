@@ -64,7 +64,15 @@ export interface WebSearchSettingsView {
     brave: { apiKeyMasked: string | null; baseUrl: string | null };
     glm: { apiKeyMasked: string | null; baseUrl: string | null };
   };
-  custom: Array<{ id: string; name: string; method: string; url: string; apiKeyMasked: string | null }>;
+  /** `endpoint` is the user's own request spec — no secret in it. */
+  custom: Array<{
+    id: string;
+    name: string;
+    method: string;
+    url: string;
+    apiKeyMasked: string | null;
+    endpoint: EndpointSourceSpec;
+  }>;
   candidates: Array<{ id: string; name: string; apiKeyMasked: string | null }>;
   /** What a new session would actually use, shown above the source picker. */
   resolved: { sourceId: string; label: string; reason: string };
@@ -281,6 +289,7 @@ export async function readWebSearchSettingsView(
       method: entry.endpoint.method,
       url: entry.endpoint.url,
       apiKeyMasked: await maskKey(cipher, entry.apiKeyEnc),
+      endpoint: entry.endpoint,
     })),
   );
   return {

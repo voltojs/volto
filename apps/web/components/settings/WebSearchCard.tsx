@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CustomSearchSources } from './CustomSearchSources';
 import {
   fetchWebSearchSettings,
   testWebSearch,
@@ -371,6 +372,12 @@ export function WebSearchCard() {
           </div>
         </ItemContent>
       </Item>
+
+      <CustomSearchSources
+        sources={view.custom}
+        onChange={applyView}
+        onError={(message) => setError(message)}
+      />
     </ItemGroup>
   );
 }
