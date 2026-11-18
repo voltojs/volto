@@ -34,7 +34,7 @@ A custom source is one request. For POST, the body template substitutes two plac
 - `{{query}}` — the JSON-escaped query; write the surrounding quotes yourself, e.g. `{"q": "{{query}}", "n": {{count}}}`.
 - `{{count}}` — the requested number of results.
 
-For GET, both placeholders live in the URL and are URL-encoded. The mapping fields are dotted paths into the response, e.g. `search_result` for the list, then `title` / `link` / `content` for the fields. A template that cannot render valid JSON, or a mapping that cannot find the list, is rejected when you save it — not on the first search.
+For GET, both placeholders live in the URL and are URL-encoded. The mapping fields are dotted paths into the response, e.g. `search_result` for the list, then `title` / `link` / `content` for the fields. Saving validates what can be checked without a response — the method, the URL, the required mapping paths and that the body template renders valid JSON. Whether the paths match the real response is proved by **Test search** or the first call, so test a new source before relying on it.
 
 ## Testing
 
