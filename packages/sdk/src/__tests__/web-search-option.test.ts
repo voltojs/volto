@@ -61,7 +61,7 @@ describe("network tool executor", () => {
       },
       webSearch: { source: "none" },
     });
-    const result = await executor({ callId: "c1", name: "web_search", input: { query: "q" }, orderInBatch: 0 }, {
+    const result = await executor({ id: "c1", name: "web_search", input: { query: "q" } }, {
       readFiles: [],
     });
     expect(result.isError).toBe(true);
@@ -73,7 +73,7 @@ describe("network tool executor", () => {
       network,
       webSearch: { source: "off" },
     });
-    const result = await executor({ callId: "c1", name: "web_search", input: { query: "q" }, orderInBatch: 0 }, {
+    const result = await executor({ id: "c1", name: "web_search", input: { query: "q" } }, {
       readFiles: [],
     });
     expect(result.isError).toBe(true);
