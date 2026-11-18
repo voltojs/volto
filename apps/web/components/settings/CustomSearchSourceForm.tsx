@@ -47,6 +47,7 @@ export function CustomSearchSourceForm({ value, onSubmit, onCancel }: CustomSear
   const [titlePath, setTitlePath] = useState(value?.endpoint.paths.title ?? '');
   const [urlPath, setUrlPath] = useState(value?.endpoint.paths.url ?? '');
   const [snippetPath, setSnippetPath] = useState(value?.endpoint.paths.snippet ?? '');
+  const [summaryPath, setSummaryPath] = useState(value?.endpoint.paths.summary ?? '');
   const [siteNamePath, setSiteNamePath] = useState(value?.endpoint.paths.siteName ?? '');
   const [datePath, setDatePath] = useState(value?.endpoint.paths.date ?? '');
   const [apiKey, setApiKey] = useState('');
@@ -76,6 +77,7 @@ export function CustomSearchSourceForm({ value, onSubmit, onCancel }: CustomSear
         title: titlePath.trim(),
         url: urlPath.trim(),
         ...(snippetPath.trim() !== '' ? { snippet: snippetPath.trim() } : {}),
+        ...(summaryPath.trim() !== '' ? { summary: summaryPath.trim() } : {}),
         ...(siteNamePath.trim() !== '' ? { siteName: siteNamePath.trim() } : {}),
         ...(datePath.trim() !== '' ? { date: datePath.trim() } : {}),
       },
@@ -213,6 +215,16 @@ export function CustomSearchSourceForm({ value, onSubmit, onCancel }: CustomSear
             id="custom-search-snippet"
             value={snippetPath}
             onChange={(event) => setSnippetPath(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="custom-search-summary" className="text-xs">
+            {t('tools.webSearchCustomPathSummary')}
+          </label>
+          <Input
+            id="custom-search-summary"
+            value={summaryPath}
+            onChange={(event) => setSummaryPath(event.target.value)}
           />
         </div>
         <div className="space-y-1">

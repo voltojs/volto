@@ -41,6 +41,7 @@ describe("CustomSearchSourceForm", () => {
     await user.type(screen.getByLabelText("结果列表路径"), "items");
     await user.type(screen.getByLabelText("标题路径"), "title");
     await user.type(screen.getByLabelText("链接路径"), "url");
+    await user.type(screen.getByLabelText("长摘要路径"), "content");
     await user.type(screen.getByLabelText("API Key"), "k");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
@@ -53,7 +54,7 @@ describe("CustomSearchSourceForm", () => {
           url: "https://s.example.com/search",
           auth: { header: "Authorization", prefix: "Bearer " },
           bodyTemplate: '{"q":"{{query}}","n":{{count}}}',
-          paths: { list: "items", title: "title", url: "url" },
+          paths: { list: "items", title: "title", url: "url", summary: "content" },
         },
       }),
     );

@@ -307,6 +307,7 @@
     "webSearchCustomPathTitle": "标题路径",
     "webSearchCustomPathUrl": "链接路径",
     "webSearchCustomPathSnippet": "摘要路径",
+    "webSearchCustomPathSummary": "长摘要路径",
     "webSearchCustomPathSiteName": "站点名路径",
     "webSearchCustomPathDate": "日期路径",
     "webSearchCustomEdit": "编辑 {name}",

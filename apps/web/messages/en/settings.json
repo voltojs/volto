@@ -307,6 +307,7 @@
     "webSearchCustomPathTitle": "Title path",
     "webSearchCustomPathUrl": "Link path",
     "webSearchCustomPathSnippet": "Snippet path",
+    "webSearchCustomPathSummary": "Summary path",
     "webSearchCustomPathSiteName": "Site name path",
     "webSearchCustomPathDate": "Date path",
     "webSearchCustomEdit": "Edit {name}",
