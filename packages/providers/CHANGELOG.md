@@ -1,5 +1,13 @@
 # @voltojs/providers
 
+## 0.2.2
+
+### Patch Changes
+
+- Add per-model reasoning-level configuration support.
+- Updated dependencies
+  - @voltojs/core@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

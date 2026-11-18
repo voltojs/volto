@@ -1,6 +1,6 @@
 {
   "name": "@voltojs/providers",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "main": "./dist/pi-ai/index.js",
   "types": "./dist/pi-ai/index.d.ts",

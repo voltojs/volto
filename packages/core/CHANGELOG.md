@@ -1,5 +1,11 @@
 # @voltojs/core
 
+## 0.2.2
+
+### Patch Changes
+
+- Add per-model reasoning-level configuration support.
+
 ## 0.2.1
 
 ### Patch Changes

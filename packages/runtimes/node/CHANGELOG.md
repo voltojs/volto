@@ -1,5 +1,13 @@
 # @voltojs/runtime-node
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @voltojs/core@0.2.2
+  - @voltojs/tools@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes
