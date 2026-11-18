@@ -103,6 +103,38 @@ describe("readWebSearchSettingsView / updateWebSearchConfig", () => {
     ).rejects.toBeInstanceOf(WebSearchConfigError);
   });
 
+  it("persists the section inside config.json and nowhere else", async () => {
+    await updateWebSearchConfig(dir, { source: "glm", glm: { apiKey: "sk-1234567890" } });
+    const file = path.join(dir, "config.json");
+    const document = JSON.parse(await fs.readFile(file, "utf8")) as {
+      version: number;
+      webSearch: { source: string; glm: { apiKeyEnc: string | null } };
+    };
+    expect(document.webSearch.source).toBe("glm");
+    expect(document.webSearch.glm.apiKeyEnc).toEqual(expect.any(String));
+    // Stored encrypted: the plaintext never reaches the document.
+    expect(document.webSearch.glm.apiKeyEnc).not.toContain("sk-1234567890");
+    // One document for every section — no per-domain web-search file appears.
+    const files = await fs.readdir(dir);
+    expect(files.filter((name) => /web[-_]?search/.test(name))).toEqual([]);
+    expect(files).toContain("config.json");
+  });
+
+  it("keeps sibling sections intact when the section is written", async () => {
+    await fs.writeFile(
+      path.join(dir, "config.json"),
+      JSON.stringify({ version: 1, egress: { allowHosts: ["api.deepseek.com"] } }),
+      "utf-8",
+    );
+    await updateWebSearchConfig(dir, { brave: { apiKey: "brave-key-value" } });
+    const document = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf8")) as {
+      egress: { allowHosts: string[] };
+      webSearch: { brave: { apiKeyEnc: string | null } };
+    };
+    expect(document.egress.allowHosts).toEqual(["api.deepseek.com"]);
+    expect(document.webSearch.brave.apiKeyEnc).toEqual(expect.any(String));
+  });
+
   it("rejects a base URL that is not http(s)", async () => {
     await expect(
       updateWebSearchConfig(dir, { deepseek: { baseUrl: "file:///etc/passwd" } }),

@@ -42,6 +42,17 @@ describe("custom search sources", () => {
     expect(view.custom).toEqual([]);
   });
 
+  it("stores custom sources inside config.json with an encrypted key", async () => {
+    await createCustomSource(dir, { name: "Local", apiKey: "secret-key-value", endpoint: spec });
+    const document = JSON.parse(await fs.readFile(path.join(dir, "config.json"), "utf8")) as {
+      webSearch: { custom: Array<{ id: string; name: string; apiKeyEnc: string; endpoint: { url: string } }> };
+    };
+    const [stored] = document.webSearch.custom;
+    expect(stored?.id).toBe("local");
+    expect(stored?.endpoint.url).toBe("https://s.example.com/search");
+    expect(stored?.apiKeyEnc).not.toContain("secret-key-value");
+  });
+
   it("falls back to auto when the deleted source was selected", async () => {
     const created = await createCustomSource(dir, { name: "S", endpoint: spec });
     const id = created.custom[0]!.id;
