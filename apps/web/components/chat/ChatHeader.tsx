@@ -77,10 +77,8 @@ export function ChatHeader({ title, paneToggle, compactAction, forkAction, rewin
       // traffic lights on the left.
       data-tauri-drag-region={trafficLights ? 'deep' : undefined}
       className={cn(
-        'flex min-h-12 shrink-0 items-center gap-2.5 border-b px-3 py-1.5',
-        trafficLights &&
-          !sidebarOpen &&
-          'desktop-traffic-pad desktop-traffic-compact',
+        'flex h-9 shrink-0 items-center gap-2.5 border-b px-3 py-0.5',
+        trafficLights && !sidebarOpen && 'desktop-traffic-pad',
       )}
     >
       {/* The collapse toggle lives in the sidebar nameplate; when the sidebar

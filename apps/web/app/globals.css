@@ -280,7 +280,7 @@
    lights' corner; in fullscreen the native controls are gone, so the space
    collapses and the expanded sidebar moves up. */
 .desktop-traffic-strip {
-  height: 44px;
+  height: 36px;
 }
 
 html[data-volto-fullscreen] .desktop-traffic-strip {
@@ -289,14 +289,6 @@ html[data-volto-fullscreen] .desktop-traffic-strip {
 
 .desktop-traffic-pad {
   padding-left: 76px;
-}
-
-/* Collapsed traffic lights sit at the native titlebar's centre; a 48px header
-   would leave them visibly higher, so the compact header matches that centre. */
-.desktop-traffic-compact {
-  min-height: 34px;
-  padding-top: 0;
-  padding-bottom: 0;
 }
 
 html[data-volto-fullscreen] .desktop-traffic-pad {

@@ -341,9 +341,13 @@ Rust modules (all free of Tauri types, so `cargo test` runs them directly):
 `volto_shell=desktop&volto_platform=…&volto_theme=…&volto_locale=…`; the web boot script (which already
 decides theme/language before paint from cookies) gives these query parameters precedence.
 It publishes `data-volto-shell="desktop"` on `<html>`, and the exported UI uses that for the
-desktop-only chrome on macOS (`volto_platform=darwin`): the sidebar reserves a 44px top strip (traffic lights + drag), and the
-right header exposes a drag region and, while the sidebar is collapsed, left padding for the
-traffic lights. The preference itself lives in the desktop's profile store (same file as the
+desktop-only chrome on macOS (`volto_platform=darwin`): the sidebar reserves a 36px top strip
+(traffic lights + drag), and the chat header and the right pane's tab bar are also 36px tall,
+so the three columns share one top line with the traffic lights centred in it. While the
+sidebar is collapsed the chat header keeps that height and only adds 76px of left padding.
+The official `data-tauri-drag-region` markup is kept, with a capture-phase handler that calls
+`start_dragging` because the built-in drag script is not injected into the remote page.
+The preference itself lives in the desktop's profile store (same file as the
 profiles, 0600), so it survives switches and restarts; the View menu updates it, persists it,
 rebuilds the native menu, retitles both windows, and navigates the main window to the same
 gateway with the new parameters. The settings window reacts live through `shell:state`. Because the URL parameters are a

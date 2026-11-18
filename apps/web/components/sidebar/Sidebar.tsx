@@ -161,7 +161,10 @@ export function Sidebar({
         {/* Desktop traffic lights float over this corner; the strip also
             provides a drag handle for the overlay title bar. */}
         {trafficLights ? (
-          <div data-tauri-drag-region className="desktop-traffic-strip shrink-0" />
+          <div
+            data-tauri-drag-region
+            className="desktop-traffic-strip shrink-0"
+          />
         ) : null}
 
         {/* Nameplate */}
@@ -213,7 +216,10 @@ export function Sidebar({
               {isUnauthorized(error) ? (
                 <p className="opacity-90">
                   {t('connection.credentialsTitle')}
-                  <span className="font-mono"> Open this URL to authenticate </span>
+                  <span className="font-mono">
+                    {' '}
+                    Open this URL to authenticate{' '}
+                  </span>
                   {t('connection.credentialsAction')}
                 </p>
               ) : null}
@@ -245,12 +251,20 @@ export function Sidebar({
                       )}
                     />
                     <span className="truncate">
-                      {t(CONNECTION_LABEL_KEY[connectionState] ?? 'connection.disconnected')}
+                      {t(
+                        CONNECTION_LABEL_KEY[connectionState] ??
+                          'connection.disconnected',
+                      )}
                     </span>
                   </span>
                 }
               />
-              <TooltipContent>{t(CONNECTION_LABEL_KEY[connectionState] ?? 'connection.disconnected')}</TooltipContent>
+              <TooltipContent>
+                {t(
+                  CONNECTION_LABEL_KEY[connectionState] ??
+                    'connection.disconnected',
+                )}
+              </TooltipContent>
             </Tooltip>
           )}
           {currentSessionId === null && <span className="flex-1" />}
@@ -281,7 +295,11 @@ export function Sidebar({
         />
       )}
 
-      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} projectId={settingsProjectId} />
+      <SettingsDialog
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        projectId={settingsProjectId}
+      />
     </div>
   );
 }

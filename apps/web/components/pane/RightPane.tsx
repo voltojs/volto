@@ -239,7 +239,7 @@ export function RightPane({ projectId, onExecutePlan }: RightPaneProps) {
         {/* Header row: the scrollable tab strip plus a collapse control pinned
             to the pane's far right. Rendered even with zero tabs so the
             collapse affordance stays reachable while the pane is expanded. */}
-        <div className="flex min-h-12 shrink-0 items-center gap-0.5 border-b px-1.5">
+        <div className="flex h-9 shrink-0 items-center gap-0.5 border-b px-1.5">
           {activeTab !== null ? (
             <div ref={stripRef} className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
               {tabs.map((tab) => {
