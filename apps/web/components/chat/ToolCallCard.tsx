@@ -83,12 +83,13 @@ export const ToolCallCard = memo(function ToolCallCard({
     call.name === 'task_output' ? verificationBadge(t, call.verification) : undefined;
   const ref = toolCallFileRef(call.name, call.args);
   const images: ConversationImage[] = call.images ?? [];
-  // A screenshot's value is the picture: open the result body as soon as it
-  // lands instead of hiding it behind the row disclosure. Search hits stay
-  // collapsed like any other payload — the summary line already carries the
-  // source, query and hit count, and a long result list would push the
-  // conversation apart. A manual collapse still wins (manualOpen below).
-  const autoOpen = failed || images.length > 0;
+  // Only failures open on their own: a collapsed failure is a failure the user
+  // has to hunt for. Screenshots and search hits stay behind the row
+  // disclosure like every other payload — the summary line already names the
+  // call (and, for a search, its source and hit count), and auto-expanding a
+  // picture or a ten-row result list pushes the rest of the conversation
+  // apart. A manual collapse still wins (manualOpen below).
+  const autoOpen = failed;
   const renderDetail = () => {
     if (summary === undefined) return undefined;
     if (ref === null || fileProjectId === null) return summary;

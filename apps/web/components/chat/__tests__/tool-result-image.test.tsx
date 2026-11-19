@@ -19,6 +19,24 @@ beforeEach(() => {
 });
 
 describe("ToolCallCard result images", () => {
+  it("keeps a screenshot collapsed until the row is expanded", () => {
+    render(
+      <ToolCallCard
+        sessionId="session-1"
+        call={{
+          id: "c-shot",
+          name: "browser_screenshot",
+          args: {},
+          result: "Screenshot (1280x800)",
+          images: [SCREENSHOT],
+        }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "查看截图" })).toBeNull();
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByRole("button", { name: "查看截图" })).toBeInTheDocument();
+  });
+
   it("shows a screenshot result and opens it in a dialog", async () => {
     const user = userEvent.setup();
     render(
@@ -34,6 +52,7 @@ describe("ToolCallCard result images", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button"));   // expand the row first
     const thumb = screen.getByRole("button", { name: "查看截图" });
     const thumbImage = thumb.querySelector("img");
     expect(thumbImage).toHaveAttribute(
@@ -84,6 +103,7 @@ describe("ToolCallCard result images", () => {
         }}
       />,
     );
+    fireEvent.click(screen.getByRole("button"));   // expand the row first
     expect(screen.getByText(/att-shot/)).toBeInTheDocument();
   });
 });
