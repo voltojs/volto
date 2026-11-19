@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ToolCallCard } from '../ToolCallCard';
 import type { ConversationToolCall } from '@voltojs/sdk/sse';
 
@@ -23,9 +23,17 @@ const call: ConversationToolCall = {
 };
 
 describe('ToolCallCard web search', () => {
-  it('renders the source and each hit without expanding', () => {
-    render(<ToolCallCard call={call} label="volto agent" />);
+  it('keeps the hits collapsed by default', () => {
+    render(<ToolCallCard call={call} label="GLM · volto agent · 2 条" />);
+    // The row itself names the source; the payload stays behind the disclosure.
     expect(screen.getByText(/GLM/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'A' })).toBeNull();
+    expect(screen.queryByText(/SB/)).toBeNull();
+  });
+
+  it('renders the source and each hit once expanded', () => {
+    render(<ToolCallCard call={call} label="volto agent" />);
+    fireEvent.click(screen.getByRole('button'));
     expect(screen.getByRole('link', { name: 'A' })).toHaveAttribute('href', 'https://a.example');
     expect(screen.getByText(/SB/)).toBeInTheDocument();
     expect(screen.getByText(/2026-02-02/)).toBeInTheDocument();
