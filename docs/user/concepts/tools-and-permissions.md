@@ -33,9 +33,9 @@ Merging them into one concept leads to a bad design: removing `write_file` from 
 
 ## The tool budget
 
-By default the model can see at most 20 tools at once (21 when memory is wired in). This is a hard constraint, not a suggestion: too many tools make the model pick wrong and make every request more expensive.
+The visible set is capped, but the cap grows with what a session actually has. The base is 20 slots: the 14 file/shell/git tools, 5 session tools (todo, task, ask, skill…), and 1 spare for plugin or MCP tools. Every wired feature group — browser, memory, code intelligence, SQLite, plan mode, web search/fetch — then adds exactly as many slots as it brings tools, so those tools can never be crowded out by another group.
 
-Tools beyond the budget queue up by tier priority; tools that belong to no tier fall last. So the hidden cost of "adding one tool" is "crowding out another".
+The order still matters for the spare slot and for anything unknown: groups are ranked (session tools, then plan, then browser/memory, then code intelligence, then web, then SQLite), and a tool that belongs to no group falls last. So "adding a tool" only competes with unknown and plugin tools — it does not silently evict, say, web search.
 
 ## One-line mnemonic
 

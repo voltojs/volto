@@ -2282,6 +2282,7 @@ export function createAgent(opts: CreateAgentOptions): AgentInstance {
       hasDb: opts.db !== undefined,
       hasBrowser: opts.browserAdapter !== undefined,
       hasMemory: memoryToolsEnabled,
+      hasPlan: opts.planStore !== undefined,
     });
   }
   const { scope: visibilityScope, limit: visibilityLimit } = resolveVisibility(toolDefs);

@@ -54,8 +54,8 @@ const FLOOR_14 = [
 /** Spec D4 v1.1: the basic tier is guaranteed in a fully assembled session. */
 const BASIC_5 = ["task", "task_output", "todo_write", "ask_user", "skill"] as const;
 
-/** Spec D4: the info tier — must never occupy the discretionary slot. */
-const INFO_TOOLS = ["web_search", "web_fetch", "read_document", "http_query", "save_plan"] as const;
+/** Spec D4 (revised 2026-11-19): the info tier is guaranteed its own slots. */
+const INFO_TOOLS = ["web_search", "web_fetch", "read_document", "http_query"] as const;
 
 let tempConfigDir: string;
 let tempProjectDir: string;
@@ -138,8 +138,10 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     const tools = await sessionToolNames("ask");
 
     // LSP is always wired (its five tools are offered; whether a server binary
-    // exists is a call-time question), so the cap is 20 + 5 LSP + 1 memory.
-    expect(tools.length).toBeLessThanOrEqual(26);
+    // exists is a call-time question). The cap is the 20-slot base plus one
+    // slot per tool of every assembled mode group: lsp 5 + db 2 + memory 1 +
+    // plan 1 + info 4 = 33, with the base's spare slot going to `rest`.
+    expect(tools).toHaveLength(33);
     // The floor is a set guarantee: every one of the 14 names must be in the
     // visible list — an empty difference is the only honest proof.
     for (const name of FLOOR_14) {
@@ -150,13 +152,16 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     for (const name of BASIC_5) {
       expect(tools, `basic tool trimmed: ${name}`).toContain(name);
     }
-    // Memory and all five lsp tools get their reserved slots; the one info
-    // slot left over (by priority) is the only discretionary entry.
+    // Every mode group keeps its own slots: memory, all five lsp tools, the
+    // db and plan tools and the whole info tier are visible at once.
     expect(tools).toContain("memory");
-    const discretionary = tools.filter(
-      (name) => !(FLOOR_14 as readonly string[]).includes(name) && !(BASIC_5 as readonly string[]).includes(name),
-    );
-    expect(discretionary.length).toBeLessThanOrEqual(7); // memory + 5 lsp + one info
+    expect(tools).toContain("save_plan");
+    for (const name of ["db_query", "db_exec"]) {
+      expect(tools, `db tool trimmed: ${name}`).toContain(name);
+    }
+    for (const name of INFO_TOOLS) {
+      expect(tools, `info tool trimmed: ${name}`).toContain(name);
+    }
   });
 
   it("F-166 with lsp wired, memory comes before lsp and all five lsp tools survive", async () => {
@@ -168,21 +173,22 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
 
     const tools = await sessionToolNames("ask");
 
-    expect(tools).toHaveLength(26);
+    expect(tools).toHaveLength(33);
     for (const name of FLOOR_14) {
       expect(tools, `floor tool trimmed: ${name}`).toContain(name);
     }
     for (const name of BASIC_5) {
       expect(tools, `basic tool trimmed: ${name}`).toContain(name);
     }
-    // Memory (priority 45) takes index 19; the five reserved lsp slots (20-24,
-    // priority 40) follow; the last slot (25) goes to the next tier by
-    // priority — db here, info (web_search) when db is not wired.
-    expect(tools[19]).toBe("memory");
-    expect(tools.slice(20, 25).every((name) => name.startsWith("lsp_"))).toBe(true);
-    expect(tools[25]).toBe("db_query");
+    // Tier order is observable: plan (55) before memory (45) before lsp (40)
+    // before web (30) before db (10) — so SQLite can never evict the web tier.
+    const at = (name: string): number => tools.indexOf(name);
+    expect(at("save_plan")).toBeLessThan(at("memory"));
+    expect(at("memory")).toBeLessThan(at("lsp_definition"));
+    expect(at("lsp_hover")).toBeLessThan(at("web_search"));
+    expect(at("web_fetch")).toBeLessThan(at("db_query"));
     for (const name of INFO_TOOLS) {
-      expect(tools, `info tool occupied the discretionary slot: ${name}`).not.toContain(name);
+      expect(tools, `info tool trimmed: ${name}`).toContain(name);
     }
   });
 
@@ -194,10 +200,12 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     // it does not lift the governance cap.
     const tools = await sessionToolNames("read-only");
 
-    expect(tools.length).toBeLessThanOrEqual(26);
+    expect(tools.length).toBeLessThanOrEqual(33);
     // Session-state tools grade READ_ONLY + writesSessionState, so they stay
     // visible even under the read-only ceiling (they cannot touch the workspace).
     expect(tools).toContain("memory");
+    // Governance is orthogonal to the ceiling: the web tier is untouched by it.
+    expect(tools).toContain("web_search");
     // The READ_ONLY floor subset that must survive both layers.
     for (const name of ["read_file", "ls", "glob", "grep", "bash_output", "git_status", "git_diff"]) {
       expect(tools, `read-only floor tool missing: ${name}`).toContain(name);
@@ -220,9 +228,10 @@ describe("F-166 real session toolset governance (the SDK default, no toolVisibil
     try {
       await agent.run("which tools do you have?");
       const tools = requests[0]!.tools.map((tool) => tool.name);
-      // 20 + the five lsp slots, without memory's one.
-      expect(tools).toHaveLength(25);
+      // The same budget minus memory's one slot (and its tool).
+      expect(tools).toHaveLength(32);
       expect(tools).not.toContain("memory");
+      expect(tools).toContain("web_search");
     } finally {
       await agent.dispose();
     }

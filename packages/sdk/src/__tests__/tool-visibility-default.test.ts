@@ -9,8 +9,9 @@ import type { ModelPort, ModelRequest, ToolDefinition, ToolResult } from "@volto
  * (T3 toolset governance, roadmap F-009).
  *
  * The default path (no host `toolVisibility`) must apply the synthesized
- * five-tier scope with limit 20; `Infinity` survives only as an explicit
- * host override (D5 escape hatch). An explicit `toolVisibility`
+ * tier table with the derived limit: 20 base slots plus one per assembled
+ * mode-group tool; `Infinity` survives only as an explicit host override
+ * (D5 escape hatch). An explicit `toolVisibility`
  * wholesale-replaces the default: `{limit}` truncates in raw list order with
  * no built-in scope mixed in; `{scope}` without a limit caps at 20.
  *
@@ -72,9 +73,10 @@ async function captureVisibleTools(
 }
 
 describe("createAgent — default tool visibility (T3 governance)", () => {
-  it("F-163 omitting toolVisibility trims the visible set to 20 with the floor kept", async () => {
+  it("F-163 omitting toolVisibility applies the derived cap with the floor kept", async () => {
     const tools = await captureVisibleTools();
-    expect(tools).toHaveLength(20);
+    // 20 base slots + the one info tool this assembly ships (read_document).
+    expect(tools).toHaveLength(21);
     for (const f of FLOOR) expect(tools, `floor lost: ${f}`).toContain(f);
     // Spec D4 v1.1: ask_user / skill joined the guaranteed basic tier — the
     // always-shipping ones must survive the default trim outright, not

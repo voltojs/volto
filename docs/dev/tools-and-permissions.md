@@ -64,10 +64,15 @@ tool list. It collects tools from wired ports (`fs` → 8, `shell` → 3 shell +
 applies visibility governance:
 
 1. `buildDefaultToolVisibility` (`packages/sdk/src/tool-scope-default.ts`) synthesizes a
-   scope — `fs` / `shell` / `git` 100, `basic` 50, `browser` / `memory` 45, `lsp` / `db` 40,
-   `info` 20, `rest` 0 — and a limit of `20 + 10 if browser + 5 if lsp + 1 if memory`. Every
-   actual tool maps to exactly one present group, so an unknown or plugin tool lands in
-   `rest` and merely competes for a slot.
+   scope — `fs` / `shell` / `git` 100, `basic` 60, `plan` 55, `browser` / `memory` 45,
+   `lsp` 40, `info` 30, `db` 10, `rest` 0 — and a limit of `20 + one slot per tool of every
+   assembled mode group` (`browser` / `memory` / `lsp` / `db` / `plan` / `info`, counted from
+   the actual list). Every actual tool maps to exactly one present group, so an unknown or
+   plugin tool lands in `rest` and merely competes for the base's spare slot. Counting
+   members instead of hardcoding a per-category budget is what keeps one tier from starving
+   another: the earlier fixed table omitted `db` and ranked `info` last, so in the gateway
+   shape (browser + lsp + memory + db) the entire web tier — including `web_search`,
+   `web_fetch` and `save_plan` — was trimmed away.
 2. `filterByScope` (`packages/core/src/tool-router.ts`) keeps enabled groups, sorts by
    priority (stable), and truncates. An explicit `toolVisibility` host option replaces the
    built-in table wholesale instead of merging.
@@ -450,6 +455,7 @@ rule object), dedups against identical or broader existing rules, and sets
 | 2026-10-30 | Skill catalog is read-only and lists winners only; `shadowed` shown in the host UI | Editing skills from the UI; previewing bodies (body/model divergence) |
 | 2026-11-09 | Protocols are a provider concern; tool calls and results are normalized to one `ModelEvent` / `ToolResult` vocabulary, `cacheBreakpoints` are protocol-agnostic | Per-protocol tool gating or per-protocol tool definitions |
 | 2026-11-13 (verified) | Limit is mode-dependent: `20 + 10 browser + 5 lsp + 1 memory`; browser group priority 45 | The earlier fixed 20/21 cap and 5-browser-tool table no longer hold; a bare 20 silently withheld four of five lsp tools |
+| 2026-11-19 | Limit is `20 + the actual member count of each assembled mode group`; tiers reordered to `basic` 60, `plan` 55, `browser` / `memory` 45, `lsp` 40, `info` 30, `db` 10; `save_plan` gets its own `plan` group | The fixed per-category budget omitted `db` and ranked `info` last; a real gateway session (browser + lsp + memory + db) exposed zero `web_search` / `web_fetch` / `save_plan` slots |
 
 ## How to change it (tests to run, regression points)
 
